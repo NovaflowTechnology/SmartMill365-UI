@@ -25,11 +25,11 @@ export const dataRanges = {
   },
 
   inletDraft: {
-    min: -50,
-    max: 0,
+    min: 0,
+    max: 50,
     unit: "Pa",
-    warning: -10,
-    danger: -5,
+    warning: 10,
+    danger: 5,
   },
 
   outletDraft: {

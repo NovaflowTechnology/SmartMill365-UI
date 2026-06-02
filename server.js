@@ -70,26 +70,35 @@ const auth = (roles = []) => {
   };
 };
 
-
 // LOGIN
 app.post("/login", (req, res) => {
-
   const { username, password } = req.body;
 
   db.query(
-    "SELECT * FROM users WHERE username = ?",
+    `
+    SELECT 
+      users.*,
+      organizations.name AS org_name
+    FROM users
+    LEFT JOIN organizations
+      ON users.org_id = organizations.id
+    WHERE users.username = ?
+    `,
     [username],
 
     async (err, results) => {
-
       if (err) {
-        return res.status(500).send(err);
+        console.error("❌ Login query error:", err);
+
+        return res.status(500).json({
+          error: "Database error",
+        });
       }
 
       if (!results.length) {
-        return res
-          .status(401)
-          .send("User not found");
+        return res.status(401).json({
+          error: "User not found",
+        });
       }
 
       const user = results[0];
@@ -100,29 +109,33 @@ app.post("/login", (req, res) => {
       );
 
       if (!match) {
-        return res
-          .status(401)
-          .send("Wrong password");
+        return res.status(401).json({
+          error: "Wrong password",
+        });
       }
 
       const token = jwt.sign(
         {
           id: user.id,
           role: user.role,
-          org_id: user.org_id,
+          org_id: user.org_id || null,
+          org_name: user.org_name || null,
         },
         SECRET,
-        { expiresIn: "1d" }
+        {
+          expiresIn: "1d",
+        }
       );
 
-      res.json({
+      return res.json({
         token,
         role: user.role,
+        org_id: user.org_id || null,
+        org_name: user.org_name || null,
       });
     }
   );
 });
-
 
 // CREATE TEMPLATE
 app.post(
@@ -235,23 +248,37 @@ app.get("/templates", auth(), (req, res) => {
 });
 
 // GET DEFAULT TEMPLATE
-
 app.get(
   "/default-template",
   auth(),
   (req, res) => {
+    const { role, org_id } = req.user;
 
-    const {
-      role,
-      org_id,
-    } = req.user;
+    // Helper: safely parse template layout
+    const parseTemplate = (template) => {
+      if (!template) return null;
 
-    
-    //IF SUPERADMIN
+      try {
+        template.layout =
+          typeof template.layout === "string"
+            ? JSON.parse(template.layout)
+            : template.layout || {};
+      } catch (err) {
+        console.error(
+          "❌ Layout parse error:",
+          err
+        );
+
+        template.layout = {};
+      }
+
+      return template;
+    };
+
+    // SUPERADMIN: get latest template overall
     if (role === "superadmin") {
-
       console.log(
-        "👑 SUPERADMIN FETCHING DEFAULT TEMPLATE"
+        "👑 SUPERADMIN FETCHING LATEST DEFAULT TEMPLATE"
       );
 
       db.query(
@@ -262,211 +289,334 @@ app.get(
         LIMIT 1
         `,
         (err, results) => {
-
-          
-          // QUERY ERROR
           if (err) {
-
             console.error(
-              "❌ MYSQL ERROR:",
+              "❌ Default template error:",
               err
             );
 
-            return res
-              .status(500)
-              .json({
-                error: "Database error",
-              });
+            return res.status(500).json({
+              error:
+                "Failed to fetch default template",
+            });
           }
 
-          console.log(
-            "📦 TEMPLATE RESULTS:",
-            results
-          );
-
-          
-          // NO TEMPLATE
           if (!results.length) {
-
             console.log(
-              "⚠️ NO TEMPLATE FOUND"
+              "⚠️ No templates found"
             );
 
             return res.json(null);
           }
 
-          
-          // GET TEMPLATE
-          const template = results[0];
-
-          
-          // SAFE JSON PARSE  
-          try {
-
-            template.layout =
-              typeof template.layout ===
-              "string"
-
-                ? JSON.parse(
-                    template.layout
-                  )
-
-                : template.layout || {};
-
-          } catch (parseErr) {
-
-            console.error(
-              "❌ LAYOUT PARSE ERROR:",
-              parseErr
-            );
-
-            template.layout = {};
-          }
+          const template =
+            parseTemplate(results[0]);
 
           console.log(
-            "✅ RETURNING TEMPLATE:",
-            template
+            "✅ Returning latest template:",
+            template?.name
           );
 
           return res.json(template);
         }
       );
+
+      return;
     }
 
-    
-    // ORGANIZATION USERS
-    else {
-
+    // ORG USER: get latest assigned template
+    if (!org_id) {
       console.log(
-        "🏢 ORG USER FETCHING TEMPLATE:",
-        org_id
+        "⚠️ User has no organization"
       );
 
-      db.query(
-        `
-        SELECT t.*
-        FROM org_templates ot
-        JOIN templates t
-          ON ot.template_id = t.id
-        WHERE ot.org_id = ?
-        ORDER BY t.id DESC
-        LIMIT 1
-        `,
-        [org_id],
-
-        (err, results) => {
-
-          if (err) {
-
-            console.error(
-              "❌ MYSQL ERROR:",
-              err
-            );
-
-            return res
-              .status(500)
-              .json({
-                error: "Database error",
-              });
-          }
-
-          console.log(
-            "📦 ORG TEMPLATE RESULTS:",
-            results
-          );
-
-          if (!results.length) {
-
-            console.log(
-              "⚠️ NO ASSIGNED TEMPLATE"
-            );
-
-            return res.json(null);
-          }
-
-          const template = results[0];
-
-          try {
-
-            template.layout =
-              typeof template.layout ===
-              "string"
-
-                ? JSON.parse(
-                    template.layout
-                  )
-
-                : template.layout || {};
-
-          } catch (parseErr) {
-
-            console.error(
-              "❌ LAYOUT PARSE ERROR:",
-              parseErr
-            );
-
-            template.layout = {};
-          }
-
-          console.log(
-            "✅ RETURNING ORG TEMPLATE:",
-            template
-          );
-
-          return res.json(template);
-        }
-      );
+      return res.json(null);
     }
+
+    console.log(
+      "🏢 ORG USER FETCHING LATEST ASSIGNED TEMPLATE:",
+      org_id
+    );
+
+    db.query(
+      `
+      SELECT t.*
+      FROM org_templates ot
+      JOIN templates t
+        ON ot.template_id = t.id
+      WHERE ot.org_id = ?
+      ORDER BY t.id DESC
+      LIMIT 1
+      `,
+      [org_id],
+      (err, results) => {
+        if (err) {
+          console.error(
+            "❌ Org default template error:",
+            err
+          );
+
+          return res.status(500).json({
+            error:
+              "Failed to fetch default template",
+          });
+        }
+
+        if (!results.length) {
+          console.log(
+            "⚠️ No assigned template found for org:",
+            org_id
+          );
+
+          return res.json(null);
+        }
+
+        const template =
+          parseTemplate(results[0]);
+
+        console.log(
+          "✅ Returning latest assigned template:",
+          template?.name
+        );
+
+        return res.json(template);
+      }
+    );
   }
 );
 
+// GET TEMPLATE ASSIGNMENTS
+app.get(
+  "/template-assignments",
+  auth(["superadmin"]),
+  (req, res) => {
+
+    db.query(
+      `
+      SELECT 
+        ot.template_id,
+        ot.org_id,
+        o.name AS org_name,
+        t.name AS template_name
+      FROM org_templates ot
+      JOIN organizations o
+        ON ot.org_id = o.id
+      JOIN templates t
+        ON ot.template_id = t.id
+      ORDER BY t.id DESC, o.name ASC
+      `,
+
+      (err, results) => {
+
+        if (err) {
+
+          console.error(
+            "❌ Assignment fetch error:",
+            err
+          );
+
+          return res
+            .status(500)
+            .json({
+              error:
+                "Failed to fetch template assignments",
+            });
+        }
+
+        res.json(results);
+      }
+    );
+  }
+);
 
 // ASSIGN TEMPLATE
 app.post(
   "/assign-template",
   auth(["superadmin"]),
   (req, res) => {
+    const { org_id, template_id } = req.body;
 
-    const {
-      org_id,
-      template_id,
-    } = req.body;
+    if (!org_id || !template_id) {
+      return res.status(400).json({
+        error: "Organization and template are required",
+      });
+    }
 
+    // CHECK DUPLICATE FIRST
     db.query(
       `
-      INSERT IGNORE INTO org_templates
-      (org_id, template_id)
-      VALUES (?, ?)
+      SELECT *
+      FROM org_templates
+      WHERE org_id = ?
+        AND template_id = ?
       `,
       [org_id, template_id],
 
-      (err) => {
+      (checkErr, results) => {
+        if (checkErr) {
+          console.error(
+            "❌ Duplicate check error:",
+            checkErr
+          );
 
-        if (err) {
-          console.error(err);
-          return res.status(500).send(err);
+          return res.status(500).json({
+            error: "Failed to check assignment",
+          });
         }
 
-        res.send("Template assigned");
+        if (results.length > 0) {
+          return res.status(409).json({
+            error:
+              "This template is already assigned to this organization",
+          });
+        }
+
+        db.query(
+          `
+          INSERT INTO org_templates
+          (org_id, template_id)
+          VALUES (?, ?)
+          `,
+          [org_id, template_id],
+
+          (insertErr) => {
+            if (insertErr) {
+              console.error(
+                "❌ Assign template error:",
+                insertErr
+              );
+
+              return res.status(500).json({
+                error: "Failed to assign template",
+              });
+            }
+
+            return res.json({
+              success: true,
+              message: "Template assigned",
+            });
+          }
+        );
       }
     );
   }
 );
 
+// REMOVE TEMPLATE ASSIGNMENT
+app.delete(
+  "/template-assignments",
+  auth(["superadmin"]),
+  (req, res) => {
+    const { org_id, template_id } = req.body;
 
-// GET ORGANIZATIONS
+    if (!org_id || !template_id) {
+      return res.status(400).json({
+        error: "Organization and template are required",
+      });
+    }
+
+    db.query(
+      `
+      DELETE FROM org_templates
+      WHERE org_id = ?
+        AND template_id = ?
+      `,
+      [org_id, template_id],
+      (err, result) => {
+        if (err) {
+          console.error(
+            "❌ Remove assignment error:",
+            err
+          );
+
+          return res.status(500).json({
+            error: "Failed to remove assignment",
+          });
+        }
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({
+            error: "Assignment not found",
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: "Assignment removed",
+        });
+      }
+    );
+  }
+);
+
+// CREATE ORGANIZATION
+app.post(
+  "/organizations",
+  auth(["superadmin"]),
+  (req, res) => {
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        error: "Organization name is required",
+      });
+    }
+
+    db.query(
+      `
+      INSERT INTO organizations (name)
+      VALUES (?)
+      `,
+      [name.trim()],
+      (err, result) => {
+        if (err) {
+          console.error("❌ Create organization error:", err);
+
+          return res.status(500).json({
+            error: "Failed to create organization",
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: "Organization created",
+          organization: {
+            id: result.insertId,
+            name: name.trim(),
+          },
+        });
+      }
+    );
+  }
+);
+
+// GET ORGANIZATIONS WITH TEMPLATE DETAILS
 app.get(
   "/organizations",
   auth(["superadmin"]),
   (req, res) => {
-
     db.query(
-      "SELECT * FROM organizations",
-
+      `
+      SELECT 
+        o.id,
+        o.name,
+        COUNT(ot.template_id) AS assigned_template_count,
+        GROUP_CONCAT(t.name SEPARATOR ', ') AS assigned_templates
+      FROM organizations o
+      LEFT JOIN org_templates ot
+        ON o.id = ot.org_id
+      LEFT JOIN templates t
+        ON ot.template_id = t.id
+      GROUP BY o.id, o.name
+      ORDER BY o.id DESC
+      `,
       (err, results) => {
-
         if (err) {
-          return res.status(500).send(err);
+          console.error("❌ Fetch organizations error:", err);
+
+          return res.status(500).json({
+            error: "Failed to fetch organizations",
+          });
         }
 
         res.json(results);

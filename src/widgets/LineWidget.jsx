@@ -21,7 +21,6 @@ export default function LineWidget({
   lines = [],
   label = "Trend",
 }) {
-
   // TIME RANGE
   const [range, setRange] =
     useState("15m");
@@ -29,11 +28,9 @@ export default function LineWidget({
   // FILTER DATA
   const filteredData =
     useMemo(() => {
-
       const now = Date.now();
 
       const ranges = {
-
         "5m":
           5 * 60 * 1000,
 
@@ -59,35 +56,52 @@ export default function LineWidget({
 
       return data.filter(
         (item) =>
-
           now -
             item.timestamp <=
           ranges[range]
       );
-
     }, [data, range]);
 
-  // DETERMINE GLOBAL RANGE
-  const mins = lines.map(
-    (l) =>
-      dataRanges[l.key]
-        ?.min ?? 0
-  );
+  // FIRST LINE = LEFT AXIS
+  const leftLine =
+    lines[0];
 
-  const maxs = lines.map(
-    (l) =>
-      dataRanges[l.key]
-        ?.max ?? 100
-  );
+  // SECOND AND LATER LINES = RIGHT AXIS
+  const rightLines =
+    lines.slice(1);
 
-  const globalMin =
-    Math.min(...mins);
+  const leftRange =
+    dataRanges[leftLine?.key] || {
+      min: 0,
+      max: 100,
+      unit: "",
+    };
 
-  const globalMax =
-    Math.max(...maxs);
+  const rightMins =
+    rightLines.map(
+      (l) =>
+        dataRanges[l.key]
+          ?.min ?? 0
+    );
+
+  const rightMaxs =
+    rightLines.map(
+      (l) =>
+        dataRanges[l.key]
+          ?.max ?? 100
+    );
+
+  const rightMin =
+    rightMins.length
+      ? Math.min(...rightMins)
+      : 0;
+
+  const rightMax =
+    rightMaxs.length
+      ? Math.max(...rightMaxs)
+      : 100;
 
   return (
-
     <div className="
       flex flex-col
       h-full w-full
@@ -111,13 +125,11 @@ export default function LineWidget({
         {/* RANGE SELECTOR */}
         <select
           value={range}
-
           onChange={(e) =>
             setRange(
               e.target.value
             )
           }
-
           className="
             text-xs
             px-2 py-1
@@ -130,7 +142,6 @@ export default function LineWidget({
             dark:text-white
           "
         >
-
           <option value="5m">
             5m
           </option>
@@ -154,7 +165,6 @@ export default function LineWidget({
           <option value="7d">
             7d
           </option>
-
         </select>
 
       </div>
@@ -183,50 +193,65 @@ export default function LineWidget({
 
             {/* X AXIS */}
             <XAxis
-
               dataKey={
                 range === "7d"
-
                   ? "date"
-
                   : "time"
               }
-
               tick={{
                 fontSize: 10,
               }}
-
               stroke="#9ca3af"
             />
 
-            {/* Y AXIS */}
+            {/* LEFT Y AXIS */}
             <YAxis
+              yAxisId="left"
+              orientation="left"
               width={45}
-
               tick={{
                 fontSize: 10,
               }}
-
               axisLine={false}
-
               tickLine={false}
-
-              stroke="#9ca3af"
-
+              stroke={
+                leftLine?.color ||
+                "#3b82f6"
+              }
               domain={[
-                globalMin,
-                globalMax,
+                leftRange.min ?? 0,
+                leftRange.max ?? 100,
               ]}
             />
 
+            {/* RIGHT Y AXIS */}
+            {rightLines.length > 0 && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                width={45}
+                tick={{
+                  fontSize: 10,
+                }}
+                axisLine={false}
+                tickLine={false}
+                stroke={
+                  rightLines[0]?.color ||
+                  "#ef4444"
+                }
+                domain={[
+                  rightMin,
+                  rightMax,
+                ]}
+              />
+            )}
+
             {/* TOOLTIP */}
             <Tooltip
-
               formatter={(
                 value,
                 name
               ) => {
-
                 const unit =
                   dataRanges[name]
                     ?.unit || "";
@@ -238,13 +263,11 @@ export default function LineWidget({
                   name,
                 ];
               }}
-
               labelFormatter={(
                 label
               ) =>
                 `${label}`
               }
-
               contentStyle={{
                 backgroundColor:
                   "#1f2937",
@@ -264,32 +287,28 @@ export default function LineWidget({
 
             {/* LINES */}
             {lines.map(
-              (line) => (
-
+              (line, index) => (
                 <Line
                   key={line.key}
-
+                  yAxisId={
+                    index === 0
+                      ? "left"
+                      : "right"
+                  }
                   type="monotone"
-
                   dataKey={
                     line.key
                   }
-
                   stroke={
                     line.color
                   }
-
                   strokeWidth={2.5}
-
                   dot={false}
-
                   isAnimationActive={
                     true
                   }
-
                   connectNulls
                 />
-
               )
             )}
 
