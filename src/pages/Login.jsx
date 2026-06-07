@@ -69,7 +69,7 @@ export default function Login({
           },
 
           body: JSON.stringify({
-            username,
+            username: username.trim(),
             password,
           }),
         }
@@ -122,8 +122,13 @@ export default function Login({
         );
       }
 
+      localStorage.setItem(
+        "favorite_template_id",
+        data.favorite_template_id || ""
+      );
+
       // IMPORTANT:
-      // Fetch latest default template before opening dashboard
+      // Fetch user's favourite/default template before opening dashboard
       await fetchDefaultTemplate?.();
 
       setPage("dashboard");

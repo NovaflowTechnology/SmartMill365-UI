@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   LayoutDashboard,
@@ -11,14 +11,16 @@ import {
   Moon,
   Sun,
   Monitor,
-  Activity,
   ShieldCheck,
   Leaf,
+  Settings,
+  ChevronDown,
 } from "lucide-react";
 
 export default function Layout({
   children,
   setPage,
+  currentPage = "dashboard",
   fullscreen,
   showSidebar = true,
   dark = false,
@@ -28,10 +30,6 @@ export default function Layout({
   const [collapsed, setCollapsed] =
     useState(false);
 
-  // ACTIVE MENU
-  const [active, setActive] =
-    useState("dashboard");
-
   // ROLE / ORG
   const role =
     localStorage.getItem("role");
@@ -39,23 +37,54 @@ export default function Layout({
   const orgName =
     localStorage.getItem("org_name");
 
+  const isSuperadmin =
+    role === "superadmin";
+
+  const isAdmin =
+    role === "admin";
+
+  const isEditor =
+    role === "editor";
+
+  // SETTINGS GROUP
+  const settingKeys = [
+    "builder",
+    "templates",
+    "organizations",
+  ];
+
+  const [settingOpen, setSettingOpen] =
+    useState(
+      settingKeys.includes(currentPage)
+    );
+
+  useEffect(() => {
+    if (settingKeys.includes(currentPage)) {
+      setSettingOpen(true);
+    }
+  }, [currentPage]);
+
   // LOGOUT
   const handleLogout = () => {
     localStorage.clear();
     window.location.href = "/";
   };
 
-  // MENU
-  const menu = [
+  // MAIN MENU
+  const mainMenu = [
     {
       key: "dashboard",
       label: "Dashboard",
       description: "Live monitoring",
       icon: LayoutDashboard,
     },
+  ];
 
-    ...(role === "superadmin" ||
-    role === "admin"
+  // SETTING MENU
+  const settingMenu = [
+    ...(isSuperadmin ||
+    isAdmin ||
+    isEditor
       ? [
           {
             key: "builder",
@@ -69,24 +98,136 @@ export default function Layout({
     {
       key: "templates",
       label:
-        role === "superadmin"
+        isSuperadmin
           ? "Template Management"
           : "Templates",
       description: "Manage dashboards",
       icon: Folder,
     },
 
-    ...(role === "superadmin"
+    ...(isSuperadmin || isAdmin
       ? [
           {
             key: "organizations",
-            label: "Organizations",
-            description: "Manage companies",
+            label:
+              isSuperadmin
+                ? "Organization Management"
+                : "User Management",
+            description:
+              isSuperadmin
+                ? "Manage companies"
+                : "Manage users",
             icon: Building2,
           },
         ]
       : []),
   ];
+
+  const isSettingActive =
+    settingKeys.includes(currentPage);
+
+  const renderMenuButton = (item) => {
+    const Icon = item.icon;
+
+    const isActive =
+      currentPage === item.key;
+
+    return (
+      <button
+        key={item.key}
+        onClick={() => {
+          setPage(item.key);
+        }}
+        title={
+          collapsed
+            ? item.label
+            : ""
+        }
+        className={`
+          relative
+          flex items-center
+          gap-3
+          rounded-2xl
+          text-sm
+          font-medium
+          transition-all duration-200
+          group
+
+          ${
+            collapsed
+              ? "justify-center px-3 py-3"
+              : "px-4 py-3"
+          }
+
+          ${
+            isActive
+              ? `
+                bg-emerald-600
+                text-white
+                shadow-sm
+              `
+              : `
+                text-slate-300
+                hover:bg-slate-800
+                hover:text-white
+              `
+          }
+        `}
+      >
+        {/* ACTIVE SIDE INDICATOR */}
+        {isActive && !collapsed && (
+          <span
+            className="
+              absolute left-0
+              w-1 h-8
+              rounded-r-full
+              bg-emerald-300
+            "
+          />
+        )}
+
+        <div
+          className={`
+            flex items-center
+            justify-center
+            rounded-xl
+            transition
+
+            ${
+              isActive
+                ? "text-white"
+                : "text-slate-400 group-hover:text-emerald-300"
+            }
+          `}
+        >
+          <Icon size={18} />
+        </div>
+
+        {!collapsed && (
+          <div className="flex-1 text-left">
+            <div>
+              {item.label}
+            </div>
+
+            <div
+              className={`
+                text-[11px]
+                mt-0.5
+
+                ${
+                  isActive
+                    ? "text-emerald-50"
+                    : "text-slate-500 group-hover:text-slate-400"
+                }
+              `}
+            >
+              {item.description}
+            </div>
+          </div>
+        )}
+      </button>
+    );
+  };
 
   return (
     <div
@@ -94,8 +235,8 @@ export default function Layout({
         flex h-screen
         ${
           dark
-            ? "bg-gray-950"
-            : "bg-gray-50/40"
+            ? "bg-slate-950"
+            : "bg-slate-50"
         }
       `}
     >
@@ -116,51 +257,15 @@ export default function Layout({
             border-r
             overflow-hidden
 
-            bg-[#03130f]
-            border-emerald-400/10
+            bg-slate-950
+            border-slate-800
           `}
         >
-          {/* BACKGROUND GLOW */}
-          <div
-            className="
-              absolute -top-24 -left-24
-              w-64 h-64
-              bg-emerald-500/20
-              rounded-full
-              blur-3xl
-              pointer-events-none
-            "
-          />
-
-          <div
-            className="
-              absolute bottom-20 -right-24
-              w-64 h-64
-              bg-cyan-500/20
-              rounded-full
-              blur-3xl
-              pointer-events-none
-            "
-          />
-
-          {/* SUBTLE DECORATION */}
-          <div
-            className="
-              absolute top-36 right-5
-              text-[80px]
-              opacity-[0.035]
-              pointer-events-none
-              select-none
-            "
-          >
-            🌴
-          </div>
-
           {/* HEADER */}
           <div
             className={`
               relative z-10
-              border-b border-white/10
+              border-b border-slate-800
 
               ${
                 collapsed
@@ -176,12 +281,10 @@ export default function Layout({
                     className="
                       w-11 h-11
                       rounded-2xl
-                      bg-gradient-to-br
-                      from-emerald-500
-                      to-cyan-400
+                      bg-emerald-600
                       flex items-center
                       justify-center
-                      shadow-lg shadow-emerald-500/25
+                      shadow-sm
                     "
                   >
                     <Monitor className="w-6 h-6 text-white" />
@@ -208,7 +311,7 @@ export default function Layout({
                     <p
                       className="
                         text-[11px]
-                        text-emerald-100/60
+                        text-slate-500
                         mt-1
                       "
                     >
@@ -222,12 +325,10 @@ export default function Layout({
                 className="
                   w-11 h-11
                   rounded-2xl
-                  bg-gradient-to-br
-                  from-emerald-500
-                  to-cyan-400
+                  bg-emerald-600
                   flex items-center
                   justify-center
-                  shadow-lg shadow-emerald-500/25
+                  shadow-sm
                 "
                 title="UI Template System"
               >
@@ -244,9 +345,9 @@ export default function Layout({
                 rounded-xl
                 flex items-center
                 justify-center
-                text-gray-400
+                text-slate-400
                 hover:text-white
-                hover:bg-white/10
+                hover:bg-slate-800
                 transition
               "
               title={
@@ -270,12 +371,10 @@ export default function Layout({
                 relative z-10
                 mx-4 mt-5
                 rounded-3xl
-                bg-gradient-to-br
-                from-emerald-500/10
-                to-cyan-500/10
-                border border-emerald-400/20
+                bg-slate-900
+                border border-slate-800
                 p-4
-                shadow-lg
+                shadow-sm
               "
             >
               <div
@@ -291,7 +390,7 @@ export default function Layout({
                       text-[11px]
                       uppercase
                       tracking-[0.2em]
-                      text-emerald-100/50
+                      text-slate-500
                       font-bold
                     "
                   >
@@ -314,11 +413,11 @@ export default function Layout({
                   className="
                     w-10 h-10
                     rounded-2xl
-                    bg-emerald-500/10
+                    bg-slate-800
                     text-emerald-300
                     flex items-center
                     justify-center
-                    border border-emerald-500/20
+                    border border-slate-700
                   "
                 >
                   <Leaf className="w-5 h-5" />
@@ -334,15 +433,15 @@ export default function Layout({
                 <div
                   className="
                     rounded-2xl
-                    bg-white/5
-                    border border-white/10
+                    bg-slate-950
+                    border border-slate-800
                     p-3
                   "
                 >
                   <p
                     className="
                       text-[10px]
-                      text-gray-400
+                      text-slate-500
                       uppercase
                     "
                   >
@@ -364,15 +463,15 @@ export default function Layout({
                 <div
                   className="
                     rounded-2xl
-                    bg-white/5
-                    border border-white/10
+                    bg-slate-950
+                    border border-slate-800
                     p-3
                   "
                 >
                   <p
                     className="
                       text-[10px]
-                      text-gray-400
+                      text-slate-500
                       uppercase
                     "
                   >
@@ -383,7 +482,7 @@ export default function Layout({
                     className="
                       text-sm
                       font-bold
-                      text-cyan-300
+                      text-slate-200
                       mt-1
                       capitalize
                       truncate
@@ -397,7 +496,7 @@ export default function Layout({
               <p
                 className="
                   text-xs
-                  text-gray-400
+                  text-slate-500
                   leading-relaxed
                   mt-4
                 "
@@ -422,7 +521,7 @@ export default function Layout({
                   text-[11px]
                   uppercase
                   tracking-[0.2em]
-                  text-gray-500
+                  text-slate-600
                   font-bold
                 "
               >
@@ -430,116 +529,200 @@ export default function Layout({
               </div>
             )}
 
-            {menu.map((item) => {
-              const Icon = item.icon;
+            {/* DASHBOARD */}
+            {mainMenu.map(renderMenuButton)}
 
-              const isActive =
-                active === item.key;
-
-              return (
+            {/* SETTING GROUP */}
+            {!collapsed ? (
+              <div
+                className="
+                  mt-3
+                  rounded-3xl
+                  bg-slate-900
+                  border border-slate-800
+                  p-2
+                "
+              >
                 <button
-                  key={item.key}
-                  onClick={() => {
-                    setPage(item.key);
-                    setActive(item.key);
-                  }}
-                  title={
-                    collapsed
-                      ? item.label
-                      : ""
+                  type="button"
+                  onClick={() =>
+                    setSettingOpen(!settingOpen)
                   }
                   className={`
-                    relative
+                    w-full
                     flex items-center
                     gap-3
+                    px-4 py-3
                     rounded-2xl
                     text-sm
-                    font-medium
-                    transition-all duration-200
-                    group
+                    font-semibold
+                    transition
 
                     ${
-                      collapsed
-                        ? "justify-center px-3 py-3"
-                        : "px-4 py-3"
-                    }
-
-                    ${
-                      isActive
-                        ? `
-                          bg-gradient-to-r
-                          from-emerald-600
-                          to-cyan-500
-                          text-white
-                          shadow-lg
-                          shadow-emerald-500/20
-                        `
-                        : `
-                          text-gray-300
-                          hover:bg-white/10
-                          hover:text-white
-                        `
+                      isSettingActive
+                        ? "text-white bg-slate-800"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
                     }
                   `}
                 >
-                  {/* ACTIVE SIDE INDICATOR */}
-                  {isActive && !collapsed && (
-                    <span
-                      className="
-                        absolute left-0
-                        w-1 h-8
-                        rounded-r-full
-                        bg-emerald-200
-                      "
-                    />
-                  )}
-
                   <div
                     className={`
-                      flex items-center
-                      justify-center
-                      rounded-xl
-                      transition
-
                       ${
-                        isActive
-                          ? "text-white"
-                          : "text-gray-400 group-hover:text-emerald-300"
+                        isSettingActive
+                          ? "text-emerald-300"
+                          : "text-slate-400"
                       }
                     `}
                   >
-                    <Icon size={18} />
+                    <Settings size={18} />
                   </div>
 
-                  {!collapsed && (
+                  <div className="flex-1 text-left">
+                    <div>Setting</div>
+
                     <div
                       className="
-                        flex-1 text-left
+                        text-[11px]
+                        mt-0.5
+                        text-slate-500
                       "
                     >
-                      <div>
-                        {item.label}
-                      </div>
-
-                      <div
-                        className={`
-                          text-[11px]
-                          mt-0.5
-
-                          ${
-                            isActive
-                              ? "text-emerald-100"
-                              : "text-gray-500 group-hover:text-gray-400"
-                          }
-                        `}
-                      >
-                        {item.description}
-                      </div>
+                      Templates and access
                     </div>
-                  )}
+                  </div>
+
+                  <ChevronDown
+                    size={16}
+                    className={`
+                      transition-transform
+                      ${
+                        settingOpen
+                          ? "rotate-180"
+                          : ""
+                      }
+                    `}
+                  />
                 </button>
-              );
-            })}
+
+                {settingOpen && (
+                  <div className="mt-2 space-y-2">
+                    {settingMenu.map((item) => {
+                      const Icon = item.icon;
+
+                      const isActive =
+                        currentPage === item.key;
+
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() =>
+                            setPage(item.key)
+                          }
+                          className={`
+                            relative
+                            w-full
+                            flex items-center
+                            gap-3
+                            rounded-2xl
+                            text-sm
+                            font-medium
+                            transition-all duration-200
+                            group
+                            px-4 py-3
+
+                            ${
+                              isActive
+                                ? `
+                                  bg-emerald-600
+                                  text-white
+                                  shadow-sm
+                                `
+                                : `
+                                  text-slate-300
+                                  hover:bg-slate-800
+                                  hover:text-white
+                                `
+                            }
+                          `}
+                        >
+                          {isActive && (
+                            <span
+                              className="
+                                absolute left-0
+                                w-1 h-8
+                                rounded-r-full
+                                bg-emerald-300
+                              "
+                            />
+                          )}
+
+                          <div
+                            className={`
+                              ml-3
+                              flex items-center
+                              justify-center
+                              rounded-xl
+
+                              ${
+                                isActive
+                                  ? "text-white"
+                                  : "text-slate-400 group-hover:text-emerald-300"
+                              }
+                            `}
+                          >
+                            <Icon size={17} />
+                          </div>
+
+                          <div className="flex-1 text-left">
+                            <div>
+                              {item.label}
+                            </div>
+
+                            <div
+                              className={`
+                                text-[11px]
+                                mt-0.5
+
+                                ${
+                                  isActive
+                                    ? "text-emerald-50"
+                                    : "text-slate-500 group-hover:text-slate-400"
+                                }
+                              `}
+                            >
+                              {item.description}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                <div
+                  className={`
+                    w-full
+                    flex items-center
+                    justify-center
+                    px-3 py-3
+                    rounded-2xl
+
+                    ${
+                      isSettingActive
+                        ? "bg-slate-800 text-emerald-300"
+                        : "text-slate-400"
+                    }
+                  `}
+                  title="Setting"
+                >
+                  <Settings size={18} />
+                </div>
+
+                {settingMenu.map(renderMenuButton)}
+              </div>
+            )}
           </nav>
 
           {/* FOOTER */}
@@ -548,7 +731,7 @@ export default function Layout({
               relative z-10
               mt-auto
               p-4
-              border-t border-white/10
+              border-t border-slate-800
             "
           >
             {/* USER CARD */}
@@ -557,8 +740,8 @@ export default function Layout({
                 className="
                   mb-4
                   rounded-3xl
-                  bg-white/5
-                  border border-white/10
+                  bg-slate-900
+                  border border-slate-800
                   p-4
                 "
               >
@@ -571,27 +754,20 @@ export default function Layout({
                     className="
                       w-10 h-10
                       rounded-2xl
-                      bg-gradient-to-br
-                      from-emerald-500
-                      to-cyan-500
+                      bg-slate-800
                       flex items-center
                       justify-center
-                      shadow-lg shadow-emerald-500/20
+                      border border-slate-700
                     "
                   >
-                    <ShieldCheck
-                      className="
-                        w-5 h-5
-                        text-white
-                      "
-                    />
+                    <ShieldCheck className="w-5 h-5 text-emerald-300" />
                   </div>
 
                   <div className="min-w-0">
                     <div
                       className="
                         text-[11px]
-                        text-gray-400
+                        text-slate-500
                         uppercase tracking-wide
                       "
                     >
@@ -636,17 +812,17 @@ export default function Layout({
                 justify-center
                 gap-2
 
-                bg-white/10
-                hover:bg-white/20
+                bg-slate-900
+                hover:bg-slate-800
+                border border-slate-800
 
-                text-white
+                text-slate-200
 
                 py-3 mb-3
 
                 rounded-2xl
 
                 transition-all duration-200
-                hover:-translate-y-0.5
 
                 ${
                   collapsed
@@ -684,11 +860,8 @@ export default function Layout({
                 justify-center
                 gap-2
 
-                bg-gradient-to-r
-                from-red-500
-                to-rose-600
-                hover:from-red-600
-                hover:to-rose-700
+                bg-red-500
+                hover:bg-red-600
 
                 text-white
 
@@ -697,8 +870,7 @@ export default function Layout({
                 rounded-2xl
 
                 transition-all duration-200
-                hover:-translate-y-0.5
-                shadow-lg shadow-red-500/20
+                shadow-sm
 
                 ${
                   collapsed
@@ -729,23 +901,11 @@ export default function Layout({
 
           ${
             dark
-              ? "bg-gray-950"
-              : "bg-gray-50/40"
+              ? "bg-slate-950"
+              : "bg-slate-50"
           }
         `}
       >
-        {/* TOP BACKGROUND DECORATION */}
-        <div
-          className="
-            sticky top-0 z-10
-            h-1
-            bg-gradient-to-r
-            from-emerald-600
-            via-cyan-400
-            to-emerald-400
-          "
-        />
-
         <div
           className="
             p-6

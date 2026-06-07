@@ -10,6 +10,7 @@ import {
   Trash2,
   Pencil,
   X,
+  Move,
 } from "lucide-react";
 
 const sizeOptions = [
@@ -37,24 +38,32 @@ const previewData = {
 };
 
 // SAMPLE HISTORY FOR LINE / AREA CHART PREVIEW
-const previewHistory = Array.from({ length: 20 }, (_, i) => ({
-  timestamp: Date.now() - (20 - i) * 2000,
-  time: new Date(Date.now() - (20 - i) * 2000).toLocaleTimeString(),
-  date: new Date().toLocaleDateString(),
+const previewHistory = Array.from(
+  { length: 20 },
+  (_, i) => ({
+    timestamp:
+      Date.now() - (20 - i) * 2000,
 
-  steamPressure: 28 + Math.random() * 6,
-  steamFlowrate: 40 + Math.random() * 8,
-  steamOutletTemp: Math.random() * 5,
-  inletDraft: -38 + Math.random() * 4,
-  outletDraft: 960 + Math.random() * 40,
-  furnaceDraft: -6 + Math.random() * 4,
-  waterInletTemp: 98 + Math.random() * 8,
-  waterFlowrate: 30 + Math.random() * 6,
-  waterDrumLevel: 48 + Math.random() * 6,
-  vgPressure: 960 + Math.random() * 40,
-  vgInletTemp: Math.random() * 5,
-  vgOutletTemp: Math.random() * 5,
-}));
+    time: new Date(
+      Date.now() - (20 - i) * 2000
+    ).toLocaleTimeString(),
+
+    date: new Date().toLocaleDateString(),
+
+    steamPressure: 28 + Math.random() * 6,
+    steamFlowrate: 40 + Math.random() * 8,
+    steamOutletTemp: Math.random() * 5,
+    inletDraft: -38 + Math.random() * 4,
+    outletDraft: 960 + Math.random() * 40,
+    furnaceDraft: -6 + Math.random() * 4,
+    waterInletTemp: 98 + Math.random() * 8,
+    waterFlowrate: 30 + Math.random() * 6,
+    waterDrumLevel: 48 + Math.random() * 6,
+    vgPressure: 960 + Math.random() * 40,
+    vgInletTemp: Math.random() * 5,
+    vgOutletTemp: Math.random() * 5,
+  })
+);
 
 export default function TemplateEditor({
   setPage,
@@ -68,24 +77,60 @@ export default function TemplateEditor({
 
   // STATES
   const [items, setItems] = useState([]);
-  const [templateName, setTemplateName] = useState("");
+  const [templateName, setTemplateName] =
+    useState("");
 
-  const [activeCell, setActiveCell] = useState(null);
-  const [activeItemId, setActiveItemId] = useState(null);
+  const [activeCell, setActiveCell] =
+    useState(null);
 
-  const [showModal, setShowModal] = useState(false);
+  const [activeItemId, setActiveItemId] =
+    useState(null);
 
-  const [newType, setNewType] = useState(widgetLibrary[0].type);
-  const [newDataKey, setNewDataKey] = useState("");
-  const [newDataKeys, setNewDataKeys] = useState([]);
+  const [showModal, setShowModal] =
+    useState(false);
 
-  const [newOrientation, setNewOrientation] = useState("vertical");
+  const [newType, setNewType] = useState(
+    widgetLibrary[0].type
+  );
+
+  const [newLabel, setNewLabel] =
+    useState("");
+
+  const [newDataKey, setNewDataKey] =
+    useState("");
+
+  const [newDataKeys, setNewDataKeys] =
+    useState([]);
+
+  const [
+    newOrientation,
+    setNewOrientation,
+  ] = useState("vertical");
 
   const [newW, setNewW] = useState(1);
   const [newH, setNewH] = useState(1);
 
+  // DRAG & DROP
+  const [
+    draggingItemId,
+    setDraggingItemId,
+  ] = useState(null);
+
+  const [
+    dragOverCell,
+    setDragOverCell,
+  ] = useState(null);
+
+  const [
+    didDrag,
+    setDidDrag,
+  ] = useState(false);
+
   // CURRENT ITEM
-  const selectedItem = items.find((i) => i.id === activeItemId);
+  const selectedItem = items.find(
+    (i) => i.id === activeItemId
+  );
+
   const isEdit = !!selectedItem;
 
   // MULTI-DATA WIDGETS
@@ -94,20 +139,29 @@ export default function TemplateEditor({
     newType === "area" ||
     newType === "bar";
 
+  const getDefaultWidgetLabel = (type) =>
+    `${
+      type.charAt(0).toUpperCase() +
+      type.slice(1)
+    } Widget`;
+
   // LOAD TEMPLATE
   useEffect(() => {
     if (!selectedTemplate) return;
 
     try {
       const layout =
-        typeof selectedTemplate.layout === "string"
+        typeof selectedTemplate.layout ===
+        "string"
           ? JSON.parse(selectedTemplate.layout)
           : selectedTemplate.layout;
 
       console.log("📦 EDIT TEMPLATE:", layout);
 
       setItems(layout?.items || []);
-      setTemplateName(selectedTemplate.name || "");
+      setTemplateName(
+        selectedTemplate.name || ""
+      );
     } catch (err) {
       console.error("❌ LOAD ERROR:", err);
     }
@@ -115,8 +169,12 @@ export default function TemplateEditor({
 
   // LOAD DEFAULT DATAKEY WHEN TYPE CHANGES
   useEffect(() => {
-    const widget = widgetLibrary.find((w) => w.type === newType);
-    const firstKey = widget?.supportedData?.[0] || "";
+    const widget = widgetLibrary.find(
+      (w) => w.type === newType
+    );
+
+    const firstKey =
+      widget?.supportedData?.[0] || "";
 
     if (
       newType === "line" ||
@@ -141,7 +199,9 @@ export default function TemplateEditor({
 
     setItems((prev) =>
       prev.map((it) =>
-        it.id === editingImageWidget.id ? editingImageWidget : it
+        it.id === editingImageWidget.id
+          ? editingImageWidget
+          : it
       )
     );
   }, [editingImageWidget]);
@@ -151,7 +211,12 @@ export default function TemplateEditor({
     if (!selectedItem) return;
 
     setNewType(selectedItem.type);
-    setNewDataKey(selectedItem.dataKey || "");
+
+    setNewLabel(selectedItem.label || "");
+
+    setNewDataKey(
+      selectedItem.dataKey || ""
+    );
 
     setNewDataKeys(
       selectedItem.type === "line" ||
@@ -165,7 +230,9 @@ export default function TemplateEditor({
         : []
     );
 
-    setNewOrientation(selectedItem.orientation || "vertical");
+    setNewOrientation(
+      selectedItem.orientation || "vertical"
+    );
 
     setNewW(selectedItem.w);
     setNewH(selectedItem.h);
@@ -183,8 +250,16 @@ export default function TemplateEditor({
 
   // CHECK COLLISION
   const hasCollision = (newItem) => {
-    for (let r = newItem.y; r < newItem.y + newItem.h; r++) {
-      for (let c = newItem.x; c < newItem.x + newItem.w; c++) {
+    for (
+      let r = newItem.y;
+      r < newItem.y + newItem.h;
+      r++
+    ) {
+      for (
+        let c = newItem.x;
+        c < newItem.x + newItem.w;
+        c++
+      ) {
         if (isCellOccupied(r, c)) {
           return true;
         }
@@ -194,11 +269,70 @@ export default function TemplateEditor({
     return false;
   };
 
+  // CHECK COLLISION WHEN MOVING WIDGET
+  const hasMoveCollision = (movingItem) => {
+    return items.some((item) => {
+      if (item.id === movingItem.id) {
+        return false;
+      }
+
+      const overlapX =
+        movingItem.x < item.x + item.w &&
+        movingItem.x + movingItem.w > item.x;
+
+      const overlapY =
+        movingItem.y < item.y + item.h &&
+        movingItem.y + movingItem.h > item.y;
+
+      return overlapX && overlapY;
+    });
+  };
+
+  // MOVE WIDGET TO NEW CELL
+  const moveWidget = (
+    itemId,
+    targetRow,
+    targetCol
+  ) => {
+    const movingItem = items.find(
+      (item) => item.id === itemId
+    );
+
+    if (!movingItem) return;
+
+    const movedItem = {
+      ...movingItem,
+      x: targetCol,
+      y: targetRow,
+    };
+
+    if (
+      movedItem.x + movedItem.w > cols ||
+      movedItem.y + movedItem.h > rows
+    ) {
+      alert("❌ Widget exceeds grid");
+      return;
+    }
+
+    if (hasMoveCollision(movedItem)) {
+      alert("❌ Space occupied");
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? movedItem : item
+      )
+    );
+  };
+
   // TOGGLE MULTIPLE DATA FOR LINE / AREA / BAR CHART
   const toggleMultiDataKey = (key) => {
     setNewDataKeys((prev) => {
       if (prev.includes(key)) {
-        const updated = prev.filter((k) => k !== key);
+        const updated = prev.filter(
+          (k) => k !== key
+        );
 
         setNewDataKey(updated[0] || "");
 
@@ -217,8 +351,14 @@ export default function TemplateEditor({
   const addWidget = () => {
     if (!activeCell) return;
 
-    if (isMultiDataWidget && newDataKeys.length === 0) {
-      alert("❌ Please select at least one data source");
+    if (
+      isMultiDataWidget &&
+      newDataKeys.length === 0
+    ) {
+      alert(
+        "❌ Please select at least one data source"
+      );
+
       return;
     }
 
@@ -227,11 +367,17 @@ export default function TemplateEditor({
 
       type: newType,
 
+      label:
+        newLabel.trim() ||
+        getDefaultWidgetLabel(newType),
+
       dataKey: isMultiDataWidget
         ? newDataKeys[0] || newDataKey
         : newDataKey,
 
-      dataKeys: isMultiDataWidget ? newDataKeys : undefined,
+      dataKeys: isMultiDataWidget
+        ? newDataKeys
+        : undefined,
 
       orientation:
         newType === "bar"
@@ -244,10 +390,16 @@ export default function TemplateEditor({
       w: newW,
       h: newH,
 
-      pins: newType === "image" ? editingImageWidget?.pins || [] : undefined,
+      pins:
+        newType === "image"
+          ? editingImageWidget?.pins || []
+          : undefined,
     };
 
-    if (newItem.x + newItem.w > cols || newItem.y + newItem.h > rows) {
+    if (
+      newItem.x + newItem.w > cols ||
+      newItem.y + newItem.h > rows
+    ) {
       alert("❌ Widget exceeds grid");
       return;
     }
@@ -261,14 +413,21 @@ export default function TemplateEditor({
 
     setShowModal(false);
     setActiveCell(null);
+    setNewLabel("");
   };
 
   // UPDATE WIDGET
   const updateWidget = () => {
     if (!selectedItem) return;
 
-    if (isMultiDataWidget && newDataKeys.length === 0) {
-      alert("❌ Please select at least one data source");
+    if (
+      isMultiDataWidget &&
+      newDataKeys.length === 0
+    ) {
+      alert(
+        "❌ Please select at least one data source"
+      );
+
       return;
     }
 
@@ -279,11 +438,17 @@ export default function TemplateEditor({
 
             type: newType,
 
+            label:
+              newLabel.trim() ||
+              getDefaultWidgetLabel(newType),
+
             dataKey: isMultiDataWidget
               ? newDataKeys[0] || newDataKey
               : newDataKey,
 
-            dataKeys: isMultiDataWidget ? newDataKeys : undefined,
+            dataKeys: isMultiDataWidget
+              ? newDataKeys
+              : undefined,
 
             orientation:
               newType === "bar"
@@ -302,19 +467,24 @@ export default function TemplateEditor({
 
     setShowModal(false);
     setActiveItemId(null);
+    setNewLabel("");
   };
 
   // REMOVE WIDGET
   const removeWidget = (id) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    setItems((prev) =>
+      prev.filter((i) => i.id !== id)
+    );
 
     setShowModal(false);
     setActiveItemId(null);
+    setNewLabel("");
   };
 
   // UPDATE TEMPLATE
   const updateTemplate = async () => {
-    const token = localStorage.getItem("token");
+    const token =
+      localStorage.getItem("token");
 
     try {
       const res = await fetch(
@@ -323,12 +493,15 @@ export default function TemplateEditor({
           method: "PUT",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
             Authorization: token,
           },
 
           body: JSON.stringify({
-            name: templateName || `Template ${Date.now()}`,
+            name:
+              templateName ||
+              `Template ${Date.now()}`,
 
             layout: {
               rows,
@@ -362,11 +535,17 @@ export default function TemplateEditor({
     ? {
         type: newType,
 
+        label:
+          newLabel.trim() ||
+          getDefaultWidgetLabel(newType),
+
         dataKey: isMultiDataWidget
           ? newDataKeys[0] || newDataKey
           : newDataKey,
 
-        dataKeys: isMultiDataWidget ? newDataKeys : undefined,
+        dataKeys: isMultiDataWidget
+          ? newDataKeys
+          : undefined,
 
         orientation:
           newType === "bar"
@@ -378,7 +557,9 @@ export default function TemplateEditor({
       }
     : null;
 
-  const currentWidget = widgetLibrary.find((w) => w.type === base?.type);
+  const currentWidget = widgetLibrary.find(
+    (w) => w.type === base?.type
+  );
 
   if (!selectedTemplate) {
     return (
@@ -438,7 +619,7 @@ export default function TemplateEditor({
             </h1>
 
             <p className="text-gray-500 dark:text-gray-400 mt-1">
-              Edit dashboard layouts
+              Edit dashboard layouts. Drag widgets to reposition them.
             </p>
           </div>
 
@@ -464,7 +645,9 @@ export default function TemplateEditor({
           <input
             type="text"
             value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
+            onChange={(e) =>
+              setTemplateName(e.target.value)
+            }
             className="
               w-full rounded-2xl
               border border-gray-300
@@ -496,9 +679,41 @@ export default function TemplateEditor({
 
           if (isCellOccupied(r, c)) return null;
 
+          const isDragOver =
+            dragOverCell?.row === r &&
+            dragOverCell?.col === c;
+
           return (
             <div
               key={i}
+              onDragOver={(e) => {
+                e.preventDefault();
+
+                setDragOverCell({
+                  row: r,
+                  col: c,
+                });
+              }}
+              onDragLeave={() => {
+                setDragOverCell(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+
+                if (draggingItemId) {
+                  moveWidget(
+                    draggingItemId,
+                    r,
+                    c
+                  );
+
+                  setDraggingItemId(null);
+                  setDragOverCell(null);
+                  setDidDrag(false);
+
+                  return;
+                }
+              }}
               onClick={() => {
                 setActiveCell({
                   row: r,
@@ -508,27 +723,54 @@ export default function TemplateEditor({
                 setActiveItemId(null);
 
                 setNewType(widgetLibrary[0].type);
+                setNewLabel("");
                 setNewW(1);
                 setNewH(1);
 
                 setShowModal(true);
               }}
-              className="
+              className={`
                 rounded-3xl
                 border-2 border-dashed
-                border-gray-300 dark:border-gray-700
                 bg-white/40 dark:bg-gray-800/30
                 flex items-center justify-center
                 cursor-pointer
-                hover:border-yellow-500
-                hover:bg-yellow-50 dark:hover:bg-yellow-900/20
                 transition-all
-              "
+
+                ${
+                  isDragOver
+                    ? `
+                      border-yellow-500
+                      bg-yellow-50
+                      dark:bg-yellow-900/20
+                      scale-[1.02]
+                    `
+                    : `
+                      border-gray-300 dark:border-gray-700
+                      hover:border-yellow-500
+                      hover:bg-yellow-50 dark:hover:bg-yellow-900/20
+                    `
+                }
+              `}
             >
               <div className="text-center">
-                <Plus className="mx-auto mb-2 text-gray-400" />
+                {draggingItemId ? (
+                  <>
+                    <Move className="mx-auto mb-2 text-yellow-500" />
 
-                <p className="text-sm text-gray-400">Add Widget</p>
+                    <p className="text-sm text-yellow-500">
+                      Drop Here
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mx-auto mb-2 text-gray-400" />
+
+                    <p className="text-sm text-gray-400">
+                      Add Widget
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           );
@@ -538,14 +780,33 @@ export default function TemplateEditor({
         {items.map((item) => (
           <div
             key={item.id}
+            draggable
+            onDragStart={(e) => {
+              e.stopPropagation();
+
+              setDraggingItemId(item.id);
+              setDidDrag(true);
+
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragEnd={() => {
+              setDraggingItemId(null);
+              setDragOverCell(null);
+
+              setTimeout(() => {
+                setDidDrag(false);
+              }, 80);
+            }}
             onClick={(e) => {
               e.stopPropagation();
+
+              if (didDrag) return;
 
               setActiveItemId(item.id);
               setActiveCell(null);
               setShowModal(true);
             }}
-            className="
+            className={`
               group
               relative
               bg-white dark:bg-gray-800
@@ -556,13 +817,61 @@ export default function TemplateEditor({
               transition-all duration-300
               overflow-hidden
               p-4
-              cursor-pointer
-            "
+              cursor-move
+
+              ${
+                draggingItemId === item.id
+                  ? "opacity-50 scale-95"
+                  : ""
+              }
+            `}
             style={{
               gridColumn: `${item.x + 1} / span ${item.w}`,
               gridRow: `${item.y + 1} / span ${item.h}`,
             }}
           >
+            {/* WIDGET LABEL BADGE */}
+            <div
+              className="
+                absolute top-3 left-3
+                z-10
+                max-w-[70%]
+                text-xs
+                font-semibold
+                text-gray-700
+                dark:text-white
+                bg-white/90
+                dark:bg-gray-900/90
+                border border-gray-200
+                dark:border-gray-700
+                px-3 py-1
+                rounded-xl
+                shadow-sm
+                truncate
+              "
+            >
+              {item.label || item.type}
+            </div>
+
+            {/* DRAG BADGE */}
+            <div
+              className="
+                absolute top-3 right-3
+                z-10
+                w-8 h-8
+                rounded-xl
+                bg-white/90 dark:bg-gray-900/90
+                border border-gray-200 dark:border-gray-700
+                shadow-sm
+                flex items-center justify-center
+                text-gray-400
+                group-hover:text-yellow-500
+              "
+              title="Drag to move"
+            >
+              <Move size={15} />
+            </div>
+
             {/* ACTUAL WIDGET PREVIEW */}
             <div className="absolute inset-0 p-4 pointer-events-none">
               <WidgetRenderer
@@ -635,7 +944,9 @@ export default function TemplateEditor({
               border border-gray-200 dark:border-gray-700
               flex flex-col
             "
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) =>
+              e.stopPropagation()
+            }
           >
             {/* HEADER */}
             <div
@@ -648,7 +959,9 @@ export default function TemplateEditor({
             >
               <div>
                 <h2 className="text-2xl font-bold dark:text-white">
-                  {isEdit ? "Edit Widget" : "Widget Settings"}
+                  {isEdit
+                    ? "Edit Widget"
+                    : "Widget Settings"}
                 </h2>
 
                 <p className="text-gray-500 dark:text-gray-400 mt-1">
@@ -702,10 +1015,14 @@ export default function TemplateEditor({
 
                     <div className="flex items-center gap-2 mt-1">
                       <h3 className="text-sm font-semibold dark:text-white capitalize">
-                        {newType}
+                        {newLabel.trim() ||
+                          getDefaultWidgetLabel(
+                            newType
+                          )}
                       </h3>
 
-                      {isMultiDataWidget && newDataKeys.length > 0 ? (
+                      {isMultiDataWidget &&
+                      newDataKeys.length > 0 ? (
                         <span
                           className="
                             text-xs
@@ -773,8 +1090,15 @@ export default function TemplateEditor({
                         id: selectedItem?.id || 999,
                         type: newType,
 
+                        label:
+                          newLabel.trim() ||
+                          getDefaultWidgetLabel(
+                            newType
+                          ),
+
                         dataKey: isMultiDataWidget
-                          ? newDataKeys[0] || newDataKey
+                          ? newDataKeys[0] ||
+                            newDataKey
                           : newDataKey,
 
                         dataKeys: isMultiDataWidget
@@ -789,7 +1113,10 @@ export default function TemplateEditor({
                         w: newW,
                         h: newH,
 
-                        pins: selectedItem?.pins || base?.pins || [],
+                        pins:
+                          selectedItem?.pins ||
+                          base?.pins ||
+                          [],
                       }}
                       updateItem={() => {}}
                       editMode={false}
@@ -806,6 +1133,45 @@ export default function TemplateEditor({
                   bg-white dark:bg-gray-900
                 "
               >
+                {/* WIDGET LABEL CARD */}
+                <div
+                  className="
+                    bg-gray-50 dark:bg-gray-800/70
+                    border border-gray-200 dark:border-gray-700
+                    rounded-3xl
+                    p-5
+                    mb-6
+                  "
+                >
+                  <h3 className="font-bold mb-4 dark:text-white">
+                    Widget Label
+                  </h3>
+
+                  <input
+                    type="text"
+                    placeholder="Example: Main Steam Pressure"
+                    value={newLabel}
+                    onChange={(e) =>
+                      setNewLabel(e.target.value)
+                    }
+                    className="
+                      w-full
+                      rounded-2xl
+                      border border-gray-300
+                      dark:border-gray-700
+                      bg-white dark:bg-gray-900
+                      dark:text-white
+                      px-4 py-3
+                      outline-none
+                      focus:ring-2 focus:ring-yellow-500
+                    "
+                  />
+
+                  <p className="text-xs text-gray-400 mt-3">
+                    This name will be shown as the widget title on the dashboard.
+                  </p>
+                </div>
+
                 {/* WIDGET TYPE CARD */}
                 <div
                   className="
@@ -827,7 +1193,9 @@ export default function TemplateEditor({
                       return (
                         <button
                           key={w.type}
-                          onClick={() => setNewType(w.type)}
+                          onClick={() =>
+                            setNewType(w.type)
+                          }
                           className={`
                             p-5 rounded-2xl border transition-all text-center
 
@@ -854,15 +1222,26 @@ export default function TemplateEditor({
                               }
                             `}
                           >
-                            {w.type === "gauge" && "Semi-circle meter"}
-                            {w.type === "linearGauge" && "Progress meter"}
-                            {w.type === "line" && "Trend over time"}
-                            {w.type === "area" && "Filled trend chart"}
-                            {w.type === "image" && "Mimic diagram"}
-                            {w.type === "bar" && "Bar comparison"}
-                            {w.type === "bignumber" && "KPI number"}
-                            {w.type === "alarm" && "Status warning"}
-                            {w.type === "pie" && "Ratio chart"}
+                            {w.type === "gauge" &&
+                              "Semi-circle meter"}
+                            {w.type ===
+                              "linearGauge" &&
+                              "Progress meter"}
+                            {w.type === "line" &&
+                              "Trend over time"}
+                            {w.type === "area" &&
+                              "Filled trend chart"}
+                            {w.type === "image" &&
+                              "Mimic diagram"}
+                            {w.type === "bar" &&
+                              "Bar comparison"}
+                            {w.type ===
+                              "bignumber" &&
+                              "KPI number"}
+                            {w.type === "alarm" &&
+                              "Status warning"}
+                            {w.type === "pie" &&
+                              "Ratio chart"}
                           </div>
                         </button>
                       );
@@ -871,7 +1250,8 @@ export default function TemplateEditor({
                 </div>
 
                 {/* DATA SOURCE CARD */}
-                {currentWidget?.supportedData?.length > 0 &&
+                {currentWidget?.supportedData
+                  ?.length > 0 &&
                   newType !== "image" && (
                     <div
                       className="
@@ -897,21 +1277,32 @@ export default function TemplateEditor({
                       <div className="flex flex-wrap gap-3">
                         {dataOptions
                           .filter((d) =>
-                            currentWidget.supportedData.includes(d.key)
+                            currentWidget.supportedData.includes(
+                              d.key
+                            )
                           )
                           .map((d) => {
-                            const selected = isMultiDataWidget
-                              ? newDataKeys.includes(d.key)
-                              : newDataKey === d.key;
+                            const selected =
+                              isMultiDataWidget
+                                ? newDataKeys.includes(
+                                    d.key
+                                  )
+                                : newDataKey === d.key;
 
                             return (
                               <button
                                 key={d.key}
                                 onClick={() => {
-                                  if (isMultiDataWidget) {
-                                    toggleMultiDataKey(d.key);
+                                  if (
+                                    isMultiDataWidget
+                                  ) {
+                                    toggleMultiDataKey(
+                                      d.key
+                                    );
                                   } else {
-                                    setNewDataKey(d.key);
+                                    setNewDataKey(
+                                      d.key
+                                    );
                                   }
                                 }}
                                 className={`
@@ -959,12 +1350,17 @@ export default function TemplateEditor({
 
                     <div className="grid grid-cols-2 gap-3">
                       <button
-                        onClick={() => setNewOrientation("vertical")}
+                        onClick={() =>
+                          setNewOrientation(
+                            "vertical"
+                          )
+                        }
                         className={`
                           py-4 rounded-2xl border transition-all font-medium
 
                           ${
-                            newOrientation === "vertical"
+                            newOrientation ===
+                            "vertical"
                               ? "bg-yellow-500 text-white border-yellow-500 shadow"
                               : "bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 dark:text-white"
                           }
@@ -974,12 +1370,17 @@ export default function TemplateEditor({
                       </button>
 
                       <button
-                        onClick={() => setNewOrientation("horizontal")}
+                        onClick={() =>
+                          setNewOrientation(
+                            "horizontal"
+                          )
+                        }
                         className={`
                           py-4 rounded-2xl border transition-all font-medium
 
                           ${
-                            newOrientation === "horizontal"
+                            newOrientation ===
+                            "horizontal"
                               ? "bg-yellow-500 text-white border-yellow-500 shadow"
                               : "bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 dark:text-white"
                           }
@@ -1017,7 +1418,8 @@ export default function TemplateEditor({
                           py-4 rounded-2xl border transition-all font-medium
 
                           ${
-                            newW === s.w && newH === s.h
+                            newW === s.w &&
+                            newH === s.h
                               ? "bg-yellow-500 text-white border-yellow-500 shadow"
                               : "bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 dark:text-white"
                           }
@@ -1050,10 +1452,14 @@ export default function TemplateEditor({
 
                     <button
                       onClick={() => {
-                        if (typeof setEditingImageWidget !== "function") {
+                        if (
+                          typeof setEditingImageWidget !==
+                          "function"
+                        ) {
                           alert(
                             "❌ setEditingImageWidget is not connected in App.jsx"
                           );
+
                           return;
                         }
 
@@ -1062,16 +1468,35 @@ export default function TemplateEditor({
                           : {
                               id: Date.now(),
                               type: "image",
+
+                              label:
+                                newLabel.trim() ||
+                                "System Diagram",
+
                               dataKey: newDataKey,
-                              x: activeCell?.col || 0,
-                              y: activeCell?.row || 0,
+
+                              x:
+                                activeCell?.col || 0,
+
+                              y:
+                                activeCell?.row || 0,
+
                               w: newW,
                               h: newH,
-                              pins: editingImageWidget?.pins || [],
+
+                              pins:
+                                editingImageWidget?.pins ||
+                                [],
                             };
 
                         setEditingImageWidget({
                           ...target,
+
+                          label:
+                            newLabel.trim() ||
+                            target.label ||
+                            "System Diagram",
+
                           dataKey: newDataKey,
                         });
 
@@ -1110,7 +1535,11 @@ export default function TemplateEditor({
                   </h3>
 
                   <button
-                    onClick={isEdit ? updateWidget : addWidget}
+                    onClick={
+                      isEdit
+                        ? updateWidget
+                        : addWidget
+                    }
                     className="
                       w-full
                       bg-yellow-500
@@ -1123,12 +1552,18 @@ export default function TemplateEditor({
                       transition-all
                     "
                   >
-                    {isEdit ? "Update Widget" : "Add Widget"}
+                    {isEdit
+                      ? "Update Widget"
+                      : "Add Widget"}
                   </button>
 
                   {isEdit && (
                     <button
-                      onClick={() => removeWidget(selectedItem.id)}
+                      onClick={() =>
+                        removeWidget(
+                          selectedItem.id
+                        )
+                      }
                       className="
                         w-full
                         bg-red-500

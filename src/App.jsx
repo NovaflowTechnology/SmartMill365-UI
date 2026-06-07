@@ -13,20 +13,26 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
   // PAGE
-  const [page, setPage] = useState("login");
+  const [page, setPage] =
+    useState("login");
 
   // ACTIVE TEMPLATE
-  const [selectedTemplate, setSelectedTemplate] =
-    useState(null);
+  const [
+    selectedTemplate,
+    setSelectedTemplate,
+  ] = useState(null);
 
   // FULLSCREEN
-  const [fullscreen, setFullscreen] =
-    useState(false);
+  const [
+    fullscreen,
+    setFullscreen,
+  ] = useState(false);
 
   // DARK MODE
-  const [dark, setDark] = useState(
-    localStorage.getItem("theme") === "dark"
-  );
+  const [dark, setDark] =
+    useState(
+      localStorage.getItem("theme") === "dark"
+    );
 
   // IMAGE WIDGET
   const [
@@ -35,15 +41,18 @@ export default function App() {
   ] = useState(null);
 
   // =====================================
-  // FETCH DEFAULT / LATEST TEMPLATE
+  // FETCH DEFAULT / LATEST / FAVOURITE TEMPLATE
   // =====================================
   const fetchDefaultTemplate = async () => {
-    const token = localStorage.getItem("token");
+    const token =
+      localStorage.getItem("token");
 
     if (!token) {
       console.warn(
         "⚠️ No token found, cannot fetch default template"
       );
+
+      setSelectedTemplate(null);
 
       return null;
     }
@@ -63,7 +72,9 @@ export default function App() {
       let data = null;
 
       try {
-        data = text ? JSON.parse(text) : null;
+        data = text
+          ? JSON.parse(text)
+          : null;
       } catch {
         throw new Error(
           "Server did not return JSON while fetching default template"
@@ -75,7 +86,10 @@ export default function App() {
         res.status
       );
 
-      console.log("📦 DEFAULT TEMPLATE:", data);
+      console.log(
+        "📦 DEFAULT TEMPLATE:",
+        data
+      );
 
       if (!res.ok) {
         throw new Error(
@@ -113,19 +127,40 @@ export default function App() {
   };
 
   // =====================================
+  // SIDEBAR / PAGE NAVIGATION
+  // IMPORTANT:
+  // Dashboard must reload template from backend.
+  // This prevents deleted templates from staying on screen.
+  // =====================================
+  const handleNavigate = async (nextPage) => {
+    if (nextPage === "dashboard") {
+      await fetchDefaultTemplate();
+
+      setPage("dashboard");
+
+      return;
+    }
+
+    setPage(nextPage);
+  };
+
+  // =====================================
   // AUTO LOGIN + LOAD DEFAULT TEMPLATE
   // =====================================
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token =
+      localStorage.getItem("token");
 
     if (!token) return;
 
     console.log("AUTO LOGIN DETECTED");
 
-    const loadDefaultDashboard = async () => {
-      await fetchDefaultTemplate();
-      setPage("dashboard");
-    };
+    const loadDefaultDashboard =
+      async () => {
+        await fetchDefaultTemplate();
+
+        setPage("dashboard");
+      };
 
     loadDefaultDashboard();
   }, []);
@@ -135,9 +170,13 @@ export default function App() {
   // =====================================
   useEffect(() => {
     if (dark) {
-      document.documentElement.classList.add("dark");
+      document.documentElement.classList.add(
+        "dark"
+      );
     } else {
-      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.remove(
+        "dark"
+      );
     }
   }, [dark]);
 
@@ -162,11 +201,18 @@ export default function App() {
     switch (page) {
       // LOGIN
       case "login": {
-        const token = localStorage.getItem("token");
+        const token =
+          localStorage.getItem("token");
 
         if (token) {
           return (
-            <div className="h-screen flex items-center justify-center">
+            <div
+              className="
+                h-screen
+                flex items-center justify-center
+                bg-gray-100 dark:bg-gray-950
+              "
+            >
               <div className="text-center">
                 <div
                   className="
@@ -178,7 +224,7 @@ export default function App() {
                 ></div>
 
                 <p className="text-gray-400">
-                  Loading dashboard...
+                  Opening dashboard...
                 </p>
               </div>
             </div>
@@ -206,7 +252,8 @@ export default function App() {
             ]}
           >
             <Layout
-              setPage={setPage}
+              setPage={handleNavigate}
+              currentPage={page}
               fullscreen={fullscreen}
               showSidebar={true}
               dark={dark}
@@ -235,7 +282,8 @@ export default function App() {
             ]}
           >
             <Layout
-              setPage={setPage}
+              setPage={handleNavigate}
+              currentPage={page}
               fullscreen={fullscreen}
               showSidebar={true}
               dark={dark}
@@ -262,7 +310,8 @@ export default function App() {
         return (
           <ProtectedRoute>
             <Layout
-              setPage={setPage}
+              setPage={handleNavigate}
+              currentPage={page}
               fullscreen={fullscreen}
               showSidebar={true}
               dark={dark}
@@ -281,14 +330,18 @@ export default function App() {
           </ProtectedRoute>
         );
 
-      // ORGANIZATION MANAGEMENT
+      // ORGANIZATION / USER MANAGEMENT
       case "organizations":
         return (
           <ProtectedRoute
-            roles={["superadmin"]}
+            roles={[
+              "superadmin",
+              "admin",
+            ]}
           >
             <Layout
-              setPage={setPage}
+              setPage={handleNavigate}
+              currentPage={page}
               fullscreen={fullscreen}
               showSidebar={true}
               dark={dark}
@@ -318,17 +371,21 @@ export default function App() {
         return (
           <ProtectedRoute>
             <Layout
-              setPage={setPage}
+              setPage={handleNavigate}
+              currentPage={page}
               fullscreen={fullscreen}
               showSidebar={!fullscreen}
               dark={dark}
               toggleTheme={toggleTheme}
             >
               <Dashboard
-                template={selectedTemplate}
+                template={
+                  selectedTemplate
+                }
                 setFullscreen={
                   setFullscreen
                 }
+                setPage={setPage}
               />
             </Layout>
           </ProtectedRoute>

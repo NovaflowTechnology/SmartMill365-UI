@@ -6,31 +6,60 @@ import { dataOptions } from "../data/dataOptions";
 import {
   Maximize2,
   Minimize2,
+  LayoutGrid,
+  Plus,
+  FolderOpen,
 } from "lucide-react";
+
+// =====================================
+// MILL ONLINE / OFFLINE SETTINGS
+// =====================================
+const OFFLINE_TIMEOUT_MS = 30000;
+
+const liveDataKeys = [
+  "steamPressure",
+  "steamFlowrate",
+  "steamOutletTemp",
+
+  "inletDraft",
+  "outletDraft",
+  "furnaceDraft",
+
+  "waterInletTemp",
+  "waterFlowrate",
+  "waterDrumLevel",
+
+  "vgPressure",
+  "vgInletTemp",
+  "vgOutletTemp",
+];
 
 export default function Dashboard({
   template,
   setFullscreen,
+  setPage,
 }) {
   // LIVE DATA
-  const [data, setData] =
-    useState({});
+  const [data, setData] = useState({});
 
   // HISTORY STORAGE
-  const [history, setHistory] =
-    useState([]);
+  const [history, setHistory] = useState([]);
+
+  // MILL STATUS
+  const [millStatus, setMillStatus] =
+    useState("offline");
+
+  const [lastActiveAt, setLastActiveAt] =
+    useState(null);
 
   // FULLSCREEN
-  const [
-    isFullscreen,
-    setIsFullscreen,
-  ] = useState(false);
+  const [isFullscreen, setIsFullscreen] =
+    useState(false);
 
   // GRID ITEMS
-  const [items, setItems] =
-    useState(
-      template?.layout?.items || []
-    );
+  const [items, setItems] = useState(
+    template?.layout?.items || []
+  );
 
   // TEMPLATE TITLE
   const templateTitle =
@@ -38,11 +67,25 @@ export default function Dashboard({
     `Template #${template?.id || ""}` ||
     "Dashboard";
 
+  // =====================================
+  // CHECK WHETHER DATA HAS ANY LIVE VALUE
+  // =====================================
+  const hasAnyLiveValue = (incomingData) => {
+    return liveDataKeys.some((key) => {
+      const value = Number(
+        incomingData?.[key] ?? 0
+      );
+
+      return (
+        !Number.isNaN(value) &&
+        value !== 0
+      );
+    });
+  };
+
   // UPDATE TEMPLATE ITEMS
   useEffect(() => {
-    setItems(
-      template?.layout?.items || []
-    );
+    setItems(template?.layout?.items || []);
   }, [template]);
 
   // DEBUG TEMPLATE
@@ -53,14 +96,15 @@ export default function Dashboard({
     );
   }, [template]);
 
+  // =====================================
   // WEBSOCKET
+  // =====================================
   useEffect(() => {
     let ws;
     let reconnectTimer;
 
     const connect = () => {
-      const token =
-        localStorage.getItem("token");
+      const token = localStorage.getItem("token");
 
       if (!token) {
         console.warn("❌ NO TOKEN");
@@ -75,57 +119,47 @@ export default function Dashboard({
       );
 
       ws.onopen = () => {
-        console.log(
-          "✅ WebSocket connected"
-        );
+        console.log("✅ WebSocket connected");
       };
 
       ws.onmessage = (event) => {
         try {
-          const incoming =
-            JSON.parse(event.data);
+          const incoming = JSON.parse(event.data);
 
-          console.log(
-            "📡 LIVE DATA:",
-            incoming
-          );
+          console.log("📡 LIVE DATA:", incoming);
 
           setData(incoming);
+
+          // If any sensor has non-zero value,
+          // mark mill online immediately.
+          if (hasAnyLiveValue(incoming)) {
+            setMillStatus("online");
+            setLastActiveAt(Date.now());
+          }
 
           setHistory((prev) => [
             ...prev.slice(-500),
 
             {
               timestamp: Date.now(),
-              time: new Date()
-                .toLocaleTimeString(),
-              date: new Date()
-                .toLocaleDateString(),
+              time: new Date().toLocaleTimeString(),
+              date: new Date().toLocaleDateString(),
               ...incoming,
             },
           ]);
         } catch (err) {
-          console.error(
-            "❌ WS PARSE ERROR:",
-            err
-          );
+          console.error("❌ WS PARSE ERROR:", err);
         }
       };
 
       ws.onclose = () => {
-        console.warn(
-          "⚠️ WS DISCONNECTED"
-        );
+        console.warn("⚠️ WS DISCONNECTED");
 
-        reconnectTimer =
-          setTimeout(connect, 2000);
+        reconnectTimer = setTimeout(connect, 2000);
       };
 
       ws.onerror = (err) => {
-        console.error(
-          "❌ WS ERROR:",
-          err
-        );
+        console.error("❌ WS ERROR:", err);
 
         ws.close();
       };
@@ -145,6 +179,41 @@ export default function Dashboard({
     };
   }, []);
 
+  // =====================================
+  // OFFLINE DETECTION
+  // If all values remain 0 for 30 seconds,
+  // set mill status to offline.
+  // =====================================
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const currentlyHasLiveValue =
+        hasAnyLiveValue(data);
+
+      if (currentlyHasLiveValue) {
+        setMillStatus("online");
+        setLastActiveAt(Date.now());
+        return;
+      }
+
+      if (!lastActiveAt) {
+        setMillStatus("offline");
+        return;
+      }
+
+      const inactiveDuration =
+        Date.now() - lastActiveAt;
+
+      if (
+        inactiveDuration >=
+        OFFLINE_TIMEOUT_MS
+      ) {
+        setMillStatus("offline");
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [data, lastActiveAt]);
+
   // ESC FULLSCREEN EXIT
   useEffect(() => {
     const handleEsc = (e) => {
@@ -154,10 +223,7 @@ export default function Dashboard({
       }
     };
 
-    window.addEventListener(
-      "keydown",
-      handleEsc
-    );
+    window.addEventListener("keydown", handleEsc);
 
     return () =>
       window.removeEventListener(
@@ -176,12 +242,15 @@ export default function Dashboard({
 
   // LABEL LOOKUP
   const getLabel = (key) =>
-    dataOptions.find(
-      (d) => d.key === key
-    )?.label || key;
+    dataOptions.find((d) => d.key === key)?.label ||
+    key;
 
   // WIDGET TITLE
   const getWidgetTitle = (item) => {
+    if (item?.label) {
+      return item.label;
+    }
+
     if (
       item?.dataKeys &&
       item.dataKeys.length > 1
@@ -198,31 +267,119 @@ export default function Dashboard({
     return getLabel(item.dataKey);
   };
 
-  // LOADING TEMPLATE
+  // NO TEMPLATE FOUND
   if (!template) {
     return (
       <div
         className="
+          h-full
           flex items-center
           justify-center
-          h-full
+          p-6
         "
       >
-        <div className="text-center">
+        <div
+          className="
+            max-w-xl
+            w-full
+            bg-white
+            dark:bg-gray-800
+            border border-gray-200
+            dark:border-gray-700
+            rounded-3xl
+            shadow-lg
+            p-10
+            text-center
+          "
+        >
           <div
             className="
-              animate-spin
-              rounded-full
-              h-12 w-12
-              border-b-2
-              border-emerald-500
-              mx-auto mb-4
+              w-16 h-16
+              mx-auto mb-5
+              rounded-3xl
+              bg-emerald-500/10
+              text-emerald-500
+              flex items-center
+              justify-center
             "
-          ></div>
+          >
+            <LayoutGrid className="w-8 h-8" />
+          </div>
 
-          <p className="text-gray-400">
-            Loading default dashboard...
+          <h2
+            className="
+              text-2xl
+              font-black
+              text-gray-900
+              dark:text-white
+              mb-3
+            "
+          >
+            No Dashboard Template Found
+          </h2>
+
+          <p
+            className="
+              text-gray-500
+              dark:text-gray-400
+              mb-6
+              leading-relaxed
+            "
+          >
+            There is no dashboard template available yet. Please create a new template first, then assign it to an organization if needed.
           </p>
+
+          <div
+            className="
+              flex flex-col
+              sm:flex-row
+              gap-3
+              justify-center
+            "
+          >
+            <button
+              onClick={() => setPage?.("builder")}
+              className="
+                inline-flex
+                items-center
+                justify-center
+                gap-2
+                px-5 py-3
+                rounded-2xl
+                bg-emerald-600
+                hover:bg-emerald-700
+                text-white
+                font-semibold
+                transition
+              "
+            >
+              <Plus size={18} />
+              Create Template
+            </button>
+
+            <button
+              onClick={() => setPage?.("templates")}
+              className="
+                inline-flex
+                items-center
+                justify-center
+                gap-2
+                px-5 py-3
+                rounded-2xl
+                bg-gray-100
+                hover:bg-gray-200
+                dark:bg-gray-700
+                dark:hover:bg-gray-600
+                text-gray-700
+                dark:text-white
+                font-semibold
+                transition
+              "
+            >
+              <FolderOpen size={18} />
+              View Templates
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -347,7 +504,7 @@ export default function Dashboard({
             gap-3
           "
         >
-          {/* SYSTEM ONLINE */}
+          {/* MILL STATUS */}
           <div
             className={`
               inline-flex items-center
@@ -355,11 +512,24 @@ export default function Dashboard({
               rounded-2xl
               bg-white
               dark:bg-gray-900
-              border border-emerald-200
-              dark:border-emerald-800
-              text-emerald-700
-              dark:text-emerald-300
+              border
               shadow-sm
+
+              ${
+                millStatus === "online"
+                  ? `
+                    border-emerald-200
+                    dark:border-emerald-800
+                    text-emerald-700
+                    dark:text-emerald-300
+                  `
+                  : `
+                    border-red-200
+                    dark:border-red-800
+                    text-red-700
+                    dark:text-red-300
+                  `
+              }
 
               ${
                 isFullscreen
@@ -374,24 +544,31 @@ export default function Dashboard({
                 flex h-3 w-3
               "
             >
-              <span
-                className="
-                  animate-ping
-                  absolute inline-flex
-                  h-full w-full
-                  rounded-full
-                  bg-emerald-400
-                  opacity-75
-                "
-              ></span>
+              {millStatus === "online" && (
+                <span
+                  className="
+                    animate-ping
+                    absolute inline-flex
+                    h-full w-full
+                    rounded-full
+                    bg-emerald-400
+                    opacity-75
+                  "
+                ></span>
+              )}
 
               <span
-                className="
+                className={`
                   relative inline-flex
                   rounded-full
                   h-3 w-3
-                  bg-emerald-400
-                "
+
+                  ${
+                    millStatus === "online"
+                      ? "bg-emerald-400"
+                      : "bg-red-400"
+                  }
+                `}
               ></span>
             </span>
 
@@ -402,7 +579,9 @@ export default function Dashboard({
                 tracking-wide
               "
             >
-              SYSTEM ONLINE
+              {millStatus === "online"
+                ? "ONLINE"
+                : "OFFLINE"}
             </span>
           </div>
 

@@ -13,11 +13,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Plus,
+  Star,
 } from "lucide-react";
 
 export default function TemplateList({
   setPage,
   setSelectedTemplate,
+  fetchDefaultTemplate,
 }) {
   // =====================================
   // STATES
@@ -47,6 +49,18 @@ export default function TemplateList({
 
   const [loading, setLoading] =
     useState(true);
+
+  const [
+    favoriteTemplateId,
+    setFavoriteTemplateId,
+  ] = useState(
+    localStorage.getItem("favorite_template_id") || ""
+  );
+
+  const [
+    settingFavoriteId,
+    setSettingFavoriteId,
+  ] = useState(null);
 
   // =====================================
   // AUTH
@@ -196,6 +210,59 @@ export default function TemplateList({
   };
 
   // =====================================
+  // SET FAVORITE TEMPLATE
+  // =====================================
+  const setFavoriteTemplate = async (template) => {
+    const confirmFavorite =
+      window.confirm(
+        `Set "${
+          template.name || `Template #${template.id}`
+        }" as your favourite dashboard template?`
+      );
+
+    if (!confirmFavorite) return;
+
+    try {
+      setSettingFavoriteId(template.id);
+
+      const res = await fetch(
+        "http://localhost:5000/users/favorite-template",
+        {
+          method: "PUT",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization: token,
+          },
+
+          body: JSON.stringify({
+            template_id: template.id,
+          }),
+        }
+      );
+
+      await parseResponse(res);
+
+      localStorage.setItem(
+        "favorite_template_id",
+        template.id
+      );
+
+      setFavoriteTemplateId(String(template.id));
+
+      alert("⭐ Favourite template updated");
+
+      await fetchDefaultTemplate?.();
+    } catch (err) {
+      console.error(err);
+      alert(`❌ ${err.message}`);
+    } finally {
+      setSettingFavoriteId(null);
+    }
+  };
+
+  // =====================================
   // DELETE TEMPLATE
   // =====================================
   const deleteTemplate = async (id) => {
@@ -234,6 +301,17 @@ export default function TemplateList({
           (a) => a.template_id !== id
         )
       );
+
+      if (
+        Number(favoriteTemplateId) ===
+        Number(id)
+      ) {
+        localStorage.removeItem(
+          "favorite_template_id"
+        );
+
+        setFavoriteTemplateId("");
+      }
 
       console.log("🗑 TEMPLATE DELETED:", id);
     } catch (err) {
@@ -390,6 +468,13 @@ export default function TemplateList({
         .includes(search.toLowerCase())
     );
 
+  const favoriteTemplateName =
+    templates.find(
+      (t) =>
+        Number(t.id) ===
+        Number(favoriteTemplateId)
+    )?.name;
+
   // =====================================
   // LOADING
   // =====================================
@@ -459,8 +544,8 @@ export default function TemplateList({
             "
           >
             {isSuperadmin
-              ? "Manage dashboard templates and organization assignments."
-              : "View and use assigned dashboard templates."}
+              ? "Manage dashboard templates, organization assignments, and favourite dashboard templates."
+              : "View assigned dashboard templates and choose your favourite default dashboard."}
           </p>
         </div>
 
@@ -636,7 +721,7 @@ export default function TemplateList({
         <div
           className="
             grid grid-cols-1
-            md:grid-cols-1
+            md:grid-cols-2
             gap-5
             mb-8
           "
@@ -685,6 +770,55 @@ export default function TemplateList({
               </div>
             </div>
           </div>
+
+          <div
+            className="
+              bg-white dark:bg-gray-800
+              border border-gray-200
+              dark:border-gray-700
+              rounded-3xl
+              p-6
+              shadow-lg
+            "
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="
+                  w-12 h-12
+                  rounded-2xl
+                  bg-yellow-500/10
+                  text-yellow-500
+                  flex items-center justify-center
+                "
+              >
+                <Star size={24} />
+              </div>
+
+              <div>
+                <p
+                  className="
+                    text-sm text-gray-500
+                    dark:text-gray-400
+                  "
+                >
+                  Favourite Template
+                </p>
+
+                <p
+                  className="
+                    text-lg font-bold
+                    text-yellow-500
+                    truncate
+                  "
+                >
+                  {favoriteTemplateName ||
+                    (favoriteTemplateId
+                      ? `#${favoriteTemplateId}`
+                      : "Not Set")}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -725,8 +859,8 @@ export default function TemplateList({
               "
             >
               {isSuperadmin
-                ? "Search, assign, edit, or use saved dashboard templates."
-                : "Search and use your available dashboard templates."}
+                ? "Search, assign, edit, set favourite, or use saved dashboard templates."
+                : "Search, use, or set your favourite dashboard template."}
             </p>
           </div>
 
@@ -838,21 +972,38 @@ export default function TemplateList({
             const isAssigned =
               assignedOrgs.length > 0;
 
+            const isFavorite =
+              Number(favoriteTemplateId) ===
+              Number(t.id);
+
             return (
               <div
                 key={t.id}
-                className="
+                className={`
                   group
+                  relative
                   bg-white dark:bg-gray-800
-                  border border-gray-200
-                  dark:border-gray-700
+                  border
                   rounded-3xl
                   p-6
                   shadow-lg
                   hover:shadow-2xl
                   hover:-translate-y-1
                   transition-all duration-300
-                "
+
+                  ${
+                    isFavorite
+                      ? `
+                        border-yellow-300
+                        dark:border-yellow-600
+                        ring-2 ring-yellow-400/30
+                      `
+                      : `
+                        border-gray-200
+                        dark:border-gray-700
+                      `
+                  }
+                `}
               >
                 {/* TOP */}
                 <div
@@ -861,7 +1012,7 @@ export default function TemplateList({
                     gap-4 mb-5
                   "
                 >
-                  <div>
+                  <div className="min-w-0">
                     <h2
                       className="
                         text-xl font-bold
@@ -872,11 +1023,14 @@ export default function TemplateList({
                       <LayoutGrid
                         className="
                           w-5 h-5 text-emerald-500
+                          shrink-0
                         "
                       />
 
-                      {t.name ||
-                        `Template #${t.id}`}
+                      <span className="truncate">
+                        {t.name ||
+                          `Template #${t.id}`}
+                      </span>
                     </h2>
 
                     <p
@@ -888,35 +1042,109 @@ export default function TemplateList({
                     </p>
                   </div>
 
-                  {isSuperadmin && (
-                    <div
+                  <div
+                    className="
+                      flex items-center
+                      gap-2
+                      shrink-0
+                    "
+                  >
+                    {isSuperadmin && (
+                      <div
+                        className={`
+                          px-3 py-1
+                          rounded-full
+                          text-xs font-semibold
+
+                          ${
+                            isAssigned
+                              ? `
+                                bg-emerald-100
+                                text-emerald-700
+                                dark:bg-emerald-900/30
+                                dark:text-emerald-300
+                              `
+                              : `
+                                bg-yellow-100
+                                text-yellow-700
+                                dark:bg-yellow-900/30
+                                dark:text-yellow-300
+                              `
+                          }
+                        `}
+                      >
+                        {isAssigned
+                          ? "ASSIGNED"
+                          : "UNASSIGNED"}
+                      </div>
+                    )}
+
+                    {/* FAVOURITE STAR BUTTON */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isFavorite) {
+                          setFavoriteTemplate(t);
+                        }
+                      }}
+                      disabled={
+                        settingFavoriteId === t.id ||
+                        isFavorite
+                      }
                       className={`
-                        px-3 py-1
-                        rounded-full
-                        text-xs font-semibold
+                        w-10 h-10
+                        rounded-2xl
+                        flex items-center justify-center
+                        border
+                        transition-all
+                        shadow-sm
 
                         ${
-                          isAssigned
+                          isFavorite
                             ? `
-                              bg-emerald-100
-                              text-emerald-700
-                              dark:bg-emerald-900/30
-                              dark:text-emerald-300
+                              bg-yellow-100
+                              border-yellow-300
+                              text-yellow-600
+                              dark:bg-yellow-900/30
+                              dark:border-yellow-700
+                              dark:text-yellow-300
+                              cursor-default
                             `
                             : `
-                              bg-yellow-100
-                              text-yellow-700
-                              dark:bg-yellow-900/30
-                              dark:text-yellow-300
+                              bg-white
+                              border-gray-200
+                              text-gray-400
+                              hover:text-yellow-500
+                              hover:border-yellow-300
+                              hover:bg-yellow-50
+                              dark:bg-gray-900
+                              dark:border-gray-700
+                              dark:hover:bg-yellow-900/20
                             `
                         }
+
+                        ${
+                          settingFavoriteId === t.id
+                            ? "opacity-60 cursor-wait"
+                            : ""
+                        }
                       `}
+                      title={
+                        isFavorite
+                          ? "Favourite template"
+                          : "Set as favourite template"
+                      }
                     >
-                      {isAssigned
-                        ? "ASSIGNED"
-                        : "UNASSIGNED"}
-                    </div>
-                  )}
+                      <Star
+                        size={19}
+                        fill={
+                          isFavorite
+                            ? "currentColor"
+                            : "none"
+                        }
+                      />
+                    </button>
+                  </div>
                 </div>
 
                 {/* PREVIEW */}
@@ -1193,7 +1421,8 @@ export default function TemplateList({
                 {/* ACTIONS */}
                 <div
                   className="
-                    flex gap-3
+                    flex flex-wrap
+                    gap-3
                   "
                 >
                   {/* USE */}
@@ -1201,6 +1430,7 @@ export default function TemplateList({
                     onClick={() => selectTemplate(t)}
                     className="
                       flex-1
+                      min-w-[160px]
                       bg-emerald-500
                       hover:bg-emerald-600
                       transition
@@ -1229,7 +1459,8 @@ export default function TemplateList({
                         setPage("editor");
                       }}
                       className="
-                        w-12
+                        flex-1
+                        min-w-[130px]
                         bg-yellow-500
                         hover:bg-yellow-600
                         transition
@@ -1237,11 +1468,13 @@ export default function TemplateList({
                         px-4 py-3
                         rounded-2xl
                         flex items-center
-                        justify-center
+                        justify-center gap-2
+                        font-medium
                       "
                       title="Edit template"
                     >
                       <Pencil className="w-4 h-4" />
+                      Edit
                     </button>
                   )}
 
@@ -1252,7 +1485,8 @@ export default function TemplateList({
                         deleteTemplate(t.id)
                       }
                       className="
-                        w-12
+                        flex-1
+                        min-w-[130px]
                         bg-red-500
                         hover:bg-red-600
                         transition
@@ -1260,11 +1494,13 @@ export default function TemplateList({
                         px-4 py-3
                         rounded-2xl
                         flex items-center
-                        justify-center
+                        justify-center gap-2
+                        font-medium
                       "
                       title="Delete template"
                     >
                       <Trash2 className="w-4 h-4" />
+                      Delete
                     </button>
                   )}
 
@@ -1276,7 +1512,8 @@ export default function TemplateList({
                         setShowAssign(true);
                       }}
                       className="
-                        w-12
+                        flex-1
+                        min-w-[130px]
                         bg-emerald-600
                         hover:bg-emerald-700
                         transition
@@ -1284,11 +1521,13 @@ export default function TemplateList({
                         px-4 py-3
                         rounded-2xl
                         flex items-center
-                        justify-center
+                        justify-center gap-2
+                        font-medium
                       "
                       title="Assign template"
                     >
                       <Link className="w-4 h-4" />
+                      Assign
                     </button>
                   )}
                 </div>
@@ -1469,7 +1708,6 @@ export default function TemplateList({
                   transition
                 "
               >
-                Cancel
               </button>
 
               <button
