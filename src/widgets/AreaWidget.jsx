@@ -9,40 +9,91 @@ import {
   Legend,
 } from "recharts";
 
-import { useMemo, useState } from "react";
+import { useMemo, useId } from "react";
 import { dataRanges } from "../data/dataRanges";
+
+const normaliseTimestamp = (value) => {
+  if (typeof value === "number") return value;
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const formatXAxisTime = (timestamp, historyWindow) => {
+  const date = new Date(timestamp);
+
+  const dateBasedRanges = [
+    "2d",
+    "7d",
+    "30d",
+    "90d",
+    "6mo",
+    "1y",
+    "2y",
+    "5y",
+    "yesterday",
+    "dayBeforeYesterday",
+    "thisWeek",
+    "previousWeek",
+    "thisMonth",
+    "previousMonth",
+    "previousQuarter",
+    "thisYear",
+    "previousYear",
+    "custom",
+  ];
+
+  // More than 24 hours: display dates instead of time.
+  if (dateBasedRanges.includes(historyWindow)) {
+    if (
+      ["90d", "6mo", "1y", "2y", "5y"].includes(
+        historyWindow
+      )
+    ) {
+      return date.toLocaleDateString([], {
+        month: "short",
+        year: "numeric",
+      });
+    }
+
+    return date.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  // 24 hours and below: display hours and minutes.
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 export default function AreaWidget({
   data = [],
   lines = [],
   label = "Area Trend",
+  historyWindow = "15m",
 }) {
-  const [range, setRange] = useState("15m");
+  const widgetId = useId().replace(/:/g, "");
 
-  const filteredData = useMemo(() => {
-    const now = Date.now();
-
-    const ranges = {
-      "5m": 5 * 60 * 1000,
-      "15m": 15 * 60 * 1000,
-      "1h": 60 * 60 * 1000,
-      "6h": 6 * 60 * 60 * 1000,
-      "24h": 24 * 60 * 60 * 1000,
-      "7d": 7 * 24 * 60 * 60 * 1000,
-    };
-
-    return data.filter(
-      (item) =>
-        now - item.timestamp <= ranges[range]
-    );
-  }, [data, range]);
+  const chartData = useMemo(() => {
+    return [...data]
+      .map((item) => ({
+        ...item,
+        timestamp: normaliseTimestamp(item.timestamp),
+      }))
+      .filter((item) => item.timestamp > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [data]);
 
   const mins = lines.map(
-    (l) => dataRanges[l.key]?.min ?? 0
+    (line) => dataRanges[line.key]?.min ?? 0
   );
 
   const maxs = lines.map(
-    (l) => dataRanges[l.key]?.max ?? 100
+    (line) => dataRanges[line.key]?.max ?? 100
   );
 
   const globalMin = mins.length
@@ -53,122 +104,130 @@ export default function AreaWidget({
     ? Math.max(...maxs)
     : 100;
 
+  const firstTimestamp = chartData[0]?.timestamp;
+  const lastTimestamp =
+    chartData[chartData.length - 1]?.timestamp;
+
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-2 px-1">
+    <div className="flex h-full w-full flex-col">
+      <div className="mb-2 px-1">
         <span className="text-xs text-gray-500 dark:text-gray-300">
           {label}
         </span>
-
-        <select
-          value={range}
-          onChange={(e) => setRange(e.target.value)}
-          className="
-            text-xs
-            px-2 py-1
-            rounded-lg
-            border
-            border-gray-300
-            dark:border-gray-700
-            bg-gray-100
-            dark:bg-gray-800
-            dark:text-white
-          "
-        >
-          <option value="5m">5m</option>
-          <option value="15m">15m</option>
-          <option value="1h">1h</option>
-          <option value="6h">6h</option>
-          <option value="24h">24h</option>
-          <option value="7d">7d</option>
-        </select>
       </div>
 
-      {/* CHART */}
-      <div className="flex-1 w-full min-h-[160px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={filteredData}>
-            <defs>
-              {lines.map((line, index) => (
-                <linearGradient
-                  key={line.key}
-                  id={`areaGradient-${line.key}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop
-                    offset="5%"
-                    stopColor={line.color}
-                    stopOpacity={0.45}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor={line.color}
-                    stopOpacity={0.05}
-                  />
-                </linearGradient>
-              ))}
-            </defs>
+      <div className="min-h-[160px] w-full flex-1">
+        {chartData.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-xs text-gray-400">
+            No data available for this time range.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
+              <defs>
+                {lines.map((line) => (
+                  <linearGradient
+                    key={line.key}
+                    id={`areaGradient-${widgetId}-${line.key}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={line.color}
+                      stopOpacity={0.45}
+                    />
 
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="#374151"
-              opacity={0.2}
-            />
+                    <stop
+                      offset="95%"
+                      stopColor={line.color}
+                      stopOpacity={0.05}
+                    />
+                  </linearGradient>
+                ))}
+              </defs>
 
-            <XAxis
-              dataKey={range === "7d" ? "date" : "time"}
-              tick={{ fontSize: 10 }}
-              stroke="#9ca3af"
-            />
-
-            <YAxis
-              width={45}
-              tick={{ fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-              stroke="#9ca3af"
-              domain={[globalMin, globalMax]}
-            />
-
-            <Tooltip
-              formatter={(value, name) => {
-                const unit = dataRanges[name]?.unit || "";
-
-                return [
-                  `${Number(value).toFixed(1)} ${unit}`,
-                  name,
-                ];
-              }}
-              contentStyle={{
-                backgroundColor: "#1f2937",
-                border: "none",
-                color: "white",
-                borderRadius: "8px",
-                fontSize: "12px",
-              }}
-            />
-
-            <Legend />
-
-            {lines.map((line) => (
-              <Area
-                key={line.key}
-                type="monotone"
-                dataKey={line.key}
-                stroke={line.color}
-                fill={`url(#areaGradient-${line.key})`}
-                strokeWidth={2.5}
-                dot={false}
-                isAnimationActive={true}
-                connectNulls
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#374151"
+                opacity={0.2}
               />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
+
+              <XAxis
+                dataKey="timestamp"
+                type="number"
+                scale="time"
+                domain={[
+                  firstTimestamp || "dataMin",
+                  lastTimestamp || "dataMax",
+                ]}
+                tickFormatter={(value) =>
+                  formatXAxisTime(value, historyWindow)
+                }
+                tick={{ fontSize: 10 }}
+                stroke="#9ca3af"
+                minTickGap={30}
+                interval="preserveStartEnd"
+              />
+
+              <YAxis
+                width={45}
+                tick={{ fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                stroke="#9ca3af"
+                domain={[globalMin, globalMax]}
+              />
+
+              <Tooltip
+                labelFormatter={(timestamp) =>
+                  new Date(timestamp).toLocaleString()
+                }
+                formatter={(value, name) => {
+                  const unit = dataRanges[name]?.unit || "";
+                  const numericValue = Number(value);
+
+                  return [
+                    Number.isFinite(numericValue)
+                      ? `${numericValue.toFixed(1)} ${unit}`
+                      : value,
+                    dataRanges[name]?.label || name,
+                  ];
+                }}
+                contentStyle={{
+                  backgroundColor: "#1f2937",
+                  border: "none",
+                  color: "white",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                }}
+              />
+
+              <Legend />
+
+              {lines.map((line) => (
+                <Area
+                  key={line.key}
+                  type="monotone"
+                  dataKey={line.key}
+                  name={
+                    dataRanges[line.key]?.label ||
+                    line.key
+                  }
+                  stroke={line.color}
+                  fill={`url(#areaGradient-${widgetId}-${line.key})`}
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

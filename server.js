@@ -17,7 +17,9 @@ app.use(express.json());
 const PORT = 5000;
 const SECRET = process.env.JWT_SECRET;
 
+// =====================================
 // MYSQL CONNECTION
+// =====================================
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -34,43 +36,182 @@ db.connect((err) => {
   console.log("✅ MySQL Connected");
 });
 
-// RBAC AUTH MIDDLEWARE
+const dbQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, results) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(results);
+    });
+  });
+
+// =====================================
+// AUTH MIDDLEWARE
+// =====================================
 const auth = (roles = []) => {
   return (req, res, next) => {
-    const token = req.headers.authorization;
+    const rawAuthorization =
+      req.headers.authorization;
+
+    const token = rawAuthorization?.startsWith(
+      "Bearer "
+    )
+      ? rawAuthorization.replace("Bearer ", "")
+      : rawAuthorization;
 
     if (!token) {
-      return res.sendStatus(403);
+      return res.status(403).json({
+        error: "No authentication token provided",
+      });
     }
 
     try {
       const decoded = jwt.verify(token, SECRET);
 
       if (
-        roles.length &&
+        roles.length > 0 &&
         !roles.includes(decoded.role)
       ) {
-        return res.sendStatus(403);
+        return res.status(403).json({
+          error: "You do not have permission for this action",
+        });
       }
 
       req.user = decoded;
 
       next();
     } catch (err) {
-      console.error(err);
+      console.error("❌ Authentication error:", err);
 
-      return res.sendStatus(401);
+      return res.status(401).json({
+        error: "Invalid or expired token",
+      });
     }
   };
 };
 
+// =====================================
+// HELPERS
+// =====================================
+const parseTemplateLayout = (template) => {
+  if (!template) return null;
+
+  try {
+    return {
+      ...template,
+      layout:
+        typeof template.layout === "string"
+          ? JSON.parse(template.layout)
+          : template.layout || {},
+    };
+  } catch (err) {
+    console.error(
+      "❌ Template layout parse error:",
+      err
+    );
+
+    return {
+      ...template,
+      layout: {},
+    };
+  }
+};
+
+const escapeFluxString = (value = "") =>
+  String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
+
+const isValidFluxColumnName = (value) =>
+  /^[A-Za-z_][A-Za-z0-9_]*$/.test(
+    String(value || "")
+  );
+
+const toNumericValue = (value) => {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return 0;
+  }
+
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue)
+    ? numericValue
+    : value;
+};
+
+
+// Supports dashboard windows such as -30d, -6mo and -5y.
+// The start time is calculated in JavaScript and sent to Flux as ISO time,
+// avoiding duration parsing limitations for month/year periods.
+// Tracks whether the latest Influx source timestamps are advancing between
+// dashboard requests. This is process memory only and resets when Node restarts.
+const liveFetchMonitor = new Map();
+
+const parseRelativeHistoryWindow = (value) => {
+  const requested = String(value || "-15m");
+  const match = requested.match(/^-(\d+)(m|h|d|w|mo|y)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  const unit = match[2];
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+
+  const end = new Date();
+  const start = new Date(end);
+
+  switch (unit) {
+    case "m":
+      start.setMinutes(start.getMinutes() - amount);
+      break;
+    case "h":
+      start.setHours(start.getHours() - amount);
+      break;
+    case "d":
+      start.setDate(start.getDate() - amount);
+      break;
+    case "w":
+      start.setDate(start.getDate() - amount * 7);
+      break;
+    case "mo":
+      start.setMonth(start.getMonth() - amount);
+      break;
+    case "y":
+      start.setFullYear(start.getFullYear() - amount);
+      break;
+    default:
+      return null;
+  }
+
+  return {
+    requested,
+    start,
+    end,
+    durationMs: end.getTime() - start.getTime(),
+  };
+};
+
+// =====================================
 // LOGIN
+// =====================================
 app.post("/login", (req, res) => {
   const { username, password } = req.body;
 
   db.query(
     `
-    SELECT 
+    SELECT
       users.*,
       organizations.name AS org_name
     FROM users
@@ -134,6 +275,10 @@ app.post("/login", (req, res) => {
   );
 });
 
+// =====================================
+// TEMPLATE ROUTES
+// =====================================
+
 // CREATE TEMPLATE
 app.post(
   "/templates",
@@ -142,6 +287,12 @@ app.post(
     const { name, layout } = req.body;
 
     const { id, org_id, role } = req.user;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        error: "Template name is required",
+      });
+    }
 
     const templateOrgId =
       role === "superadmin"
@@ -155,116 +306,27 @@ app.post(
       VALUES (?, ?, ?, ?)
       `,
       [
-        name,
-        JSON.stringify(layout),
+        name.trim(),
+        JSON.stringify(layout || {}),
         templateOrgId,
         id,
       ],
-      (err) => {
+      (err, result) => {
         if (err) {
-          console.error(err);
-          return res.status(500).send(err);
-        }
+          console.error("❌ Create template error:", err);
 
-        res.send("Template created");
-      }
-    );
-  }
-);
-
-// CREATE USER
-app.post(
-  "/users",
-  auth(["superadmin", "admin"]),
-  async (req, res) => {
-    const { username, password, role, org_id } = req.body;
-
-    if (!username || !username.trim()) {
-      return res.status(400).json({
-        error: "Username is required",
-      });
-    }
-
-    if (!password || password.length < 6) {
-      return res.status(400).json({
-        error: "Password must be at least 6 characters",
-      });
-    }
-
-    const allowedRoles =
-      req.user.role === "superadmin"
-        ? ["admin", "editor", "viewer"]
-        : ["editor", "viewer"];
-
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({
-        error:
-          req.user.role === "admin"
-            ? "Admin can only create editor or viewer users"
-            : "Invalid role",
-      });
-    }
-
-    let finalOrgId = org_id || null;
-
-    if (req.user.role === "admin") {
-      if (!req.user.org_id) {
-        return res.status(403).json({
-          error: "Admin has no organization assigned",
-        });
-      }
-
-      finalOrgId = req.user.org_id;
-    }
-
-    try {
-      const hashedPassword = await bcrypt.hash(
-        password,
-        10
-      );
-
-      db.query(
-        `
-        INSERT INTO users
-          (username, password, role, org_id)
-        VALUES
-          (?, ?, ?, ?)
-        `,
-        [
-          username.trim(),
-          hashedPassword,
-          role,
-          finalOrgId,
-        ],
-        (err, result) => {
-          if (err) {
-            console.error("❌ Create user error:", err);
-
-            if (err.code === "ER_DUP_ENTRY") {
-              return res.status(400).json({
-                error: "Username already exists",
-              });
-            }
-
-            return res.status(500).json({
-              error: "Failed to create user",
-            });
-          }
-
-          return res.json({
-            success: true,
-            message: "User created successfully",
-            userId: result.insertId,
+          return res.status(500).json({
+            error: "Failed to create template",
           });
         }
-      );
-    } catch (err) {
-      console.error("❌ Hash password error:", err);
 
-      return res.status(500).json({
-        error: "Failed to hash password",
-      });
-    }
+        return res.json({
+          success: true,
+          message: "Template created",
+          templateId: result.insertId,
+        });
+      }
+    );
   }
 );
 
@@ -274,53 +336,260 @@ app.get("/templates", auth(), (req, res) => {
 
   if (role === "superadmin") {
     db.query(
-      "SELECT * FROM templates",
+      `
+      SELECT *
+      FROM templates
+      ORDER BY id DESC
+      `,
       (err, results) => {
         if (err) {
-          return res.status(500).send(err);
+          console.error(
+            "❌ Fetch templates error:",
+            err
+          );
+
+          return res.status(500).json({
+            error: "Failed to fetch templates",
+          });
         }
 
-        const parsed = results.map((t) => ({
-          ...t,
-          layout:
-            typeof t.layout === "string"
-              ? JSON.parse(t.layout)
-              : t.layout || {},
-        }));
-
-        res.json(parsed);
+        return res.json(
+          results.map(parseTemplateLayout)
+        );
       }
     );
-  } else {
+
+    return;
+  }
+
+  db.query(
+    `
+    SELECT t.*
+    FROM templates t
+    JOIN org_templates ot
+      ON t.id = ot.template_id
+    WHERE ot.org_id = ?
+    ORDER BY t.id DESC
+    `,
+    [org_id],
+    (err, results) => {
+      if (err) {
+        console.error(
+          "❌ Fetch assigned templates error:",
+          err
+        );
+
+        return res.status(500).json({
+          error: "Failed to fetch templates",
+        });
+      }
+
+      return res.json(
+        results.map(parseTemplateLayout)
+      );
+    }
+  );
+});
+
+// UPDATE TEMPLATE
+app.put(
+  "/templates/:id",
+  auth(["admin", "superadmin"]),
+  (req, res) => {
+    const { name, layout } = req.body;
+    const { role, org_id } = req.user;
+    const templateId = req.params.id;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        error: "Template name is required",
+      });
+    }
+
+    let sql = `
+      UPDATE templates
+      SET name = ?, layout = ?
+      WHERE id = ?
+    `;
+
+    const params = [
+      name.trim(),
+      JSON.stringify(layout || {}),
+      templateId,
+    ];
+
+    if (role === "admin") {
+      sql += `
+        AND org_id = ?
+      `;
+
+      params.push(org_id);
+    }
+
     db.query(
-      `
-      SELECT t.*
-      FROM templates t
-      JOIN org_templates ot
-        ON t.id = ot.template_id
-      WHERE ot.org_id = ?
-      `,
-      [org_id],
-      (err, results) => {
+      sql,
+      params,
+      (err, result) => {
         if (err) {
-          return res.status(500).send(err);
+          console.error(
+            "❌ Update template error:",
+            err
+          );
+
+          return res.status(500).json({
+            error: "Failed to update template",
+          });
         }
 
-        const parsed = results.map((t) => ({
-          ...t,
-          layout:
-            typeof t.layout === "string"
-              ? JSON.parse(t.layout)
-              : t.layout || {},
-        }));
+        if (result.affectedRows === 0) {
+          return res.status(403).json({
+            error:
+              "Template not found or not allowed",
+          });
+        }
 
-        res.json(parsed);
+        return res.json({
+          success: true,
+          message: "Template updated",
+        });
       }
     );
   }
-});
+);
 
-// SET FAVORITE TEMPLATE FOR CURRENT USER
+// DELETE TEMPLATE
+app.delete(
+  "/templates/:id",
+  auth(["admin", "superadmin"]),
+  async (req, res) => {
+    const templateId = req.params.id;
+    const { role, org_id } = req.user;
+
+    try {
+      let checkSql = `
+        SELECT id
+        FROM templates
+        WHERE id = ?
+      `;
+
+      const checkParams = [templateId];
+
+      if (role === "admin") {
+        checkSql += `
+          AND org_id = ?
+        `;
+
+        checkParams.push(org_id);
+      }
+
+      const templates = await dbQuery(
+        checkSql,
+        checkParams
+      );
+
+      if (!templates.length) {
+        return res.status(403).json({
+          error:
+            "Template not found or not allowed",
+        });
+      }
+
+      db.beginTransaction(async (txErr) => {
+        if (txErr) {
+          console.error(
+            "❌ Start template deletion transaction error:",
+            txErr
+          );
+
+          return res.status(500).json({
+            error: "Failed to start transaction",
+          });
+        }
+
+        try {
+          await dbQuery(
+            `
+            DELETE FROM org_templates
+            WHERE template_id = ?
+            `,
+            [templateId]
+          );
+
+          await dbQuery(
+            `
+            UPDATE users
+            SET favorite_template_id = NULL
+            WHERE favorite_template_id = ?
+            `,
+            [templateId]
+          );
+
+          const result = await dbQuery(
+            `
+            DELETE FROM templates
+            WHERE id = ?
+            `,
+            [templateId]
+          );
+
+          if (result.affectedRows === 0) {
+            return db.rollback(() => {
+              return res.status(404).json({
+                error: "Template not found",
+              });
+            });
+          }
+
+          db.commit((commitErr) => {
+            if (commitErr) {
+              return db.rollback(() => {
+                console.error(
+                  "❌ Template delete commit error:",
+                  commitErr
+                );
+
+                return res.status(500).json({
+                  error:
+                    "Failed to complete template deletion",
+                });
+              });
+            }
+
+            return res.json({
+              success: true,
+              message:
+                "Template deleted successfully",
+            });
+          });
+        } catch (err) {
+          return db.rollback(() => {
+            console.error(
+              "❌ Template delete transaction error:",
+              err
+            );
+
+            return res.status(500).json({
+              error: "Failed to delete template",
+            });
+          });
+        }
+      });
+    } catch (err) {
+      console.error(
+        "❌ Template ownership check error:",
+        err
+      );
+
+      return res.status(500).json({
+        error: "Failed to check template",
+      });
+    }
+  }
+);
+
+// =====================================
+// FAVOURITE TEMPLATE
+// =====================================
 app.put(
   "/users/favorite-template",
   auth(),
@@ -339,7 +608,7 @@ app.put(
       });
     }
 
-    const updateFavoriteTemplate = () => {
+    const updateFavorite = () => {
       db.query(
         `
         UPDATE users
@@ -360,7 +629,7 @@ app.put(
             });
           }
 
-          if (result.affectedRows === 0) {
+          if (!result.affectedRows) {
             return res.status(404).json({
               error: "User not found",
             });
@@ -375,7 +644,6 @@ app.put(
       );
     };
 
-    // Superadmin can favourite any existing template
     if (role === "superadmin") {
       db.query(
         `
@@ -384,25 +652,20 @@ app.put(
         WHERE id = ?
         `,
         [template_id],
-        (err, results) => {
+        (err, rows) => {
           if (err) {
-            console.error(
-              "❌ Check template error:",
-              err
-            );
-
             return res.status(500).json({
               error: "Failed to check template",
             });
           }
 
-          if (!results.length) {
+          if (!rows.length) {
             return res.status(404).json({
               error: "Template not found",
             });
           }
 
-          updateFavoriteTemplate();
+          updateFavorite();
         }
       );
 
@@ -415,7 +678,6 @@ app.put(
       });
     }
 
-    // Org users can only favourite templates assigned to their org
     db.query(
       `
       SELECT t.id
@@ -426,60 +688,36 @@ app.put(
         AND ot.org_id = ?
       `,
       [template_id, org_id],
-      (err, results) => {
+      (err, rows) => {
         if (err) {
-          console.error(
-            "❌ Check assigned template error:",
-            err
-          );
-
           return res.status(500).json({
             error:
               "Failed to check assigned template",
           });
         }
 
-        if (!results.length) {
+        if (!rows.length) {
           return res.status(403).json({
             error:
               "You can only favorite templates assigned to your organization",
           });
         }
 
-        updateFavoriteTemplate();
+        updateFavorite();
       }
     );
   }
 );
 
-// GET DEFAULT TEMPLATE
+// =====================================
+// DEFAULT TEMPLATE
+// =====================================
 app.get(
   "/default-template",
   auth(),
   (req, res) => {
     const { id, role, org_id } = req.user;
 
-    const parseTemplate = (template) => {
-      if (!template) return null;
-
-      try {
-        template.layout =
-          typeof template.layout === "string"
-            ? JSON.parse(template.layout)
-            : template.layout || {};
-      } catch (err) {
-        console.error(
-          "❌ Layout parse error:",
-          err
-        );
-
-        template.layout = {};
-      }
-
-      return template;
-    };
-
-    // 1. Try user favourite template first
     const favoriteSql =
       role === "superadmin"
         ? `
@@ -523,24 +761,13 @@ app.get(
           });
         }
 
-        if (favResults.length > 0) {
-          const template =
-            parseTemplate(favResults[0]);
-
-          console.log(
-            "⭐ Returning favorite template:",
-            template?.name
+        if (favResults.length) {
+          return res.json(
+            parseTemplateLayout(favResults[0])
           );
-
-          return res.json(template);
         }
 
-        // 2. Superadmin fallback: latest template
         if (role === "superadmin") {
-          console.log(
-            "👑 SUPERADMIN FETCHING LATEST DEFAULT TEMPLATE"
-          );
-
           db.query(
             `
             SELECT *
@@ -550,11 +777,6 @@ app.get(
             `,
             (err, results) => {
               if (err) {
-                console.error(
-                  "❌ Default template error:",
-                  err
-                );
-
                 return res.status(500).json({
                   error:
                     "Failed to fetch default template",
@@ -562,41 +784,21 @@ app.get(
               }
 
               if (!results.length) {
-                console.log(
-                  "⚠️ No templates found"
-                );
-
                 return res.json(null);
               }
 
-              const template =
-                parseTemplate(results[0]);
-
-              console.log(
-                "✅ Returning latest template:",
-                template?.name
+              return res.json(
+                parseTemplateLayout(results[0])
               );
-
-              return res.json(template);
             }
           );
 
           return;
         }
 
-        // 3. Org user fallback: latest assigned template
         if (!org_id) {
-          console.log(
-            "⚠️ User has no organization"
-          );
-
           return res.json(null);
         }
-
-        console.log(
-          "🏢 ORG USER FETCHING LATEST ASSIGNED TEMPLATE:",
-          org_id
-        );
 
         db.query(
           `
@@ -611,11 +813,6 @@ app.get(
           [org_id],
           (err, results) => {
             if (err) {
-              console.error(
-                "❌ Org default template error:",
-                err
-              );
-
               return res.status(500).json({
                 error:
                   "Failed to fetch default template",
@@ -623,29 +820,287 @@ app.get(
             }
 
             if (!results.length) {
-              console.log(
-                "⚠️ No assigned template found for org:",
-                org_id
-              );
-
               return res.json(null);
             }
 
-            const template =
-              parseTemplate(results[0]);
-
-            console.log(
-              "✅ Returning latest assigned template:",
-              template?.name
+            return res.json(
+              parseTemplateLayout(results[0])
             );
-
-            return res.json(template);
           }
         );
       }
     );
   }
 );
+
+// =====================================
+// USER MANAGEMENT
+// =====================================
+
+// CREATE USER
+app.post(
+  "/users",
+  auth(["superadmin", "admin"]),
+  async (req, res) => {
+    const { username, password, role, org_id } =
+      req.body;
+
+    if (!username?.trim()) {
+      return res.status(400).json({
+        error: "Username is required",
+      });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        error: "Password must be at least 6 characters",
+      });
+    }
+
+    const allowedRoles =
+      req.user.role === "superadmin"
+        ? ["admin", "editor", "viewer"]
+        : ["editor", "viewer"];
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        error:
+          req.user.role === "admin"
+            ? "Admin can only create editor or viewer users"
+            : "Invalid role",
+      });
+    }
+
+    const finalOrgId =
+      req.user.role === "admin"
+        ? req.user.org_id
+        : org_id || null;
+
+    if (
+      req.user.role === "admin" &&
+      !finalOrgId
+    ) {
+      return res.status(403).json({
+        error: "Admin has no organization assigned",
+      });
+    }
+
+    try {
+      const hashedPassword = await bcrypt.hash(
+        password,
+        10
+      );
+
+      db.query(
+        `
+        INSERT INTO users
+        (username, password, role, org_id)
+        VALUES (?, ?, ?, ?)
+        `,
+        [
+          username.trim(),
+          hashedPassword,
+          role,
+          finalOrgId,
+        ],
+        (err, result) => {
+          if (err) {
+            if (err.code === "ER_DUP_ENTRY") {
+              return res.status(400).json({
+                error: "Username already exists",
+              });
+            }
+
+            console.error(
+              "❌ Create user error:",
+              err
+            );
+
+            return res.status(500).json({
+              error: "Failed to create user",
+            });
+          }
+
+          return res.json({
+            success: true,
+            message: "User created successfully",
+            userId: result.insertId,
+          });
+        }
+      );
+    } catch (err) {
+      return res.status(500).json({
+        error: "Failed to hash password",
+      });
+    }
+  }
+);
+
+// GET USERS
+app.get(
+  "/users",
+  auth(["superadmin", "admin"]),
+  (req, res) => {
+    const { role, org_id } = req.user;
+
+    let sql = `
+      SELECT
+        u.id,
+        u.username,
+        u.role,
+        u.org_id,
+        o.name AS org_name,
+        u.created_at,
+        u.favorite_template_id,
+        ft.name AS favorite_template_name
+      FROM users u
+      LEFT JOIN organizations o
+        ON u.org_id = o.id
+      LEFT JOIN templates ft
+        ON u.favorite_template_id = ft.id
+    `;
+
+    const params = [];
+
+    if (role === "admin") {
+      sql += `
+        WHERE u.org_id = ?
+          AND u.role != 'superadmin'
+      `;
+
+      params.push(org_id);
+    }
+
+    sql += `
+      ORDER BY u.id ASC
+    `;
+
+    db.query(sql, params, (err, results) => {
+      if (err) {
+        return res.status(500).json({
+          error: "Failed to fetch users",
+        });
+      }
+
+      return res.json(results);
+    });
+  }
+);
+
+// UPDATE USER ROLE
+app.put(
+  "/users/:id/role",
+  auth(["superadmin", "admin"]),
+  (req, res) => {
+    const userId = req.params.id;
+    const { role, org_id } = req.body;
+
+    const allowedRoles =
+      req.user.role === "superadmin"
+        ? ["admin", "editor", "viewer"]
+        : ["editor", "viewer"];
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        error:
+          req.user.role === "admin"
+            ? "Admin can only assign editor or viewer role"
+            : "Invalid role",
+      });
+    }
+
+    const finalOrgId =
+      req.user.role === "admin"
+        ? req.user.org_id
+        : org_id || null;
+
+    if (
+      req.user.role === "admin" &&
+      !finalOrgId
+    ) {
+      return res.status(403).json({
+        error: "Admin has no organization assigned",
+      });
+    }
+
+    const updateUser = () => {
+      db.query(
+        `
+        UPDATE users
+        SET role = ?, org_id = ?
+        WHERE id = ?
+          AND role != 'superadmin'
+        `,
+        [role, finalOrgId, userId],
+        (err, result) => {
+          if (err) {
+            return res.status(500).json({
+              error: "Failed to update user role",
+            });
+          }
+
+          if (!result.affectedRows) {
+            return res.status(404).json({
+              error:
+                "User not found or cannot update superadmin",
+            });
+          }
+
+          return res.json({
+            success: true,
+            message: "User role updated",
+          });
+        }
+      );
+    };
+
+    if (req.user.role === "superadmin") {
+      updateUser();
+      return;
+    }
+
+    db.query(
+      `
+      SELECT id, role, org_id
+      FROM users
+      WHERE id = ?
+      `,
+      [userId],
+      (err, users) => {
+        if (err) {
+          return res.status(500).json({
+            error: "Failed to check user",
+          });
+        }
+
+        if (!users.length) {
+          return res.status(404).json({
+            error: "User not found",
+          });
+        }
+
+        const targetUser = users[0];
+
+        if (
+          targetUser.role === "superadmin" ||
+          Number(targetUser.org_id) !==
+            Number(req.user.org_id)
+        ) {
+          return res.status(403).json({
+            error:
+              "You can only manage users in your organization",
+          });
+        }
+
+        updateUser();
+      }
+    );
+  }
+);
+
+// =====================================
+// ORGANIZATION / ASSIGNMENT ROUTES
+// =====================================
 
 // GET TEMPLATE ASSIGNMENTS
 app.get(
@@ -654,7 +1109,7 @@ app.get(
   (req, res) => {
     db.query(
       `
-      SELECT 
+      SELECT
         ot.template_id,
         ot.org_id,
         o.name AS org_name,
@@ -668,18 +1123,13 @@ app.get(
       `,
       (err, results) => {
         if (err) {
-          console.error(
-            "❌ Assignment fetch error:",
-            err
-          );
-
           return res.status(500).json({
             error:
               "Failed to fetch template assignments",
           });
         }
 
-        res.json(results);
+        return res.json(results);
       }
     );
   }
@@ -700,25 +1150,20 @@ app.post(
 
     db.query(
       `
-      SELECT *
+      SELECT id
       FROM org_templates
       WHERE org_id = ?
         AND template_id = ?
       `,
       [org_id, template_id],
-      (checkErr, results) => {
+      (checkErr, rows) => {
         if (checkErr) {
-          console.error(
-            "❌ Duplicate check error:",
-            checkErr
-          );
-
           return res.status(500).json({
             error: "Failed to check assignment",
           });
         }
 
-        if (results.length > 0) {
+        if (rows.length) {
           return res.status(409).json({
             error:
               "This template is already assigned to this organization",
@@ -734,11 +1179,6 @@ app.post(
           [org_id, template_id],
           (insertErr) => {
             if (insertErr) {
-              console.error(
-                "❌ Assign template error:",
-                insertErr
-              );
-
               return res.status(500).json({
                 error: "Failed to assign template",
               });
@@ -777,17 +1217,12 @@ app.delete(
       [org_id, template_id],
       (err, result) => {
         if (err) {
-          console.error(
-            "❌ Remove assignment error:",
-            err
-          );
-
           return res.status(500).json({
             error: "Failed to remove assignment",
           });
         }
 
-        if (result.affectedRows === 0) {
+        if (!result.affectedRows) {
           return res.status(404).json({
             error: "Assignment not found",
           });
@@ -809,7 +1244,7 @@ app.post(
   (req, res) => {
     const { name } = req.body;
 
-    if (!name || !name.trim()) {
+    if (!name?.trim()) {
       return res.status(400).json({
         error: "Organization name is required",
       });
@@ -823,11 +1258,6 @@ app.post(
       [name.trim()],
       (err, result) => {
         if (err) {
-          console.error(
-            "❌ Create organization error:",
-            err
-          );
-
           return res.status(500).json({
             error: "Failed to create organization",
           });
@@ -846,7 +1276,7 @@ app.post(
   }
 );
 
-// GET ORGANIZATIONS WITH TEMPLATE DETAILS
+// GET ORGANIZATIONS
 app.get(
   "/organizations",
   auth(["superadmin", "admin"]),
@@ -854,11 +1284,13 @@ app.get(
     const { role, org_id } = req.user;
 
     let sql = `
-      SELECT 
+      SELECT
         o.id,
         o.name,
         COUNT(ot.template_id) AS assigned_template_count,
-        GROUP_CONCAT(t.name SEPARATOR ', ') AS assigned_templates
+        GROUP_CONCAT(
+          t.name SEPARATOR ', '
+        ) AS assigned_templates
       FROM organizations o
       LEFT JOIN org_templates ot
         ON o.id = ot.org_id
@@ -881,24 +1313,15 @@ app.get(
       ORDER BY o.id DESC
     `;
 
-    db.query(
-      sql,
-      params,
-      (err, results) => {
-        if (err) {
-          console.error(
-            "❌ Fetch organizations error:",
-            err
-          );
-
-          return res.status(500).json({
-            error: "Failed to fetch organizations",
-          });
-        }
-
-        res.json(results);
+    db.query(sql, params, (err, results) => {
+      if (err) {
+        return res.status(500).json({
+          error: "Failed to fetch organizations",
+        });
       }
-    );
+
+      return res.json(results);
+    });
   }
 );
 
@@ -907,10 +1330,10 @@ app.put(
   "/organizations/:id",
   auth(["superadmin"]),
   (req, res) => {
-    const { id } = req.params;
     const { name } = req.body;
+    const organizationId = req.params.id;
 
-    if (!name || !name.trim()) {
+    if (!name?.trim()) {
       return res.status(400).json({
         error: "Organization name is required",
       });
@@ -922,20 +1345,15 @@ app.put(
       SET name = ?
       WHERE id = ?
       `,
-      [name.trim(), id],
+      [name.trim(), organizationId],
       (err, result) => {
         if (err) {
-          console.error(
-            "❌ Update organization error:",
-            err
-          );
-
           return res.status(500).json({
             error: "Failed to update organization",
           });
         }
 
-        if (result.affectedRows === 0) {
+        if (!result.affectedRows) {
           return res.status(404).json({
             error: "Organization not found",
           });
@@ -955,15 +1373,10 @@ app.delete(
   "/organizations/:id",
   auth(["superadmin"]),
   (req, res) => {
-    const { id } = req.params;
+    const organizationId = req.params.id;
 
     db.beginTransaction((txErr) => {
       if (txErr) {
-        console.error(
-          "❌ Transaction start error:",
-          txErr
-        );
-
         return res.status(500).json({
           error: "Failed to start transaction",
         });
@@ -971,432 +1384,160 @@ app.delete(
 
       db.query(
         `
-        DELETE FROM org_templates
+        SELECT id
+        FROM templates
         WHERE org_id = ?
         `,
-        [id],
-        (err) => {
-          if (err) {
+        [organizationId],
+        (templateFindErr, templates) => {
+          if (templateFindErr) {
             return db.rollback(() => {
-              console.error(
-                "❌ Delete org template assignments error:",
-                err
-              );
-
               return res.status(500).json({
                 error:
-                  "Failed to remove organization template assignments",
+                  "Failed to find organization templates",
               });
             });
           }
 
-          db.query(
-            `
-            UPDATE users
-            SET org_id = NULL
-            WHERE org_id = ?
-            `,
-            [id],
-            (err) => {
-              if (err) {
-                return db.rollback(() => {
-                  console.error(
-                    "❌ Unlink users error:",
-                    err
-                  );
+          const templateIds = templates.map(
+            (template) => template.id
+          );
 
-                  return res.status(500).json({
-                    error:
-                      "Failed to unlink users from organization",
-                  });
+          const clearFavorites = (callback) => {
+            if (!templateIds.length) {
+              callback();
+              return;
+            }
+
+            db.query(
+              `
+              UPDATE users
+              SET favorite_template_id = NULL
+              WHERE favorite_template_id IN (?)
+              `,
+              [templateIds],
+              callback
+            );
+          };
+
+          clearFavorites((favoriteErr) => {
+            if (favoriteErr) {
+              return db.rollback(() => {
+                return res.status(500).json({
+                  error:
+                    "Failed to clear user template favourites",
                 });
-              }
+              });
+            }
 
-              db.query(
-                `
-                DELETE FROM templates
-                WHERE org_id = ?
-                `,
-                [id],
-                (err) => {
-                  if (err) {
-                    return db.rollback(() => {
-                      console.error(
-                        "❌ Delete org templates error:",
-                        err
-                      );
-
-                      return res.status(500).json({
-                        error:
-                          "Failed to delete organization templates",
-                      });
+            db.query(
+              `
+              DELETE FROM org_templates
+              WHERE org_id = ?
+              `,
+              [organizationId],
+              (assignmentErr) => {
+                if (assignmentErr) {
+                  return db.rollback(() => {
+                    return res.status(500).json({
+                      error:
+                        "Failed to remove organization template assignments",
                     });
-                  }
+                  });
+                }
 
-                  db.query(
-                    `
-                    DELETE FROM organizations
-                    WHERE id = ?
-                    `,
-                    [id],
-                    (err, result) => {
-                      if (err) {
-                        return db.rollback(() => {
-                          console.error(
-                            "❌ Delete organization error:",
-                            err
-                          );
-
-                          return res.status(500).json({
-                            error:
-                              "Failed to delete organization",
-                          });
+                db.query(
+                  `
+                  UPDATE users
+                  SET org_id = NULL
+                  WHERE org_id = ?
+                  `,
+                  [organizationId],
+                  (userErr) => {
+                    if (userErr) {
+                      return db.rollback(() => {
+                        return res.status(500).json({
+                          error:
+                            "Failed to unlink users from organization",
                         });
-                      }
+                      });
+                    }
 
-                      if (result.affectedRows === 0) {
-                        return db.rollback(() => {
-                          return res.status(404).json({
-                            error:
-                              "Organization not found",
-                          });
-                        });
-                      }
-
-                      db.commit((commitErr) => {
-                        if (commitErr) {
+                    db.query(
+                      `
+                      DELETE FROM templates
+                      WHERE org_id = ?
+                      `,
+                      [organizationId],
+                      (templateErr) => {
+                        if (templateErr) {
                           return db.rollback(() => {
-                            console.error(
-                              "❌ Commit error:",
-                              commitErr
-                            );
-
                             return res.status(500).json({
                               error:
-                                "Failed to commit organization deletion",
+                                "Failed to delete organization templates",
                             });
                           });
                         }
 
-                        return res.json({
-                          success: true,
-                          message:
-                            "Organization deleted successfully",
-                        });
-                      });
-                    }
-                  );
-                }
-              );
-            }
-          );
+                        db.query(
+                          `
+                          DELETE FROM organizations
+                          WHERE id = ?
+                          `,
+                          [organizationId],
+                          (deleteErr, result) => {
+                            if (deleteErr) {
+                              return db.rollback(() => {
+                                return res.status(500).json({
+                                  error:
+                                    "Failed to delete organization",
+                                });
+                              });
+                            }
+
+                            if (!result.affectedRows) {
+                              return db.rollback(() => {
+                                return res.status(404).json({
+                                  error:
+                                    "Organization not found",
+                                });
+                              });
+                            }
+
+                            db.commit((commitErr) => {
+                              if (commitErr) {
+                                return db.rollback(() => {
+                                  return res.status(500).json({
+                                    error:
+                                      "Failed to complete organization deletion",
+                                  });
+                                });
+                              }
+
+                              return res.json({
+                                success: true,
+                                message:
+                                  "Organization deleted successfully",
+                              });
+                            });
+                          }
+                        );
+                      }
+                    );
+                  }
+                );
+              }
+            );
+          });
         }
       );
     });
   }
 );
 
-// GET USERS FOR AUTHORIZATION MANAGEMENT
-app.get(
-  "/users",
-  auth(["superadmin", "admin"]),
-  (req, res) => {
-    const { role, org_id } = req.user;
-
-    let sql = `
-      SELECT 
-        u.id,
-        u.username,
-        u.role,
-        u.org_id,
-        o.name AS org_name,
-        u.created_at,
-        u.favorite_template_id,
-        ft.name AS favorite_template_name
-      FROM users u
-      LEFT JOIN organizations o
-        ON u.org_id = o.id
-      LEFT JOIN templates ft
-        ON u.favorite_template_id = ft.id
-    `;
-
-    const params = [];
-
-    if (role === "admin") {
-      sql += `
-        WHERE u.org_id = ?
-          AND u.role != 'superadmin'
-      `;
-
-      params.push(org_id);
-    }
-
-    sql += `
-      ORDER BY u.id ASC
-    `;
-
-    db.query(
-      sql,
-      params,
-      (err, results) => {
-        if (err) {
-          console.error(
-            "❌ Fetch users error:",
-            err
-          );
-
-          return res.status(500).json({
-            error: "Failed to fetch users",
-          });
-        }
-
-        return res.json(results);
-      }
-    );
-  }
-);
-
-// UPDATE USER ROLE / AUTHORIZE USER
-app.put(
-  "/users/:id/role",
-  auth(["superadmin", "admin"]),
-  (req, res) => {
-    const { id } = req.params;
-    const { role, org_id } = req.body;
-
-    const allowedRoles =
-      req.user.role === "superadmin"
-        ? ["admin", "editor", "viewer"]
-        : ["editor", "viewer"];
-
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({
-        error:
-          req.user.role === "admin"
-            ? "Admin can only assign editor or viewer role"
-            : "Invalid role",
-      });
-    }
-
-    let finalOrgId = org_id || null;
-
-    if (req.user.role === "admin") {
-      if (!req.user.org_id) {
-        return res.status(403).json({
-          error: "Admin has no organization assigned",
-        });
-      }
-
-      finalOrgId = req.user.org_id;
-
-      db.query(
-        `
-        SELECT id, role, org_id
-        FROM users
-        WHERE id = ?
-        `,
-        [id],
-        (checkErr, users) => {
-          if (checkErr) {
-            console.error(
-              "❌ Check user error:",
-              checkErr
-            );
-
-            return res.status(500).json({
-              error: "Failed to check user",
-            });
-          }
-
-          if (!users.length) {
-            return res.status(404).json({
-              error: "User not found",
-            });
-          }
-
-          const targetUser = users[0];
-
-          if (
-            targetUser.role === "superadmin" ||
-            Number(targetUser.org_id) !==
-              Number(req.user.org_id)
-          ) {
-            return res.status(403).json({
-              error:
-                "You can only manage users in your organization",
-            });
-          }
-
-          db.query(
-            `
-            UPDATE users
-            SET role = ?, org_id = ?
-            WHERE id = ?
-              AND role != 'superadmin'
-            `,
-            [role, finalOrgId, id],
-            (err, result) => {
-              if (err) {
-                console.error(
-                  "❌ Update user role error:",
-                  err
-                );
-
-                return res.status(500).json({
-                  error: "Failed to update user role",
-                });
-              }
-
-              if (result.affectedRows === 0) {
-                return res.status(404).json({
-                  error:
-                    "User not found or cannot update superadmin",
-                });
-              }
-
-              return res.json({
-                success: true,
-                message: "User role updated",
-              });
-            }
-          );
-        }
-      );
-
-      return;
-    }
-
-    db.query(
-      `
-      UPDATE users
-      SET role = ?, org_id = ?
-      WHERE id = ?
-        AND role != 'superadmin'
-      `,
-      [role, finalOrgId, id],
-      (err, result) => {
-        if (err) {
-          console.error(
-            "❌ Update user role error:",
-            err
-          );
-
-          return res.status(500).json({
-            error: "Failed to update user role",
-          });
-        }
-
-        if (result.affectedRows === 0) {
-          return res.status(404).json({
-            error:
-              "User not found or cannot update superadmin",
-          });
-        }
-
-        return res.json({
-          success: true,
-          message: "User role updated",
-        });
-      }
-    );
-  }
-);
-
-// DELETE TEMPLATE
-app.delete(
-  "/templates/:id",
-  auth(["admin", "superadmin"]),
-  (req, res) => {
-    const { role, org_id } = req.user;
-
-    let sql = `
-      DELETE FROM templates
-      WHERE id = ?
-    `;
-
-    const params = [req.params.id];
-
-    if (role === "admin") {
-      sql += `
-        AND org_id = ?
-      `;
-
-      params.push(org_id);
-    }
-
-    db.query(
-      sql,
-      params,
-      (err, result) => {
-        if (err) {
-          return res.status(500).send(err);
-        }
-
-        if (result.affectedRows === 0) {
-          return res.status(403).json({
-            error:
-              "Template not found or not allowed",
-          });
-        }
-
-        res.send("Deleted");
-      }
-    );
-  }
-);
-
-// UPDATE TEMPLATE
-app.put(
-  "/templates/:id",
-  auth(["admin", "superadmin"]),
-  (req, res) => {
-    const { name, layout } = req.body;
-
-    const { role, org_id } = req.user;
-
-    let sql = `
-      UPDATE templates
-      SET name = ?, layout = ?
-      WHERE id = ?
-    `;
-
-    const params = [
-      name,
-      JSON.stringify(layout),
-      req.params.id,
-    ];
-
-    if (role === "admin") {
-      sql += `
-        AND org_id = ?
-      `;
-
-      params.push(org_id);
-    }
-
-    db.query(
-      sql,
-      params,
-      (err, result) => {
-        if (err) {
-          console.error(err);
-          return res.status(500).send(err);
-        }
-
-        if (result.affectedRows === 0) {
-          return res.status(403).json({
-            error:
-              "Template not found or not allowed",
-          });
-        }
-
-        res.send("Updated");
-      }
-    );
-  }
-);
-
-// INFLUXDB SETUP
+// =====================================
+// INFLUXDB
+// =====================================
 const influxDB = new InfluxDB({
   url: process.env.INFLUX_URL,
   token: process.env.INFLUX_TOKEN,
@@ -1405,7 +1546,7 @@ const influxDB = new InfluxDB({
 const org = process.env.INFLUX_ORG;
 const bucket = process.env.INFLUX_BUCKET;
 
-// CHANNEL MAPPING
+// Used only by old legacy WebSocket polling.
 const fieldMap = {
   ch1: "steamPressure",
   ch2: "steamFlowrate",
@@ -1421,19 +1562,639 @@ const fieldMap = {
   ch13: "vgOutletTemp",
 };
 
+// =====================================
+// GET ALL MEASUREMENTS
+//
+// GET /influx/measurements?bucket=Mill
+// =====================================
+app.get(
+  "/influx/measurements",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const selectedBucket =
+      req.query.bucket || bucket;
+
+    if (!selectedBucket) {
+      return res.status(400).json({
+        error: "Bucket is required",
+      });
+    }
+
+    try {
+      const queryApi =
+        influxDB.getQueryApi(org);
+
+      const fluxQuery = `
+        import "influxdata/influxdb/schema"
+
+        schema.measurements(
+          bucket: "${escapeFluxString(selectedBucket)}",
+          start: -365d
+        )
+      `;
+
+      const rows =
+        await queryApi.collectRows(fluxQuery);
+
+      const measurements = [
+        ...new Set(
+          rows
+            .map((row) => row._value)
+            .filter(Boolean)
+        ),
+      ].sort();
+
+      console.log(
+        "📦 Available measurements:",
+        measurements
+      );
+
+      return res.json({
+        bucket: selectedBucket,
+        measurements,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Fetch measurements error:",
+        err
+      );
+
+      return res.status(500).json({
+        error:
+          "Failed to fetch InfluxDB measurements",
+      });
+    }
+  }
+);
+
+// =====================================
+// GET IDS FOR ONE MEASUREMENT
+//
+// GET /influx/ids?bucket=Mill&measurement=PSTR
+// Optional: &tagKey=id
+// =====================================
+app.get(
+  "/influx/ids",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const selectedBucket =
+      req.query.bucket || bucket;
+
+    const measurement =
+      req.query.measurement || "PBLR";
+
+    const tagKey =
+      req.query.tagKey || "id";
+
+    if (!selectedBucket || !measurement) {
+      return res.status(400).json({
+        error:
+          "Bucket and measurement are required",
+      });
+    }
+
+    if (!isValidFluxColumnName(tagKey)) {
+      return res.status(400).json({
+        error: "Invalid tag key",
+      });
+    }
+
+    try {
+      const queryApi =
+        influxDB.getQueryApi(org);
+
+      const fluxQuery = `
+        import "influxdata/influxdb/schema"
+
+        schema.tagValues(
+          bucket: "${escapeFluxString(selectedBucket)}",
+          tag: "${escapeFluxString(tagKey)}",
+          predicate: (r) =>
+            r._measurement == "${escapeFluxString(measurement)}",
+          start: -365d
+        )
+      `;
+
+      const rows =
+        await queryApi.collectRows(fluxQuery);
+
+      const ids = [
+        ...new Set(
+          rows
+            .map((row) => row._value)
+            .filter(Boolean)
+        ),
+      ].sort();
+
+      return res.json({
+        bucket: selectedBucket,
+        measurement,
+        tagKey,
+        ids,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Fetch Influx IDs error:",
+        err
+      );
+
+      return res.status(500).json({
+        error: "Failed to fetch InfluxDB IDs",
+      });
+    }
+  }
+);
+
+// =====================================
+// GET FIELD KEYS / CHANNELS
+//
+// GET /influx/channels?bucket=Mill&measurement=PSTR
+// =====================================
+app.get(
+  "/influx/channels",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const selectedBucket =
+      req.query.bucket || bucket;
+
+    const measurement =
+      req.query.measurement || "PBLR";
+
+    if (!selectedBucket || !measurement) {
+      return res.status(400).json({
+        error:
+          "Bucket and measurement are required",
+      });
+    }
+
+    try {
+      const queryApi =
+        influxDB.getQueryApi(org);
+
+      const fluxQuery = `
+        import "influxdata/influxdb/schema"
+
+        schema.fieldKeys(
+          bucket: "${escapeFluxString(selectedBucket)}",
+          predicate: (r) =>
+            r._measurement == "${escapeFluxString(measurement)}",
+          start: -365d
+        )
+      `;
+
+      const rows =
+        await queryApi.collectRows(fluxQuery);
+
+      const channels = [
+        ...new Set(
+          rows
+            .map((row) => row._value)
+            .filter(Boolean)
+        ),
+      ].sort();
+
+      return res.json({
+        bucket: selectedBucket,
+        measurement,
+        channels,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Fetch Influx channels error:",
+        err
+      );
+
+      return res.status(500).json({
+        error:
+          "Failed to fetch InfluxDB channels",
+      });
+    }
+  }
+);
+
+// =====================================
+// FETCH TEMPLATE-SPECIFIC LIVE DATA
+//
+// POST /template-live-data
+//
+// Supports:
+// {
+//   influx: { bucket, measurement, id }
+//   channelMap: { steamPressure: "ch1" }
+//   historyWindow: "-7d"
+// }
+//
+// Or an exact calendar range:
+// {
+//   startTime: "2026-06-01T00:00:00.000Z",
+//   endTime: "2026-06-22T23:59:59.999Z"
+// }
+// =====================================
+app.post(
+  "/template-live-data",
+  auth(),
+  async (req, res) => {
+    const {
+      influx,
+      channelMap,
+      historyWindow = "-15m",
+      startTime,
+      endTime,
+    } = req.body;
+
+    const selectedBucket = influx?.bucket || bucket;
+    const measurement = influx?.measurement || "PBLR";
+    const tagKey = influx?.tagKey || "id";
+    const tagValue = influx?.tagValue || influx?.id;
+
+    if (!selectedBucket) {
+      return res.status(400).json({
+        error: "Influx bucket is required",
+      });
+    }
+
+    if (!measurement) {
+      return res.status(400).json({
+        error: "Influx measurement is required",
+      });
+    }
+
+    if (!tagValue) {
+      return res.status(400).json({
+        error: "Influx device ID is required",
+      });
+    }
+
+    if (!isValidFluxColumnName(tagKey)) {
+      return res.status(400).json({
+        error: "Invalid Influx tag key",
+      });
+    }
+
+    if (
+      !channelMap ||
+      typeof channelMap !== "object" ||
+      Array.isArray(channelMap)
+    ) {
+      return res.status(400).json({
+        error: "A valid channelMap object is required",
+      });
+    }
+
+    const validMappings = Object.entries(channelMap).filter(
+      ([dataKey, channel]) =>
+        dataKey &&
+        channel &&
+        typeof channel === "string"
+    );
+
+    if (!validMappings.length) {
+      return res.status(400).json({
+        error: "At least one channel mapping is required",
+      });
+    }
+
+    const hasStartTime = startTime !== undefined && startTime !== null && startTime !== "";
+    const hasEndTime = endTime !== undefined && endTime !== null && endTime !== "";
+
+    if (hasStartTime !== hasEndTime) {
+      return res.status(400).json({
+        error: "Both startTime and endTime are required for a calendar range",
+      });
+    }
+
+    let historyRangeFlux = "";
+    let rangeDurationMs = 15 * 60 * 1000;
+    let rangeDescription = "-15m";
+
+    if (hasStartTime && hasEndTime) {
+      const parsedStart = new Date(startTime);
+      const parsedEnd = new Date(endTime);
+
+      if (
+        Number.isNaN(parsedStart.getTime()) ||
+        Number.isNaN(parsedEnd.getTime())
+      ) {
+        return res.status(400).json({
+          error: "startTime and endTime must be valid date-time values",
+        });
+      }
+
+      if (parsedStart >= parsedEnd) {
+        return res.status(400).json({
+          error: "startTime must be earlier than endTime",
+        });
+      }
+
+      const now = Date.now();
+      if (parsedEnd.getTime() > now + 60 * 1000) {
+        return res.status(400).json({
+          error: "endTime cannot be in the future",
+        });
+      }
+
+      const safeStart = escapeFluxString(parsedStart.toISOString());
+      const safeEnd = escapeFluxString(parsedEnd.toISOString());
+
+      historyRangeFlux = `
+        |> range(
+          start: time(v: "${safeStart}"),
+          stop: time(v: "${safeEnd}")
+        )
+      `;
+
+      rangeDurationMs = parsedEnd.getTime() - parsedStart.getTime();
+      rangeDescription = `${parsedStart.toISOString()} to ${parsedEnd.toISOString()}`;
+    } else {
+      const parsedRelativeRange =
+        parseRelativeHistoryWindow(historyWindow) ||
+        parseRelativeHistoryWindow("-15m");
+
+      const safeStart = escapeFluxString(
+        parsedRelativeRange.start.toISOString()
+      );
+
+      const safeEnd = escapeFluxString(
+        parsedRelativeRange.end.toISOString()
+      );
+
+      rangeDurationMs = parsedRelativeRange.durationMs;
+      rangeDescription = parsedRelativeRange.requested;
+
+      historyRangeFlux = `
+        |> range(
+          start: time(v: "${safeStart}"),
+          stop: time(v: "${safeEnd}")
+        )
+      `;
+    }
+
+    // Keep long periods responsive and avoid returning unnecessary raw points.
+    const aggregateEvery =
+      rangeDurationMs <= 6 * 60 * 60 * 1000
+        ? "1m"
+        : rangeDurationMs <= 2 * 24 * 60 * 60 * 1000
+        ? "5m"
+        : rangeDurationMs <= 7 * 24 * 60 * 60 * 1000
+        ? "30m"
+        : rangeDurationMs <= 30 * 24 * 60 * 60 * 1000
+        ? "2h"
+        : rangeDurationMs <= 90 * 24 * 60 * 60 * 1000
+        ? "6h"
+        : rangeDurationMs <= 365 * 24 * 60 * 60 * 1000
+        ? "1d"
+        : "7d";
+
+    const channelFilter = validMappings
+      .map(
+        ([, channel]) =>
+          `r["_field"] == "${escapeFluxString(channel)}"`
+      )
+      .join(" or ");
+
+    const toDashboardData = (row = {}) => {
+      const result = {};
+
+      validMappings.forEach(([dataKey, channel]) => {
+        result[dataKey] = toNumericValue(row[channel]);
+      });
+
+      return result;
+    };
+
+    try {
+      const queryApi = influxDB.getQueryApi(org);
+
+      const baseFilter = `
+        |> filter(fn: (r) =>
+          r._measurement == "${escapeFluxString(measurement)}"
+        )
+        |> filter(fn: (r) =>
+          r["${escapeFluxString(tagKey)}"] == "${escapeFluxString(tagValue)}"
+        )
+        |> filter(fn: (r) => ${channelFilter})
+      `;
+
+      // Get the newest record for EACH mapped field.
+      // This avoids losing a field when channels are written at different times.
+      const liveFluxQuery = `
+        from(bucket: "${escapeFluxString(selectedBucket)}")
+          |> range(start: -5m)
+          ${baseFilter}
+          |> group(columns: ["_field"])
+          |> last()
+          |> keep(columns: ["_time", "_field", "_value"])
+          |> sort(columns: ["_time"], desc: true)
+      `;
+
+      const historyFluxQuery = `
+        from(bucket: "${escapeFluxString(selectedBucket)}")
+          ${historyRangeFlux}
+          ${baseFilter}
+          |> aggregateWindow(
+            every: ${aggregateEvery},
+            fn: last,
+            createEmpty: false
+          )
+          |> pivot(
+            rowKey: ["_time"],
+            columnKey: ["_field"],
+            valueColumn: "_value"
+          )
+          |> sort(columns: ["_time"])
+      `;
+
+      const [liveRows, historyRows] = await Promise.all([
+        queryApi.collectRows(liveFluxQuery),
+        queryApi.collectRows(historyFluxQuery),
+      ]);
+
+      const latestByField = new Map();
+
+      liveRows.forEach((row) => {
+        const field = row?._field;
+        const timestamp = new Date(row?._time).getTime();
+
+        if (!field || !Number.isFinite(timestamp)) {
+          return;
+        }
+
+        const existing = latestByField.get(field);
+
+        if (!existing || timestamp > existing.timestamp) {
+          latestByField.set(field, {
+            timestamp,
+            value: row?._value,
+          });
+        }
+      });
+
+      const data = {};
+      const fieldTimestamps = {};
+      const missingFields = [];
+
+      validMappings.forEach(([dataKey, channel]) => {
+        const latest = latestByField.get(channel);
+
+        if (!latest) {
+          data[dataKey] = 0;
+          missingFields.push(dataKey);
+          return;
+        }
+
+        data[dataKey] = toNumericValue(latest.value);
+        fieldTimestamps[dataKey] = new Date(
+          latest.timestamp
+        ).toISOString();
+      });
+
+      const liveTimestamps = Array.from(latestByField.values())
+        .map((entry) => entry.timestamp)
+        .filter(Number.isFinite);
+
+      const liveTimestamp = liveTimestamps.length
+        ? Math.max(...liveTimestamps)
+        : null;
+
+      const oldestLiveTimestamp = liveTimestamps.length
+        ? Math.min(...liveTimestamps)
+        : null;
+
+      const history = historyRows
+        .map((row) => {
+          const timestamp = new Date(row._time).getTime();
+
+          return {
+            timestamp,
+            time: new Date(timestamp).toLocaleTimeString(),
+            date: new Date(timestamp).toLocaleDateString(),
+            ...toDashboardData(row),
+          };
+        })
+        .filter((row) => Number.isFinite(row.timestamp));
+
+      const monitorKey = [
+        selectedBucket,
+        measurement,
+        tagKey,
+        tagValue,
+      ].join("|");
+
+      const previousMonitor = liveFetchMonitor.get(monitorKey);
+      const nowMs = Date.now();
+      const liveAgeMs = liveTimestamp
+        ? nowMs - liveTimestamp
+        : null;
+
+      const sourceAdvanced = Boolean(
+        liveTimestamp &&
+          (!previousMonitor ||
+            liveTimestamp > previousMonitor.lastTimestamp)
+      );
+
+      const sameTimestampPolls = liveTimestamp
+        ? sourceAdvanced
+          ? 0
+          : (previousMonitor?.sameTimestampPolls || 0) + 1
+        : 0;
+
+      liveFetchMonitor.set(monitorKey, {
+        lastTimestamp: liveTimestamp,
+        sameTimestampPolls,
+        lastCheckedAt: nowMs,
+      });
+
+      const liveStatus = {
+        sourceTimestamp: liveTimestamp
+          ? new Date(liveTimestamp).toISOString()
+          : null,
+        oldestFieldTimestamp: oldestLiveTimestamp
+          ? new Date(oldestLiveTimestamp).toISOString()
+          : null,
+        ageSeconds:
+          liveAgeMs === null
+            ? null
+            : Math.max(0, Math.round(liveAgeMs / 1000)),
+        isFresh:
+          liveAgeMs !== null && liveAgeMs <= 30 * 1000,
+        sourceAdvanced,
+        sameTimestampPolls,
+        returnedFieldCount: latestByField.size,
+        expectedFieldCount: validMappings.length,
+        missingFields,
+        fieldTimestamps,
+        historyNewest: history.at(-1)
+          ? new Date(history.at(-1).timestamp).toISOString()
+          : null,
+      };
+
+      console.log("📊 Influx fetch status:", {
+        measurement,
+        tagValue,
+        requestedRange: rangeDescription,
+        aggregateEvery,
+        liveTimestamp: liveStatus.sourceTimestamp,
+        liveAgeSeconds: liveStatus.ageSeconds,
+        liveIsFresh: liveStatus.isFresh,
+        sourceAdvanced: liveStatus.sourceAdvanced,
+        sameTimestampPolls: liveStatus.sameTimestampPolls,
+        returnedFields: `${liveStatus.returnedFieldCount}/${liveStatus.expectedFieldCount}`,
+        missingFields: liveStatus.missingFields,
+        historyCount: history.length,
+        oldest: history[0]
+          ? new Date(history[0].timestamp).toISOString()
+          : "No data",
+        newest: liveStatus.historyNewest || "No data",
+      });
+
+      return res.json({
+        timestamp: liveTimestamp
+          ? new Date(liveTimestamp).toISOString()
+          : null,
+        liveStatus,
+        influx: {
+          bucket: selectedBucket,
+          measurement,
+          tagKey,
+          tagValue,
+        },
+        range: {
+          requested: rangeDescription,
+          aggregateEvery,
+        },
+        data,
+        history,
+        message: liveTimestamp
+          ? undefined
+          : "No recent data found for this Influx device",
+      });
+    } catch (err) {
+      console.error("❌ Template live data error:", err);
+
+      return res.status(500).json({
+        error: "Failed to fetch template live data",
+      });
+    }
+  }
+);
+
+// =====================================
 // SERVER
+// =====================================
 const server = app.listen(PORT, () => {
   console.log(
     `✅ Server running on http://localhost:${PORT}`
   );
 });
 
-// WEBSOCKET
+// =====================================
+// LEGACY WEBSOCKET
+// Dashboard now uses /template-live-data.
+// =====================================
 const wss = new WebSocketServer({
   server,
 });
 
-// WS AUTH
 wss.on("connection", (ws, req) => {
   const token = new URL(
     req.url,
@@ -1456,55 +2217,52 @@ wss.on("connection", (ws, req) => {
     );
   } catch {
     console.log("❌ WS invalid token");
-
     ws.close();
   }
 });
 
-// FETCH LIVE DATA
+// Legacy PBLR stream only.
 async function fetchInfluxData() {
-  const queryApi = influxDB.getQueryApi(org);
-
-  const fluxQuery = `
-    from(bucket: "${bucket}")
-      |> range(start: -1m)
-      |> filter(fn: (r) =>
-        r._measurement == "PBLR"
-      )
-      |> last()
-      |> pivot(
-        rowKey: ["_time"],
-        columnKey: ["_field"],
-        valueColumn: "_value"
-      )
-  `;
-
   try {
+    const queryApi =
+      influxDB.getQueryApi(org);
+
+    const fluxQuery = `
+      from(bucket: "${escapeFluxString(bucket)}")
+        |> range(start: -1m)
+        |> filter(fn: (r) =>
+          r._measurement == "PBLR"
+        )
+        |> last()
+        |> pivot(
+          rowKey: ["_time"],
+          columnKey: ["_field"],
+          valueColumn: "_value"
+        )
+    `;
+
     const rows =
       await queryApi.collectRows(fluxQuery);
 
     if (!rows.length) {
-      console.log(
-        "⚠️ No InfluxDB data"
-      );
-
       return {};
     }
 
     const row = rows[0];
-
     const result = {};
 
     Object.entries(fieldMap).forEach(
       ([channel, key]) => {
-        result[key] = row[channel];
+        result[key] = toNumericValue(
+          row[channel]
+        );
       }
     );
 
     return result;
   } catch (err) {
     console.error(
-      "❌ Influx Error:",
+      "❌ Legacy Influx Error:",
       err
     );
 
@@ -1512,11 +2270,9 @@ async function fetchInfluxData() {
   }
 }
 
-// STREAM LIVE DATA
 setInterval(async () => {
   try {
     const data = await fetchInfluxData();
-
     const payload = JSON.stringify(data);
 
     wss.clients.forEach((client) => {
@@ -1526,7 +2282,7 @@ setInterval(async () => {
     });
   } catch (err) {
     console.error(
-      "❌ WS Error:",
+      "❌ WebSocket stream error:",
       err
     );
   }

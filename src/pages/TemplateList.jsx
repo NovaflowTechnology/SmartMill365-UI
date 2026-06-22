@@ -1708,6 +1708,7 @@ export default function TemplateList({
                   transition
                 "
               >
+                Cancel
               </button>
 
               <button

@@ -66,10 +66,10 @@ ImageWidgetEditor({
       },
     ];
 
-    setWidget({
-      ...widget,
+    setWidget((currentWidget) => ({
+      ...currentWidget,
       pins: updatedPins,
-    });
+    }));
   };
 
   
@@ -110,10 +110,10 @@ ImageWidgetEditor({
       y,
     };
 
-    setWidget({
-      ...widget,
+    setWidget((currentWidget) => ({
+      ...currentWidget,
       pins: updatedPins,
-    });
+    }));
   };
 
   
@@ -130,10 +130,10 @@ ImageWidgetEditor({
       ...changes,
     };
 
-    setWidget({
-      ...widget,
+    setWidget((currentWidget) => ({
+      ...currentWidget,
       pins: updatedPins,
-    });
+    }));
   };
 
   
@@ -147,23 +147,31 @@ ImageWidgetEditor({
         (_, i) => i !== index
       );
 
-    setWidget({
-      ...widget,
+    setWidget((currentWidget) => ({
+      ...currentWidget,
       pins: updatedPins,
-    });
+    }));
   };
 
   
+  // RETURN TO THE WIDGET SETTINGS WIZARD
+  // Use a functional update so the latest pin changes are preserved
+  // before returning to the Builder or Editor.
+  const returnToWidgetSettings = () => {
+    setWidget((currentWidget) => ({
+      ...currentWidget,
+      pins: Array.isArray(currentWidget?.pins)
+        ? currentWidget.pins
+        : [],
+      resumeWidgetSettings: true,
+    }));
+
+    setPage(widget?.returnPage || "builder");
+  };
+
   // SAVE
-  
   const handleSave = () => {
-
-    console.log(
-      "SAVED IMAGE WIDGET:",
-      widget
-    );
-
-    setPage("builder");
+    returnToWidgetSettings();
   };
 
   return (
@@ -209,9 +217,7 @@ ImageWidgetEditor({
           ">
 
             <button
-              onClick={() =>
-                setPage("builder")
-              }
+              onClick={returnToWidgetSettings}
 
               className="
                 p-2
@@ -321,57 +327,110 @@ ImageWidgetEditor({
         {/* =====================================
             PINS
         ===================================== */}
-        {pins.map((pin, i) => (
+        {pins.map((pin, i) => {
+          const pinLabel =
+            dataOptions.find(
+              (item) => item.key === pin.dataKey
+            )?.label || "Select Data";
 
-          <div
-            key={i}
+          return (
+            <div
+              key={pin.id || i}
+              className="absolute z-20"
+              style={{
+                left: `${pin.x}%`,
+                top: `${pin.y}%`,
+                transform: "translate(-50%, -50%)",
+              }}
+            >
+              {/* Pulse */}
+              {!pin.locked && (
+                <div className="
+                  absolute -inset-1
+                  w-9 h-9
+                  rounded-full
+                  bg-red-500
+                  opacity-20
+                  animate-ping
+                  pointer-events-none
+                " />
+              )}
 
-            className="
-              absolute
-              z-20
-              flex flex-col
-              items-center
-            "
+              {/* Numbered pin — the number matches the Pin Management card */}
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
 
-            style={{
-              left: `${pin.x}%`,
-              top: `${pin.y}%`,
-              transform:
-                "translate(-50%, -50%)",
-            }}
+                  if (!pin.locked) {
+                    setDragIndex(i);
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                title={
+                  pin.locked
+                    ? `Pin #${i + 1} is locked`
+                    : `Drag Pin #${i + 1} to reposition`
+                }
+                className={`
+                  relative z-10
+                  w-7 h-7
+                  rounded-full
+                  border-2 border-white
+                  shadow-xl
+                  flex items-center justify-center
+                  text-[11px] font-black text-white
+                  transition-transform
+                  ${
+                    pin.locked
+                      ? "bg-gray-500 cursor-not-allowed"
+                      : "bg-red-500 cursor-move hover:scale-110"
+                  }
+                  ${
+                    dragIndex === i
+                      ? "scale-125 ring-4 ring-red-300/40"
+                      : ""
+                  }
+                `}
+              >
+                {i + 1}
+              </button>
 
-            onMouseDown={(e) => {
+              {/* Always-visible pin identity */}
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className="
+                  absolute left-9 top-1/2
+                  -translate-y-1/2
+                  min-w-[116px] max-w-[190px]
+                  rounded-lg
+                  border border-white/15
+                  bg-black/80
+                  px-2 py-1.5
+                  shadow-lg
+                  backdrop-blur-md
+                  cursor-default
+                "
+              >
+                <p className="text-[8px] font-bold uppercase leading-none text-red-300">
+                  Pin #{i + 1}
+                </p>
 
-              e.stopPropagation();
-
-              setDragIndex(i);
-
-            }}
-          >
-
-            {/* PULSE */}
-            <div className="
-              absolute
-              w-8 h-8
-              rounded-full
-              bg-red-500
-              opacity-20
-              animate-ping
-            " />
-
-            {/* PIN */}
-            <div className="
-              relative
-              w-5 h-5
-              rounded-full
-              bg-red-500
-              border-2 border-white
-              shadow-xl
-            " />
-
-          </div>
-
-        ))}
+                <p
+                  title={pinLabel}
+                  className="
+                    mt-1 truncate
+                    text-[10px] font-semibold
+                    leading-none text-white
+                  "
+                >
+                  {pinLabel}
+                </p>
+              </div>
+            </div>
+          );
+        })}
 
       </div>
 
@@ -472,13 +531,22 @@ ImageWidgetEditor({
               ">
 
                 <div className="
+                  flex items-center gap-2
                   font-semibold
                   text-sm
                   dark:text-white
                 ">
+                  <span className="
+                    w-5 h-5
+                    rounded-full
+                    bg-red-500
+                    text-[10px] font-black text-white
+                    flex items-center justify-center
+                  ">
+                    {i + 1}
+                  </span>
 
                   Pin #{i + 1}
-
                 </div>
 
                 <button

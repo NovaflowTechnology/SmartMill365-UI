@@ -9,66 +9,87 @@ import {
   Legend,
 } from "recharts";
 
-import {
-  useMemo,
-  useState,
-} from "react";
-
+import { useMemo } from "react";
 import { dataRanges } from "../data/dataRanges";
+
+const normaliseTimestamp = (value) => {
+  if (typeof value === "number") return value;
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const formatXAxisTime = (timestamp, historyWindow) => {
+  const date = new Date(timestamp);
+
+  const dateBasedRanges = [
+    "2d",
+    "7d",
+    "30d",
+    "90d",
+    "6mo",
+    "1y",
+    "2y",
+    "5y",
+    "yesterday",
+    "dayBeforeYesterday",
+    "thisWeek",
+    "previousWeek",
+    "thisMonth",
+    "previousMonth",
+    "previousQuarter",
+    "thisYear",
+    "previousYear",
+    "custom",
+  ];
+
+  // Ranges above 24 hours use dates.
+  if (dateBasedRanges.includes(historyWindow)) {
+    // Long ranges use month and year.
+    if (
+      ["90d", "6mo", "1y", "2y", "5y"].includes(
+        historyWindow
+      )
+    ) {
+      return date.toLocaleDateString([], {
+        month: "short",
+        year: "numeric",
+      });
+    }
+
+    // 2d, 7d, 30d and calendar ranges use day and month.
+    return date.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  // 24 hours and below use hour and minute.
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 export default function LineWidget({
   data = [],
   lines = [],
   label = "Trend",
+  historyWindow = "15m",
 }) {
-  // TIME RANGE
-  const [range, setRange] =
-    useState("15m");
+  const chartData = useMemo(() => {
+    return [...data]
+      .map((item) => ({
+        ...item,
+        timestamp: normaliseTimestamp(item.timestamp),
+      }))
+      .filter((item) => item.timestamp > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [data]);
 
-  // FILTER DATA
-  const filteredData =
-    useMemo(() => {
-      const now = Date.now();
-
-      const ranges = {
-        "5m":
-          5 * 60 * 1000,
-
-        "15m":
-          15 * 60 * 1000,
-
-        "1h":
-          60 * 60 * 1000,
-
-        "6h":
-          6 * 60 * 60 * 1000,
-
-        "24h":
-          24 * 60 * 60 * 1000,
-
-        "7d":
-          7 *
-          24 *
-          60 *
-          60 *
-          1000,
-      };
-
-      return data.filter(
-        (item) =>
-          now -
-            item.timestamp <=
-          ranges[range]
-      );
-    }, [data, range]);
-
-  // FIRST LINE = LEFT AXIS
-  const leftLine =
-    lines[0];
-
-  // SECOND AND LATER LINES = RIGHT AXIS
-  const rightLines =
-    lines.slice(1);
+  const leftLine = lines[0];
+  const rightLines = lines.slice(1);
 
   const leftRange =
     dataRanges[leftLine?.key] || {
@@ -77,247 +98,143 @@ export default function LineWidget({
       unit: "",
     };
 
-  const rightMins =
-    rightLines.map(
-      (l) =>
-        dataRanges[l.key]
-          ?.min ?? 0
-    );
+  const rightMins = rightLines.map(
+    (line) => dataRanges[line.key]?.min ?? 0
+  );
 
-  const rightMaxs =
-    rightLines.map(
-      (l) =>
-        dataRanges[l.key]
-          ?.max ?? 100
-    );
+  const rightMaxs = rightLines.map(
+    (line) => dataRanges[line.key]?.max ?? 100
+  );
 
-  const rightMin =
-    rightMins.length
-      ? Math.min(...rightMins)
-      : 0;
+  const rightMin = rightMins.length
+    ? Math.min(...rightMins)
+    : 0;
 
-  const rightMax =
-    rightMaxs.length
-      ? Math.max(...rightMaxs)
-      : 100;
+  const rightMax = rightMaxs.length
+    ? Math.max(...rightMaxs)
+    : 100;
+
+  const firstTimestamp = chartData[0]?.timestamp;
+  const lastTimestamp =
+    chartData[chartData.length - 1]?.timestamp;
 
   return (
-    <div className="
-      flex flex-col
-      h-full w-full
-    ">
-
-      {/* HEADER */}
-      <div className="
-        flex justify-between
-        items-center
-        mb-2 px-1
-      ">
-
-        <span className="
-          text-xs
-          text-gray-500
-          dark:text-gray-300
-        ">
+    <div className="flex h-full w-full flex-col">
+      <div className="mb-2 px-1">
+        <span className="text-xs text-gray-500 dark:text-gray-300">
           {label}
         </span>
-
-        {/* RANGE SELECTOR */}
-        <select
-          value={range}
-          onChange={(e) =>
-            setRange(
-              e.target.value
-            )
-          }
-          className="
-            text-xs
-            px-2 py-1
-            rounded-lg
-            border
-            border-gray-300
-            dark:border-gray-700
-            bg-gray-100
-            dark:bg-gray-800
-            dark:text-white
-          "
-        >
-          <option value="5m">
-            5m
-          </option>
-
-          <option value="15m">
-            15m
-          </option>
-
-          <option value="1h">
-            1h
-          </option>
-
-          <option value="6h">
-            6h
-          </option>
-
-          <option value="24h">
-            24h
-          </option>
-
-          <option value="7d">
-            7d
-          </option>
-        </select>
-
       </div>
 
-      {/* CHART */}
-      <div className="
-        flex-1 w-full
-        min-h-[160px]
-      ">
+      <div className="min-h-[160px] w-full flex-1">
+        {chartData.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-xs text-gray-400">
+            No data available for this time range.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#374151"
+                opacity={0.2}
+              />
 
-        <ResponsiveContainer
-          width="100%"
-          height="100%"
-        >
+              <XAxis
+                dataKey="timestamp"
+                type="number"
+                scale="time"
+                domain={[
+                  firstTimestamp || "dataMin",
+                  lastTimestamp || "dataMax",
+                ]}
+                tickFormatter={(value) =>
+                  formatXAxisTime(value, historyWindow)
+                }
+                tick={{ fontSize: 10 }}
+                stroke="#9ca3af"
+                minTickGap={30}
+                interval="preserveStartEnd"
+              />
 
-          <LineChart
-            data={filteredData}
-          >
-
-            {/* GRID */}
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="#374151"
-              opacity={0.2}
-            />
-
-            {/* X AXIS */}
-            <XAxis
-              dataKey={
-                range === "7d"
-                  ? "date"
-                  : "time"
-              }
-              tick={{
-                fontSize: 10,
-              }}
-              stroke="#9ca3af"
-            />
-
-            {/* LEFT Y AXIS */}
-            <YAxis
-              yAxisId="left"
-              orientation="left"
-              width={45}
-              tick={{
-                fontSize: 10,
-              }}
-              axisLine={false}
-              tickLine={false}
-              stroke={
-                leftLine?.color ||
-                "#3b82f6"
-              }
-              domain={[
-                leftRange.min ?? 0,
-                leftRange.max ?? 100,
-              ]}
-            />
-
-            {/* RIGHT Y AXIS */}
-            {rightLines.length > 0 && (
               <YAxis
-                yAxisId="right"
-                orientation="right"
+                yAxisId="left"
+                orientation="left"
                 width={45}
-                tick={{
-                  fontSize: 10,
-                }}
+                tick={{ fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
-                stroke={
-                  rightLines[0]?.color ||
-                  "#ef4444"
-                }
+                stroke={leftLine?.color || "#3b82f6"}
                 domain={[
-                  rightMin,
-                  rightMax,
+                  leftRange.min ?? 0,
+                  leftRange.max ?? 100,
                 ]}
               />
-            )}
 
-            {/* TOOLTIP */}
-            <Tooltip
-              formatter={(
-                value,
-                name
-              ) => {
-                const unit =
-                  dataRanges[name]
-                    ?.unit || "";
+              {rightLines.length > 0 && (
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  width={45}
+                  tick={{ fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  stroke={
+                    rightLines[0]?.color || "#ef4444"
+                  }
+                  domain={[rightMin, rightMax]}
+                />
+              )}
 
-                return [
-                  `${Number(
-                    value
-                  ).toFixed(1)} ${unit}`,
-                  name,
-                ];
-              }}
-              labelFormatter={(
-                label
-              ) =>
-                `${label}`
-              }
-              contentStyle={{
-                backgroundColor:
-                  "#1f2937",
+              <Tooltip
+                labelFormatter={(timestamp) =>
+                  new Date(timestamp).toLocaleString()
+                }
+                formatter={(value, name) => {
+                  const unit =
+                    dataRanges[name]?.unit || "";
 
-                border: "none",
+                  const numericValue = Number(value);
 
-                color: "white",
+                  return [
+                    Number.isFinite(numericValue)
+                      ? `${numericValue.toFixed(1)} ${unit}`
+                      : value,
+                    dataRanges[name]?.label || name,
+                  ];
+                }}
+                contentStyle={{
+                  backgroundColor: "#1f2937",
+                  border: "none",
+                  color: "white",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                }}
+              />
 
-                borderRadius: "8px",
+              <Legend />
 
-                fontSize: "12px",
-              }}
-            />
-
-            {/* LEGEND */}
-            <Legend />
-
-            {/* LINES */}
-            {lines.map(
-              (line, index) => (
+              {lines.map((line, index) => (
                 <Line
                   key={line.key}
                   yAxisId={
-                    index === 0
-                      ? "left"
-                      : "right"
+                    index === 0 ? "left" : "right"
                   }
                   type="monotone"
-                  dataKey={
-                    line.key
-                  }
-                  stroke={
-                    line.color
-                  }
+                  dataKey={line.key}
+                  name={dataRanges[line.key]?.label || line.key}
+                  stroke={line.color}
                   strokeWidth={2.5}
                   dot={false}
-                  isAnimationActive={
-                    true
-                  }
+                  activeDot={{ r: 4 }}
+                  isAnimationActive={false}
                   connectNulls
                 />
-              )
-            )}
-
-          </LineChart>
-
-        </ResponsiveContainer>
-
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
-
     </div>
   );
 }

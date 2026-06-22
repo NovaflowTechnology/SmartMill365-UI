@@ -13,6 +13,7 @@ export default function WidgetRenderer({
   dataKey,
   data = {},
   history = [],
+  historyWindow = "15m",
   item = {},
   updateItem = () => {},
   editMode = false,
@@ -88,6 +89,7 @@ export default function WidgetRenderer({
         <AreaWidget
           data={history}
           label={item?.label || "Area Trend"}
+          historyWindow={historyWindow}
           lines={selectedKeys.map((key, index) => ({
             key,
             color: colors[index % colors.length],
@@ -118,6 +120,7 @@ export default function WidgetRenderer({
       <LineWidget
         data={history}
         label={item?.label || "Trend"}
+        historyWindow={historyWindow}
         lines={selectedKeys.map((key, index) => ({
           key,
           color: colors[index % colors.length],

@@ -155,8 +155,8 @@ export default function Layout({
 
           ${
             collapsed
-              ? "justify-center px-3 py-3"
-              : "px-4 py-3"
+              ? "w-11 h-11 mx-auto justify-center p-0"
+              : "w-full min-h-[60px] px-4 py-3"
           }
 
           ${
@@ -188,9 +188,10 @@ export default function Layout({
 
         <div
           className={`
+            w-5 h-5
             flex items-center
             justify-center
-            rounded-xl
+            shrink-0
             transition
 
             ${
@@ -200,7 +201,7 @@ export default function Layout({
             }
           `}
         >
-          <Icon size={18} />
+          <Icon size={18} strokeWidth={2} />
         </div>
 
         {!collapsed && (
@@ -269,7 +270,7 @@ export default function Layout({
 
               ${
                 collapsed
-                  ? "flex flex-col items-center gap-3 px-3 py-5"
+                  ? "flex flex-col items-center gap-3 px-0 py-5"
                   : "flex items-center justify-between px-5 py-5"
               }
             `}
@@ -287,7 +288,11 @@ export default function Layout({
                       shadow-sm
                     "
                   >
-                    <Monitor className="w-6 h-6 text-white" />
+                    <Monitor
+                      size={18}
+                      strokeWidth={2}
+                      className="text-white"
+                    />
                   </div>
 
                   <div>
@@ -332,7 +337,11 @@ export default function Layout({
                 "
                 title="UI Template System"
               >
-                <Monitor className="w-6 h-6 text-white" />
+                <Monitor
+                  size={18}
+                  strokeWidth={2}
+                  className="text-white"
+                />
               </div>
             )}
 
@@ -341,8 +350,8 @@ export default function Layout({
                 setCollapsed(!collapsed)
               }
               className="
-                w-9 h-9
-                rounded-xl
+                w-11 h-11
+                rounded-2xl
                 flex items-center
                 justify-center
                 text-slate-400
@@ -357,9 +366,9 @@ export default function Layout({
               }
             >
               {collapsed ? (
-                <ChevronRight size={18} />
+                <ChevronRight size={18} strokeWidth={2} />
               ) : (
-                <ChevronLeft size={18} />
+                <ChevronLeft size={18} strokeWidth={2} />
               )}
             </button>
           </div>
@@ -420,7 +429,7 @@ export default function Layout({
                     border border-slate-700
                   "
                 >
-                  <Leaf className="w-5 h-5" />
+                  <Leaf size={18} strokeWidth={2} />
                 </div>
               </div>
 
@@ -508,11 +517,18 @@ export default function Layout({
 
           {/* MENU */}
           <nav
-            className="
+            className={`
               relative z-10
               flex flex-col
-              mt-6 px-3 gap-2
-            "
+              mt-6
+              gap-2
+
+              ${
+                collapsed
+                  ? "px-0 items-center"
+                  : "px-3"
+              }
+            `}
           >
             {!collapsed && (
               <div
@@ -550,6 +566,7 @@ export default function Layout({
                   }
                   className={`
                     w-full
+                    min-h-[60px]
                     flex items-center
                     gap-3
                     px-4 py-3
@@ -567,6 +584,11 @@ export default function Layout({
                 >
                   <div
                     className={`
+                      w-5 h-5
+                      flex items-center
+                      justify-center
+                      shrink-0
+
                       ${
                         isSettingActive
                           ? "text-emerald-300"
@@ -574,7 +596,7 @@ export default function Layout({
                       }
                     `}
                   >
-                    <Settings size={18} />
+                    <Settings size={18} strokeWidth={2} />
                   </div>
 
                   <div className="flex-1 text-left">
@@ -593,6 +615,7 @@ export default function Layout({
 
                   <ChevronDown
                     size={16}
+                    strokeWidth={2}
                     className={`
                       transition-transform
                       ${
@@ -606,119 +629,45 @@ export default function Layout({
 
                 {settingOpen && (
                   <div className="mt-2 space-y-2">
-                    {settingMenu.map((item) => {
-                      const Icon = item.icon;
-
-                      const isActive =
-                        currentPage === item.key;
-
-                      return (
-                        <button
-                          key={item.key}
-                          onClick={() =>
-                            setPage(item.key)
-                          }
-                          className={`
-                            relative
-                            w-full
-                            flex items-center
-                            gap-3
-                            rounded-2xl
-                            text-sm
-                            font-medium
-                            transition-all duration-200
-                            group
-                            px-4 py-3
-
-                            ${
-                              isActive
-                                ? `
-                                  bg-emerald-600
-                                  text-white
-                                  shadow-sm
-                                `
-                                : `
-                                  text-slate-300
-                                  hover:bg-slate-800
-                                  hover:text-white
-                                `
-                            }
-                          `}
-                        >
-                          {isActive && (
-                            <span
-                              className="
-                                absolute left-0
-                                w-1 h-8
-                                rounded-r-full
-                                bg-emerald-300
-                              "
-                            />
-                          )}
-
-                          <div
-                            className={`
-                              ml-3
-                              flex items-center
-                              justify-center
-                              rounded-xl
-
-                              ${
-                                isActive
-                                  ? "text-white"
-                                  : "text-slate-400 group-hover:text-emerald-300"
-                              }
-                            `}
-                          >
-                            <Icon size={17} />
-                          </div>
-
-                          <div className="flex-1 text-left">
-                            <div>
-                              {item.label}
-                            </div>
-
-                            <div
-                              className={`
-                                text-[11px]
-                                mt-0.5
-
-                                ${
-                                  isActive
-                                    ? "text-emerald-50"
-                                    : "text-slate-500 group-hover:text-slate-400"
-                                }
-                              `}
-                            >
-                              {item.description}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {settingMenu.map((item) =>
+                      renderMenuButton(item)
+                    )}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="mt-3 space-y-2">
-                <div
+              <div
+                className="
+                  mt-3
+                  space-y-2
+                  w-full
+                  flex flex-col
+                  items-center
+                "
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettingOpen(!settingOpen)
+                  }
                   className={`
-                    w-full
+                    w-11 h-11
+                    mx-auto
                     flex items-center
                     justify-center
-                    px-3 py-3
                     rounded-2xl
+                    transition
 
                     ${
                       isSettingActive
                         ? "bg-slate-800 text-emerald-300"
-                        : "text-slate-400"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
                     }
                   `}
                   title="Setting"
                 >
-                  <Settings size={18} />
-                </div>
+                  <Settings size={18} strokeWidth={2} />
+                </button>
 
                 {settingMenu.map(renderMenuButton)}
               </div>
@@ -760,7 +709,11 @@ export default function Layout({
                       border border-slate-700
                     "
                   >
-                    <ShieldCheck className="w-5 h-5 text-emerald-300" />
+                    <ShieldCheck
+                      size={18}
+                      strokeWidth={2}
+                      className="text-emerald-300"
+                    />
                   </div>
 
                   <div className="min-w-0">
@@ -826,7 +779,7 @@ export default function Layout({
 
                 ${
                   collapsed
-                    ? "px-0"
+                    ? "w-11 h-11 p-0 mx-auto"
                     : "px-4"
                 }
               `}
@@ -837,9 +790,9 @@ export default function Layout({
               }
             >
               {dark ? (
-                <Sun size={16} />
+                <Sun size={18} strokeWidth={2} />
               ) : (
-                <Moon size={16} />
+                <Moon size={18} strokeWidth={2} />
               )}
 
               {!collapsed && (
@@ -874,13 +827,13 @@ export default function Layout({
 
                 ${
                   collapsed
-                    ? "px-0"
+                    ? "w-11 h-11 p-0 mx-auto"
                     : "px-4"
                 }
               `}
               title="Logout"
             >
-              <LogOut size={16} />
+              <LogOut size={18} strokeWidth={2} />
 
               {!collapsed && (
                 <span>

@@ -10,7 +10,6 @@ import {
   ChartArea,
 } from "lucide-react";
 
-// ✅ ALL AVAILABLE LIVE DATA KEYS
 export const allDataKeys = [
   "steamPressure",
   "steamFlowrate",
