@@ -8,21 +8,19 @@ import {
   Image as ImageIcon,
   Gauge,
   ChartArea,
+  Radio,
 } from "lucide-react";
 
 export const allDataKeys = [
   "steamPressure",
   "steamFlowrate",
   "steamOutletTemp",
-
   "inletDraft",
   "outletDraft",
   "furnaceDraft",
-
   "waterInletTemp",
   "waterFlowrate",
   "waterDrumLevel",
-
   "vgPressure",
   "vgInletTemp",
   "vgOutletTemp",
@@ -35,42 +33,30 @@ export const widgetLibrary = [
     icon: Activity,
     supportedData: allDataKeys,
   },
-
   {
     type: "linearGauge",
     label: "Linear Gauge",
     icon: Gauge,
     supportedData: allDataKeys,
   },
-
   {
     type: "line",
     label: "Line",
     icon: TrendingUp,
     supportedData: allDataKeys,
   },
-
   {
     type: "area",
     label: "Area",
     icon: ChartArea,
     supportedData: allDataKeys,
   },
-
-  {
-    type: "image",
-    label: "Image",
-    icon: ImageIcon,
-    supportedData: [],
-  },
-
   {
     type: "bar",
     label: "Bar",
     icon: BarChart3,
     supportedData: allDataKeys,
   },
-
   {
     type: "bignumber",
     label: "Number",
@@ -79,22 +65,34 @@ export const widgetLibrary = [
   },
 
   {
-    type: "alarm",
+    type: "status",
+    label: "Data Status",
+    icon: Radio,
+    supportedData: [],
+  },
+
+  {
+    type: "alarm", //I dont want anymore, maybe can change to histogram, table, and logs
     label: "Alarm",
     icon: AlertTriangle,
     supportedData: allDataKeys,
   },
-
   {
     type: "pie",
     label: "Pie",
     icon: PieChart,
     supportedData: allDataKeys,
   },
+  {
+    type: "image",
+    label: "Image",
+    icon: ImageIcon,
+    supportedData: [],
+  },
 ];
 
 /**
- * CHANNEL MAPPING
+ * CHANNEL MAPPING from Novaflow (Veli Important)
  *
  * ch1:  steamPressure
  * ch2:  steamFlowrate

@@ -15,6 +15,7 @@ import {
   Leaf,
   Settings,
   ChevronDown,
+  ServerCog,
 } from "lucide-react";
 
 export default function Layout({
@@ -51,6 +52,7 @@ export default function Layout({
     "builder",
     "templates",
     "organizations",
+    "device-management",
   ];
 
   const [settingOpen, setSettingOpen] =
@@ -104,6 +106,17 @@ export default function Layout({
       description: "Manage dashboards",
       icon: Folder,
     },
+
+    ...(isSuperadmin
+      ? [
+          {
+            key: "device-management",
+            label: "Device Management",
+            description: "Assign device access",
+            icon: ServerCog,
+          },
+        ]
+      : []),
 
     ...(isSuperadmin || isAdmin
       ? [

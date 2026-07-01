@@ -7,6 +7,7 @@ import TemplateEditor from "./pages/TemplateEditor";
 import TemplateList from "./pages/TemplateList";
 import ImageWidgetEditor from "./pages/ImageWidgetEditor";
 import OrganizationManagement from "./pages/ManageOrganization";
+import DeviceManagement from "./pages/DeviceManagement";
 import Login from "./pages/Login";
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -326,6 +327,23 @@ export default function App() {
                   fetchDefaultTemplate
                 }
               />
+            </Layout>
+          </ProtectedRoute>
+        );
+
+      // DEVICE MANAGEMENT
+      case "device-management":
+        return (
+          <ProtectedRoute roles={["superadmin"]}>
+            <Layout
+              setPage={handleNavigate}
+              currentPage={page}
+              fullscreen={fullscreen}
+              showSidebar={true}
+              dark={dark}
+              toggleTheme={toggleTheme}
+            >
+              <DeviceManagement setPage={setPage} />
             </Layout>
           </ProtectedRoute>
         );

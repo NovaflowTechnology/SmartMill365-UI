@@ -36,9 +36,11 @@ const imageWidgetViewportClass =
 
 
 const defaultInfluxConfig = {
-  bucket: "Mill",
-  measurement: "PBLR",
+  bucket: "",
+  measurement: "",
+  tagKey: "id",
   id: "",
+  tagValue: "",
 };
 
 const defaultChannelMap = {
@@ -155,6 +157,9 @@ export default function TemplateEditor({
   // =====================================
   const role = localStorage.getItem("role");
   const isSuperadmin = role === "superadmin";
+  const isOrganizationAdmin = role === "admin";
+  const canConfigureInflux =
+    isSuperadmin || isOrganizationAdmin;
 
   const [showInfluxMapping, setShowInfluxMapping] =
     useState(false);
@@ -164,6 +169,13 @@ export default function TemplateEditor({
 
   const [channelMap, setChannelMap] =
     useState(defaultChannelMap);
+
+  // Organization admins can select only devices assigned by a superadmin.
+  const [availableDevices, setAvailableDevices] =
+    useState([]);
+
+  const [selectedDeviceId, setSelectedDeviceId] =
+    useState("");
 
   const [influxMeasurements, setInfluxMeasurements] =
     useState([]);
@@ -224,17 +236,34 @@ export default function TemplateEditor({
     Authorization: localStorage.getItem("token"),
   });
 
-  const fetchMeasurements = async (selectedBucket) => {
-    const bucket = String(selectedBucket || "").trim();
+  const fetchAllowedDevices = async () => {
+    const res = await fetch(
+      "http://localhost:5000/influx/allowed-devices",
+      { headers: getAuthHeaders() }
+    );
 
-    if (!bucket) {
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data?.error || "Failed to load assigned devices"
+      );
+    }
+
+    return Array.isArray(data) ? data : [];
+  };
+
+  const fetchMeasurements = async (selectedBucket) => {
+    const bucketName = String(selectedBucket || "").trim();
+
+    if (!bucketName) {
       setInfluxMeasurements([]);
       return;
     }
 
     const res = await fetch(
       `http://localhost:5000/influx/measurements?bucket=${encodeURIComponent(
-        bucket
+        bucketName
       )}`,
       { headers: getAuthHeaders() }
     );
@@ -250,24 +279,56 @@ export default function TemplateEditor({
     setInfluxMeasurements(data?.measurements || []);
   };
 
+  const fetchChannelsForDevice = async (
+    selectedBucket,
+    selectedMeasurement,
+    tagKey = "id",
+    tagValue = ""
+  ) => {
+    const query = new URLSearchParams({
+      bucket: String(selectedBucket || "").trim(),
+      measurement: String(selectedMeasurement || "").trim(),
+      tagKey: tagKey || "id",
+    });
+
+    if (tagValue) {
+      query.set("tagValue", tagValue);
+    }
+
+    const res = await fetch(
+      `http://localhost:5000/influx/channels?${query.toString()}`,
+      { headers: getAuthHeaders() }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data?.error || "Failed to load channels"
+      );
+    }
+
+    return data?.channels || [];
+  };
+
   const fetchIdsAndChannels = async (
     selectedBucket,
     selectedMeasurement
   ) => {
-    const bucket = String(selectedBucket || "").trim();
-    const measurement = String(
+    const bucketName = String(selectedBucket || "").trim();
+    const measurementName = String(
       selectedMeasurement || ""
     ).trim();
 
-    if (!bucket || !measurement) {
+    if (!bucketName || !measurementName) {
       setInfluxIds([]);
       setInfluxChannels([]);
       return;
     }
 
     const query = new URLSearchParams({
-      bucket,
-      measurement,
+      bucket: bucketName,
+      measurement: measurementName,
     });
 
     const [idsRes, channelsRes] = await Promise.all([
@@ -300,17 +361,72 @@ export default function TemplateEditor({
     setInfluxChannels(channelsData?.channels || []);
   };
 
-  const refreshInfluxMetadata = async () => {
-    if (!isSuperadmin) return;
+  const applySelectedDevice = (
+    deviceId,
+    devices = availableDevices
+  ) => {
+    const device = devices.find(
+      (entry) => String(entry.id) === String(deviceId)
+    );
 
-    const selectedBucket = influxConfig.bucket.trim();
-    const selectedMeasurement =
-      influxConfig.measurement.trim();
+    if (!device) return;
+
+    const tagValue = device.tag_value || "";
+
+    setSelectedDeviceId(String(device.id));
+    setInfluxConfig({
+      bucket: device.bucket_name || "",
+      measurement: device.measurement_name || "",
+      tagKey: device.tag_key || "id",
+      id: tagValue,
+      tagValue,
+    });
+    setInfluxMeasurements(
+      [device.measurement_name].filter(Boolean)
+    );
+    setInfluxIds([tagValue].filter(Boolean));
+    setInfluxChannels([]);
+  };
+
+  const refreshInfluxMetadata = async () => {
+    if (!canConfigureInflux) return;
 
     setInfluxLoading(true);
     setInfluxError("");
 
     try {
+      if (isOrganizationAdmin) {
+        const devices = await fetchAllowedDevices();
+
+        setAvailableDevices(devices);
+
+        if (!devices.length) {
+          setInfluxConfig(defaultInfluxConfig);
+          setInfluxMeasurements([]);
+          setInfluxIds([]);
+          setInfluxChannels([]);
+          setInfluxError(
+            "No Influx device has been assigned to your organization."
+          );
+          return;
+        }
+
+        const stillSelected = devices.some(
+          (device) =>
+            String(device.id) === String(selectedDeviceId)
+        );
+
+        applySelectedDevice(
+          stillSelected ? selectedDeviceId : devices[0].id,
+          devices
+        );
+        return;
+      }
+
+      const selectedBucket = influxConfig.bucket.trim();
+      const selectedMeasurement =
+        influxConfig.measurement.trim();
+
       await fetchMeasurements(selectedBucket);
 
       if (selectedMeasurement) {
@@ -357,10 +473,15 @@ export default function TemplateEditor({
         selectedTemplate.name || ""
       );
 
-      setInfluxConfig({
+      const savedInflux = {
         ...defaultInfluxConfig,
         ...(layout?.influx || {}),
-      });
+      };
+
+      setInfluxConfig(savedInflux);
+      setSelectedDeviceId(
+        String(savedInflux.deviceId || "")
+      );
 
       setChannelMap({
         ...defaultChannelMap,
@@ -371,7 +492,115 @@ export default function TemplateEditor({
     }
   }, [selectedTemplate]);
 
-  // Load dropdown values after the saved template mapping is loaded.
+  // Organization admins receive a server-filtered list of their assigned devices.
+  useEffect(() => {
+    if (!isOrganizationAdmin) return;
+
+    const loadAssignedDevices = async () => {
+      setInfluxLoading(true);
+      setInfluxError("");
+
+      try {
+        const devices = await fetchAllowedDevices();
+        setAvailableDevices(devices);
+
+        if (!devices.length) {
+          setInfluxError(
+            "No Influx device has been assigned to your organization."
+          );
+          return;
+        }
+
+        let savedInflux = {};
+
+        try {
+          const savedLayout =
+            typeof selectedTemplate?.layout === "string"
+              ? JSON.parse(selectedTemplate.layout)
+              : selectedTemplate?.layout || {};
+
+          savedInflux = savedLayout?.influx || {};
+        } catch {
+          savedInflux = {};
+        }
+
+        const savedDevice = devices.find(
+          (device) =>
+            String(device.id) === String(savedInflux.deviceId || selectedDeviceId) ||
+            (
+              device.bucket_name === savedInflux.bucket &&
+              device.measurement_name === savedInflux.measurement &&
+              device.tag_key === (savedInflux.tagKey || "id") &&
+              device.tag_value === (
+                savedInflux.tagValue || savedInflux.id
+              )
+            )
+        );
+
+        applySelectedDevice(
+          savedDevice?.id || devices[0].id,
+          devices
+        );
+      } catch (err) {
+        console.error("❌ Assigned device error:", err);
+        setAvailableDevices([]);
+        setInfluxError(
+          err.message || "Failed to load assigned devices."
+        );
+      } finally {
+        setInfluxLoading(false);
+      }
+    };
+
+    loadAssignedDevices();
+  }, [isOrganizationAdmin, selectedTemplate?.id]);
+
+  // Organization admins can load channels only for their selected allowed device.
+  useEffect(() => {
+    if (
+      !isOrganizationAdmin ||
+      !influxConfig.bucket ||
+      !influxConfig.measurement ||
+      !(influxConfig.tagValue || influxConfig.id)
+    ) {
+      return;
+    }
+
+    const loadChannels = async () => {
+      setInfluxLoading(true);
+      setInfluxError("");
+
+      try {
+        const channels = await fetchChannelsForDevice(
+          influxConfig.bucket,
+          influxConfig.measurement,
+          influxConfig.tagKey || "id",
+          influxConfig.tagValue || influxConfig.id
+        );
+
+        setInfluxChannels(channels);
+      } catch (err) {
+        console.error("❌ Assigned device channel error:", err);
+        setInfluxChannels([]);
+        setInfluxError(
+          err.message || "Failed to load channels."
+        );
+      } finally {
+        setInfluxLoading(false);
+      }
+    };
+
+    loadChannels();
+  }, [
+    isOrganizationAdmin,
+    influxConfig.bucket,
+    influxConfig.measurement,
+    influxConfig.tagKey,
+    influxConfig.tagValue,
+    influxConfig.id,
+  ]);
+
+  // Superadmin can browse all metadata.
   useEffect(() => {
     if (
       !isSuperadmin ||
@@ -803,10 +1032,10 @@ export default function TemplateEditor({
     const token = localStorage.getItem("token");
 
     if (
-      isSuperadmin &&
+      canConfigureInflux &&
       (!influxConfig.bucket.trim() ||
         !influxConfig.measurement.trim() ||
-        !influxConfig.id)
+        !(influxConfig.tagValue || influxConfig.id))
     ) {
       setShowInfluxMapping(true);
 
@@ -837,7 +1066,11 @@ export default function TemplateEditor({
                 bucket: influxConfig.bucket.trim(),
                 measurement:
                   influxConfig.measurement.trim(),
-                id: influxConfig.id,
+                tagKey: influxConfig.tagKey || "id",
+                tagValue:
+                  influxConfig.tagValue || influxConfig.id,
+                id: influxConfig.tagValue || influxConfig.id,
+                deviceId: selectedDeviceId || undefined,
               },
               channelMap,
               items,
@@ -1017,7 +1250,7 @@ export default function TemplateEditor({
         </div>
 
         {/* INFLUX DATA MAPPING */}
-        {isSuperadmin && (
+        {canConfigureInflux && (
           <div
             className="
               mt-5 rounded-3xl
@@ -1054,7 +1287,9 @@ export default function TemplateEditor({
                     Data Mapping
                   </h2>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Choose a measurement, device ID, and dashboard channel mapping.
+                    {isSuperadmin
+                      ? "Choose a measurement, device ID, and dashboard channel mapping."
+                      : "Select an assigned device and map its available Influx channels."}
                   </p>
                 </div>
               </div>
@@ -1069,132 +1304,204 @@ export default function TemplateEditor({
 
             {showInfluxMapping && (
               <div className="border-t border-gray-200 dark:border-gray-700 p-5">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                      Bucket
-                    </label>
-                    <input
-                      type="text"
-                      value={influxConfig.bucket}
-                      onChange={(e) => {
-                        const bucket = e.target.value;
+                {isOrganizationAdmin ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        Assigned Device
+                      </label>
 
-                        setInfluxConfig((prev) => ({
-                          ...prev,
-                          bucket,
-                          measurement: "",
-                          id: "",
-                        }));
-
-                        setInfluxMeasurements([]);
-                        setInfluxIds([]);
-                        setInfluxChannels([]);
-                      }}
-                      placeholder="Mill"
-                      className="
-                        mt-2 w-full rounded-2xl
-                        border border-gray-300 dark:border-gray-700
-                        bg-white dark:bg-gray-900 dark:text-white
-                        px-4 py-3 outline-none
-                        focus:ring-2 focus:ring-yellow-500
-                      "
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                      Measurement
-                    </label>
-                    <select
-                      value={influxConfig.measurement}
-                      onChange={async (e) => {
-                        const measurement = e.target.value;
-
-                        setInfluxConfig((prev) => ({
-                          ...prev,
-                          measurement,
-                          id: "",
-                        }));
-
-                        setInfluxIds([]);
-                        setInfluxChannels([]);
-                        setInfluxError("");
-
-                        if (!measurement) return;
-
-                        try {
-                          setInfluxLoading(true);
-                          await fetchIdsAndChannels(
-                            influxConfig.bucket,
-                            measurement
-                          );
-                        } catch (err) {
-                          setInfluxError(
-                            err.message ||
-                              "Failed to load metadata."
-                          );
-                        } finally {
-                          setInfluxLoading(false);
+                      <select
+                        value={selectedDeviceId}
+                        onChange={(e) =>
+                          applySelectedDevice(e.target.value)
                         }
-                      }}
-                      className="
-                        mt-2 w-full rounded-2xl
-                        border border-gray-300 dark:border-gray-700
-                        bg-white dark:bg-gray-900 dark:text-white
-                        px-4 py-3 outline-none
-                        focus:ring-2 focus:ring-yellow-500
-                      "
-                    >
-                      <option value="">
-                        Select measurement
-                      </option>
-                      {influxMeasurements.map(
-                        (measurement) => (
-                          <option
-                            key={measurement}
-                            value={measurement}
-                          >
-                            {measurement}
-                          </option>
-                        )
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                      Device ID
-                    </label>
-                    <select
-                      value={influxConfig.id}
-                      onChange={(e) =>
-                        setInfluxConfig((prev) => ({
-                          ...prev,
-                          id: e.target.value,
-                        }))
-                      }
-                      disabled={!influxConfig.measurement}
-                      className="
-                        mt-2 w-full rounded-2xl
-                        border border-gray-300 dark:border-gray-700
-                        bg-white dark:bg-gray-900 dark:text-white
-                        px-4 py-3 outline-none
-                        focus:ring-2 focus:ring-yellow-500
-                        disabled:opacity-50
-                      "
-                    >
-                      <option value="">
-                        Select available ID
-                      </option>
-                      {influxIds.map((id) => (
-                        <option key={id} value={id}>
-                          {id}
+                        disabled={influxLoading || !availableDevices.length}
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-gray-300 dark:border-gray-700
+                          bg-white dark:bg-gray-900 dark:text-white
+                          px-4 py-3 outline-none
+                          focus:ring-2 focus:ring-yellow-500
+                          disabled:opacity-50 disabled:cursor-not-allowed
+                        "
+                      >
+                        <option value="">
+                          Select assigned device
                         </option>
-                      ))}
-                    </select>
+
+                        {availableDevices.map((device) => (
+                          <option
+                            key={device.id}
+                            value={device.id}
+                          >
+                            {device.device_name ||
+                              device.tag_value ||
+                              `Device ${device.id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div
+                      className="
+                        mt-2 rounded-2xl
+                        border border-yellow-200 dark:border-yellow-900
+                        bg-yellow-50 dark:bg-yellow-900/15
+                        px-4 py-3 text-xs
+                        text-yellow-800 dark:text-yellow-200
+                      "
+                    >
+                      <p>
+                        <span className="font-semibold">Bucket:</span>{" "}
+                        {influxConfig.bucket || "Not selected"}
+                      </p>
+                      <p className="mt-1">
+                        <span className="font-semibold">Measurement:</span>{" "}
+                        {influxConfig.measurement || "Not selected"}
+                      </p>
+                      <p className="mt-1">
+                        <span className="font-semibold">Device ID:</span>{" "}
+                        {influxConfig.tagValue ||
+                          influxConfig.id ||
+                          "Not selected"}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        Bucket
+                      </label>
+                      <input
+                        type="text"
+                        value={influxConfig.bucket}
+                        onChange={(e) => {
+                          const bucket = e.target.value;
+
+                          setInfluxConfig((prev) => ({
+                            ...prev,
+                            bucket,
+                            measurement: "",
+                            id: "",
+                            tagValue: "",
+                          }));
+
+                          setInfluxMeasurements([]);
+                          setInfluxIds([]);
+                          setInfluxChannels([]);
+                        }}
+                        placeholder="Mill"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-gray-300 dark:border-gray-700
+                          bg-white dark:bg-gray-900 dark:text-white
+                          px-4 py-3 outline-none
+                          focus:ring-2 focus:ring-yellow-500
+                        "
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        Measurement
+                      </label>
+                      <select
+                        value={influxConfig.measurement}
+                        onChange={async (e) => {
+                          const measurement = e.target.value;
+
+                          setInfluxConfig((prev) => ({
+                            ...prev,
+                            measurement,
+                            id: "",
+                            tagValue: "",
+                          }));
+
+                          setInfluxIds([]);
+                          setInfluxChannels([]);
+                          setInfluxError("");
+
+                          if (!measurement) return;
+
+                          try {
+                            setInfluxLoading(true);
+                            await fetchIdsAndChannels(
+                              influxConfig.bucket,
+                              measurement
+                            );
+                          } catch (err) {
+                            setInfluxError(
+                              err.message ||
+                                "Failed to load metadata."
+                            );
+                          } finally {
+                            setInfluxLoading(false);
+                          }
+                        }}
+                        disabled={!influxConfig.bucket || influxLoading}
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-gray-300 dark:border-gray-700
+                          bg-white dark:bg-gray-900 dark:text-white
+                          px-4 py-3 outline-none
+                          focus:ring-2 focus:ring-yellow-500
+                          disabled:opacity-50
+                        "
+                      >
+                        <option value="">
+                          Select measurement
+                        </option>
+                        {influxMeasurements.map(
+                          (measurement) => (
+                            <option
+                              key={measurement}
+                              value={measurement}
+                            >
+                              {measurement}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        Device ID
+                      </label>
+                      <select
+                        value={influxConfig.id}
+                        onChange={(e) =>
+                          setInfluxConfig((prev) => ({
+                            ...prev,
+                            tagKey: "id",
+                            id: e.target.value,
+                            tagValue: e.target.value,
+                          }))
+                        }
+                        disabled={!influxConfig.measurement}
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-gray-300 dark:border-gray-700
+                          bg-white dark:bg-gray-900 dark:text-white
+                          px-4 py-3 outline-none
+                          focus:ring-2 focus:ring-yellow-500
+                          disabled:opacity-50
+                        "
+                      >
+                        <option value="">
+                          Select available ID
+                        </option>
+                        {influxIds.map((id) => (
+                          <option key={id} value={id}>
+                            {id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-3 mt-4">
                   <button
@@ -1214,12 +1521,15 @@ export default function TemplateEditor({
                     />
                     {influxLoading
                       ? "Loading..."
+                      : isOrganizationAdmin
+                      ? "Reload Assigned Devices"
                       : "Reload Influx Metadata"}
                   </button>
 
                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {influxMeasurements.length} measurement(s) ·{" "}
-                    {influxIds.length} device ID(s) ·{" "}
+                    {isOrganizationAdmin
+                      ? `${availableDevices.length} assigned device(s) · `
+                      : `${influxMeasurements.length} measurement(s) · ${influxIds.length} device ID(s) · `}
                     {influxChannels.length} channel(s)
                   </span>
 
@@ -1271,12 +1581,17 @@ export default function TemplateEditor({
                             )
                           }
                           placeholder="Select or type channel"
+                          disabled={
+                            isOrganizationAdmin &&
+                            !selectedDeviceId
+                          }
                           className="
                             mt-3 w-full rounded-xl
                             border border-gray-300 dark:border-gray-700
                             bg-gray-50 dark:bg-gray-800 dark:text-white
                             px-3 py-2.5 text-sm outline-none
                             focus:ring-2 focus:ring-yellow-500
+                            disabled:opacity-50 disabled:cursor-not-allowed
                           "
                         />
                       </div>

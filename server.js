@@ -204,6 +204,53 @@ const parseRelativeHistoryWindow = (value) => {
 };
 
 // =====================================
+// ORGANIZATION INFLUX DEVICE ACCESS
+// =====================================
+const canAccessInfluxDevice = async ({
+  user,
+  bucketName,
+  measurementName,
+  tagKey,
+  tagValue,
+}) => {
+  if (user?.role === "superadmin") {
+    return true;
+  }
+
+  if (
+    !user?.org_id ||
+    !bucketName ||
+    !measurementName ||
+    !tagKey ||
+    !tagValue
+  ) {
+    return false;
+  }
+
+  const rows = await dbQuery(
+    `
+    SELECT id
+    FROM organization_influx_devices
+    WHERE org_id = ?
+      AND bucket_name = ?
+      AND measurement_name = ?
+      AND tag_key = ?
+      AND tag_value = ?
+    LIMIT 1
+    `,
+    [
+      user.org_id,
+      bucketName,
+      measurementName,
+      tagKey,
+      tagValue,
+    ]
+  );
+
+  return rows.length > 0;
+};
+
+// =====================================
 // LOGIN
 // =====================================
 app.post("/login", (req, res) => {
@@ -320,10 +367,57 @@ app.post(
           });
         }
 
+        const templateId = result.insertId;
+
+        // Admin-created templates must also be recorded in org_templates.
+        // The non-superadmin template list reads from this assignment table.
+        if (role === "admin" && org_id) {
+          db.query(
+            `
+            INSERT INTO org_templates
+            (org_id, template_id)
+            VALUES (?, ?)
+            `,
+            [org_id, templateId],
+            (assignErr) => {
+              if (assignErr) {
+                console.error(
+                  "❌ Auto-assign template error:",
+                  assignErr
+                );
+
+                // Avoid leaving an unusable template behind when assignment fails.
+                db.query(
+                  `
+                  DELETE FROM templates
+                  WHERE id = ?
+                  `,
+                  [templateId],
+                  () => {}
+                );
+
+                return res.status(500).json({
+                  error:
+                    "Template was created but could not be assigned to your organization",
+                });
+              }
+
+              return res.json({
+                success: true,
+                message:
+                  "Template created and assigned to your organization",
+                templateId,
+              });
+            }
+          );
+
+          return;
+        }
+
         return res.json({
           success: true,
           message: "Template created",
-          templateId: result.insertId,
+          templateId,
         });
       }
     );
@@ -1546,6 +1640,72 @@ const influxDB = new InfluxDB({
 const org = process.env.INFLUX_ORG;
 const bucket = process.env.INFLUX_BUCKET;
 
+// =====================================
+// GET ALL INFLUX BUCKETS (SUPERADMIN)
+//
+// GET /influx/buckets
+// Uses the InfluxDB HTTP API because schema.* Flux functions cannot
+// enumerate buckets. This is used by Device Management when registering
+// a device for an organization.
+// =====================================
+app.get(
+  "/influx/buckets",
+  auth(["superadmin"]),
+  async (req, res) => {
+    if (!process.env.INFLUX_URL || !process.env.INFLUX_TOKEN) {
+      return res.status(500).json({
+        error: "InfluxDB connection settings are missing",
+      });
+    }
+
+    try {
+      const endpoint = new URL(
+        "/api/v2/buckets",
+        process.env.INFLUX_URL
+      );
+
+      if (org) {
+        endpoint.searchParams.set("org", org);
+      }
+
+      const response = await fetch(endpoint, {
+        headers: {
+          Authorization: `Token ${process.env.INFLUX_TOKEN}`,
+          Accept: "application/json",
+        },
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        console.error("❌ Fetch Influx buckets error:", payload);
+
+        return res.status(response.status).json({
+          error:
+            payload?.message ||
+            "Failed to fetch InfluxDB buckets",
+        });
+      }
+
+      const buckets = [
+        ...new Set(
+          (payload?.buckets || [])
+            .map((item) => item?.name)
+            .filter(Boolean)
+        ),
+      ].sort();
+
+      return res.json({ buckets });
+    } catch (err) {
+      console.error("❌ Fetch Influx buckets error:", err);
+
+      return res.status(500).json({
+        error: "Failed to fetch InfluxDB buckets",
+      });
+    }
+  }
+);
+
 // Used only by old legacy WebSocket polling.
 const fieldMap = {
   ch1: "steamPressure",
@@ -1561,6 +1721,256 @@ const fieldMap = {
   ch12: "vgInletTemp",
   ch13: "vgOutletTemp",
 };
+
+// =====================================
+// ORGANIZATION INFLUX DEVICE ROUTES
+// =====================================
+
+// Returns devices assigned to the signed-in organization.
+// Superadmins can see all device assignments, optionally filtered by org_id.
+app.get(
+  "/influx/allowed-devices",
+  auth(["superadmin", "admin"]),
+  async (req, res) => {
+    try {
+      const { role, org_id } = req.user;
+      const requestedOrgId = req.query.org_id;
+
+      let sql = `
+        SELECT
+          d.id,
+          d.org_id,
+          o.name AS org_name,
+          d.bucket_name,
+          d.measurement_name,
+          d.tag_key,
+          d.tag_value,
+          d.device_name,
+          d.created_at
+        FROM organization_influx_devices d
+        JOIN organizations o
+          ON d.org_id = o.id
+      `;
+
+      const params = [];
+
+      if (role === "admin") {
+        if (!org_id) {
+          return res.status(403).json({
+            error: "Admin has no organization assigned",
+          });
+        }
+
+        sql += `
+          WHERE d.org_id = ?
+        `;
+        params.push(org_id);
+      } else if (requestedOrgId) {
+        sql += `
+          WHERE d.org_id = ?
+        `;
+        params.push(requestedOrgId);
+      }
+
+      sql += `
+        ORDER BY
+          o.name ASC,
+          d.device_name ASC,
+          d.measurement_name ASC,
+          d.tag_value ASC
+      `;
+
+      const devices = await dbQuery(sql, params);
+
+      return res.json(devices);
+    } catch (err) {
+      console.error("❌ Fetch allowed Influx devices error:", err);
+
+      return res.status(500).json({
+        error: "Failed to fetch allowed Influx devices",
+      });
+    }
+  }
+);
+
+// Superadmin device-assignment management.
+app.get(
+  "/organization-influx-devices",
+  auth(["superadmin"]),
+  async (req, res) => {
+    try {
+      const { org_id: requestedOrgId } = req.query;
+
+      let sql = `
+        SELECT
+          d.id,
+          d.org_id,
+          o.name AS org_name,
+          d.bucket_name,
+          d.measurement_name,
+          d.tag_key,
+          d.tag_value,
+          d.device_name,
+          d.created_at
+        FROM organization_influx_devices d
+        JOIN organizations o
+          ON d.org_id = o.id
+      `;
+
+      const params = [];
+
+      if (requestedOrgId) {
+        sql += `
+          WHERE d.org_id = ?
+        `;
+        params.push(requestedOrgId);
+      }
+
+      sql += `
+        ORDER BY
+          o.name ASC,
+          d.device_name ASC,
+          d.measurement_name ASC,
+          d.tag_value ASC
+      `;
+
+      return res.json(await dbQuery(sql, params));
+    } catch (err) {
+      console.error("❌ Fetch organization Influx devices error:", err);
+
+      return res.status(500).json({
+        error: "Failed to fetch organization Influx devices",
+      });
+    }
+  }
+);
+
+app.post(
+  "/organization-influx-devices",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const {
+      org_id,
+      bucket_name,
+      measurement_name,
+      tag_key = "id",
+      tag_value,
+      device_name,
+    } = req.body;
+
+    if (
+      !org_id ||
+      !bucket_name?.trim() ||
+      !measurement_name?.trim() ||
+      !tag_key?.trim() ||
+      !tag_value?.trim()
+    ) {
+      return res.status(400).json({
+        error:
+          "org_id, bucket_name, measurement_name, tag_key and tag_value are required",
+      });
+    }
+
+    if (!isValidFluxColumnName(tag_key.trim())) {
+      return res.status(400).json({
+        error: "Invalid Influx tag key",
+      });
+    }
+
+    try {
+      const organizations = await dbQuery(
+        `
+        SELECT id
+        FROM organizations
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [org_id]
+      );
+
+      if (!organizations.length) {
+        return res.status(404).json({
+          error: "Organization not found",
+        });
+      }
+
+      const result = await dbQuery(
+        `
+        INSERT INTO organization_influx_devices
+        (
+          org_id,
+          bucket_name,
+          measurement_name,
+          tag_key,
+          tag_value,
+          device_name
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        [
+          org_id,
+          bucket_name.trim(),
+          measurement_name.trim(),
+          tag_key.trim(),
+          tag_value.trim(),
+          device_name?.trim() || null,
+        ]
+      );
+
+      return res.status(201).json({
+        success: true,
+        message: "Influx device assigned to organization",
+        deviceId: result.insertId,
+      });
+    } catch (err) {
+      if (err.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({
+          error:
+            "This Influx device is already assigned to this organization",
+        });
+      }
+
+      console.error("❌ Create organization Influx device error:", err);
+
+      return res.status(500).json({
+        error: "Failed to assign Influx device",
+      });
+    }
+  }
+);
+
+app.delete(
+  "/organization-influx-devices/:id",
+  auth(["superadmin"]),
+  async (req, res) => {
+    try {
+      const result = await dbQuery(
+        `
+        DELETE FROM organization_influx_devices
+        WHERE id = ?
+        `,
+        [req.params.id]
+      );
+
+      if (!result.affectedRows) {
+        return res.status(404).json({
+          error: "Influx device assignment not found",
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: "Influx device assignment removed",
+      });
+    } catch (err) {
+      console.error("❌ Delete organization Influx device error:", err);
+
+      return res.status(500).json({
+        error: "Failed to remove Influx device assignment",
+      });
+    }
+  }
+);
 
 // =====================================
 // GET ALL MEASUREMENTS
@@ -1712,13 +2122,19 @@ app.get(
 // =====================================
 app.get(
   "/influx/channels",
-  auth(["superadmin"]),
+  auth(["superadmin", "admin"]),
   async (req, res) => {
     const selectedBucket =
       req.query.bucket || bucket;
 
     const measurement =
       req.query.measurement || "PBLR";
+
+    const tagKey =
+      req.query.tagKey || "id";
+
+    const tagValue =
+      req.query.tagValue || req.query.id;
 
     if (!selectedBucket || !measurement) {
       return res.status(400).json({
@@ -1727,9 +2143,56 @@ app.get(
       });
     }
 
+    if (!isValidFluxColumnName(tagKey)) {
+      return res.status(400).json({
+        error: "Invalid tag key",
+      });
+    }
+
+    // Organization admins may only discover fields for a device
+    // explicitly assigned to their own organization.
+    if (req.user.role === "admin") {
+      if (!tagValue) {
+        return res.status(400).json({
+          error:
+            "tagValue (or id) is required for organization device mapping",
+        });
+      }
+
+      try {
+        const allowed = await canAccessInfluxDevice({
+          user: req.user,
+          bucketName: selectedBucket,
+          measurementName: measurement,
+          tagKey,
+          tagValue,
+        });
+
+        if (!allowed) {
+          return res.status(403).json({
+            error:
+              "You do not have permission to access this Influx device",
+          });
+        }
+      } catch (err) {
+        console.error(
+          "❌ Influx device access check error:",
+          err
+        );
+
+        return res.status(500).json({
+          error: "Failed to verify Influx device access",
+        });
+      }
+    }
+
     try {
       const queryApi =
         influxDB.getQueryApi(org);
+
+      const devicePredicate = tagValue
+        ? ` and r["${escapeFluxString(tagKey)}"] == "${escapeFluxString(tagValue)}"`
+        : "";
 
       const fluxQuery = `
         import "influxdata/influxdb/schema"
@@ -1737,7 +2200,7 @@ app.get(
         schema.fieldKeys(
           bucket: "${escapeFluxString(selectedBucket)}",
           predicate: (r) =>
-            r._measurement == "${escapeFluxString(measurement)}",
+            r._measurement == "${escapeFluxString(measurement)}"${devicePredicate},
           start: -365d
         )
       `;
@@ -1756,6 +2219,8 @@ app.get(
       return res.json({
         bucket: selectedBucket,
         measurement,
+        tagKey,
+        tagValue: tagValue || null,
         channels,
       });
     } catch (err) {
@@ -1828,6 +2293,32 @@ app.post(
     if (!isValidFluxColumnName(tagKey)) {
       return res.status(400).json({
         error: "Invalid Influx tag key",
+      });
+    }
+
+    try {
+      const allowed = await canAccessInfluxDevice({
+        user: req.user,
+        bucketName: selectedBucket,
+        measurementName: measurement,
+        tagKey,
+        tagValue,
+      });
+
+      if (!allowed) {
+        return res.status(403).json({
+          error:
+            "You do not have permission to access this Influx device",
+        });
+      }
+    } catch (err) {
+      console.error(
+        "❌ Template live data device access check error:",
+        err
+      );
+
+      return res.status(500).json({
+        error: "Failed to verify Influx device access",
       });
     }
 
@@ -1976,10 +2467,13 @@ app.post(
       `;
 
       // Get the newest record for EACH mapped field.
-      // This avoids losing a field when channels are written at different times.
+      // A 24-hour range lets the dashboard distinguish stale data (critical)
+      // from a device that has no recent InfluxDB records at all (offline).
+      // Grouping by field avoids losing values when channels are written
+      // at slightly different timestamps.
       const liveFluxQuery = `
         from(bucket: "${escapeFluxString(selectedBucket)}")
-          |> range(start: -5m)
+          |> range(start: -24h)
           ${baseFilter}
           |> group(columns: ["_field"])
           |> last()
@@ -2104,22 +2598,50 @@ app.post(
         lastCheckedAt: nowMs,
       });
 
+      const returnedFields = validMappings
+        .filter(([, channel]) => latestByField.has(channel))
+        .map(([dataKey]) => dataKey);
+
+      const ageSeconds =
+        liveAgeMs === null
+          ? null
+          : Math.max(0, Math.round(liveAgeMs / 1000));
+
+      let status = "online";
+      let statusMessage = "Live data is updating normally.";
+
+      if (!liveTimestamp) {
+        status = "offline";
+        statusMessage =
+          "No InfluxDB readings were found in the last 24 hours.";
+      } else if (ageSeconds > 60) {
+        status = "critical";
+        statusMessage =
+          "Data has not been updated for more than 60 seconds.";
+      } else if (ageSeconds > 30) {
+        status = "warning";
+        statusMessage = "Data may be delayed.";
+      } else if (missingFields.length > 0) {
+        status = "warning";
+        statusMessage = "Some mapped sensor fields are missing.";
+      }
+
       const liveStatus = {
+        status,
+        message: statusMessage,
         sourceTimestamp: liveTimestamp
           ? new Date(liveTimestamp).toISOString()
           : null,
         oldestFieldTimestamp: oldestLiveTimestamp
           ? new Date(oldestLiveTimestamp).toISOString()
           : null,
-        ageSeconds:
-          liveAgeMs === null
-            ? null
-            : Math.max(0, Math.round(liveAgeMs / 1000)),
+        ageSeconds,
         isFresh:
           liveAgeMs !== null && liveAgeMs <= 30 * 1000,
         sourceAdvanced,
         sameTimestampPolls,
-        returnedFieldCount: latestByField.size,
+        returnedFields,
+        returnedFieldCount: returnedFields.length,
         expectedFieldCount: validMappings.length,
         missingFields,
         fieldTimestamps,
@@ -2133,6 +2655,8 @@ app.post(
         tagValue,
         requestedRange: rangeDescription,
         aggregateEvery,
+        status: liveStatus.status,
+        message: liveStatus.message,
         liveTimestamp: liveStatus.sourceTimestamp,
         liveAgeSeconds: liveStatus.ageSeconds,
         liveIsFresh: liveStatus.isFresh,

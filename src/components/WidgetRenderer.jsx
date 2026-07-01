@@ -6,6 +6,7 @@ import LineWidget from "../widgets/LineWidget";
 import LinearGaugeWidget from "../widgets/LinearGaugeWidget";
 import ImageWidget from "../widgets/ImageWidget";
 import ImageWidgetConfigurator from "../widgets/ImageWidgetConfigurator";
+import StatusWidget from "../widgets/StatusWidget";
 
 export default function WidgetRenderer({
   type,
@@ -14,12 +15,19 @@ export default function WidgetRenderer({
   data = {},
   history = [],
   historyWindow = "15m",
+  liveStatus = null,
   item = {},
   updateItem = () => {},
   editMode = false,
 }) {
   switch (type) {
-    // GAUGE
+    case "status":
+      return (
+        <StatusWidget
+          liveStatus={liveStatus}
+        />
+      );
+
     case "gauge":
       return (
         <GaugeWidget
@@ -29,7 +37,6 @@ export default function WidgetRenderer({
         />
       );
 
-    // LINEAR GAUGE
     case "linearGauge":
       return (
         <LinearGaugeWidget
@@ -57,7 +64,6 @@ export default function WidgetRenderer({
       );
     }
 
-    // BIG NUMBER
     case "bignumber":
       return (
         <BigNumberWidget
@@ -66,8 +72,7 @@ export default function WidgetRenderer({
           dataKey={dataKey}
         />
       );
-    
-    // AREA
+
     case "area": {
       const colors = [
         "#10b981",
@@ -98,38 +103,36 @@ export default function WidgetRenderer({
       );
     }
 
-    // LINE
     case "line": {
-    const colors = [
-      "#3b82f6",
-      "#ef4444",
-      "#22c55e",
-      "#f59e0b",
-      "#8b5cf6",
-      "#06b6d4",
-    ];
+      const colors = [
+        "#3b82f6",
+        "#ef4444",
+        "#22c55e",
+        "#f59e0b",
+        "#8b5cf6",
+        "#06b6d4",
+      ];
 
-    const selectedKeys =
-      item?.dataKeys?.length > 0
-        ? item.dataKeys
-        : dataKey
-        ? [dataKey]
-        : [];
+      const selectedKeys =
+        item?.dataKeys?.length > 0
+          ? item.dataKeys
+          : dataKey
+          ? [dataKey]
+          : [];
 
-    return (
-      <LineWidget
-        data={history}
-        label={item?.label || "Trend"}
-        historyWindow={historyWindow}
-        lines={selectedKeys.map((key, index) => ({
-          key,
-          color: colors[index % colors.length],
-        }))}
-      />
-    );
-  }
+      return (
+        <LineWidget
+          data={history}
+          label={item?.label || "Trend"}
+          historyWindow={historyWindow}
+          lines={selectedKeys.map((key, index) => ({
+            key,
+            color: colors[index % colors.length],
+          }))}
+        />
+      );
+    }
 
-    // IMAGE
     case "image":
       if (editMode) {
         return (

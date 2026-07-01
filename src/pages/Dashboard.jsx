@@ -15,23 +15,6 @@ import {
   X,
 } from "lucide-react";
 
-const OFFLINE_TIMEOUT_MS = 30000;
-
-const liveDataKeys = [
-  "steamPressure",
-  "steamFlowrate",
-  "steamOutletTemp",
-  "inletDraft",
-  "outletDraft",
-  "furnaceDraft",
-  "waterInletTemp",
-  "waterFlowrate",
-  "waterDrumLevel",
-  "vgPressure",
-  "vgInletTemp",
-  "vgOutletTemp",
-];
-
 const TIME_RANGE_OPTIONS = [
   { value: "5m", label: "Last 5 minutes" },
   { value: "15m", label: "Last 15 minutes" },
@@ -298,10 +281,7 @@ export default function Dashboard({
       to: toDateTimeLocalValue(now),
     };
   });
-  const [millStatus, setMillStatus] =
-    useState("offline");
-
-  const [lastActiveAt, setLastActiveAt] =
+  const [liveStatus, setLiveStatus] =
     useState(null);
 
   const [isFullscreen, setIsFullscreen] =
@@ -330,26 +310,12 @@ export default function Dashboard({
     `Template #${template?.id || ""}` ||
     "Dashboard";
 
-  const hasAnyLiveValue = (incomingData) => {
-    return liveDataKeys.some((key) => {
-      const value = Number(
-        incomingData?.[key] ?? 0
-      );
-
-      return (
-        !Number.isNaN(value) &&
-        value !== 0
-      );
-    });
-  };
-
   // UPDATE TEMPLATE ITEMS WHEN TEMPLATE CHANGES
   useEffect(() => {
     setItems(layout?.items || []);
     setData({});
     setHistory([]);
-    setMillStatus("offline");
-    setLastActiveAt(null);
+    setLiveStatus(null);
   }, [template]);
 
   // FETCH TEMPLATE-SPECIFIC LIVE DATA
@@ -370,7 +336,7 @@ export default function Dashboard({
         "This template has no Influx device mapping configured."
       );
 
-      setMillStatus("offline");
+      setLiveStatus(null);
       return;
     }
 
@@ -382,7 +348,7 @@ export default function Dashboard({
         "This template has no channel mapping configured."
       );
 
-      setMillStatus("offline");
+      setLiveStatus(null);
       return;
     }
 
@@ -430,11 +396,7 @@ export default function Dashboard({
       const incoming = result?.data || {};
 
       setData(incoming);
-
-      if (hasAnyLiveValue(incoming)) {
-        setMillStatus("online");
-        setLastActiveAt(Date.now());
-      }
+      setLiveStatus(result?.liveStatus || null);
 
       // Use real historical rows returned by InfluxDB. Do not build
       // chart history from the current live reading on the browser.
@@ -449,6 +411,7 @@ export default function Dashboard({
         err
       );
 
+      setLiveStatus(null);
       setDataError(
         err.message ||
           "Unable to retrieve live data."
@@ -479,37 +442,6 @@ export default function Dashboard({
     customRange.from,
     customRange.to,
   ]);
-
-  // OFFLINE DETECTION
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const currentlyHasLiveValue =
-        hasAnyLiveValue(data);
-
-      if (currentlyHasLiveValue) {
-        setMillStatus("online");
-        setLastActiveAt(Date.now());
-        return;
-      }
-
-      if (!lastActiveAt) {
-        setMillStatus("offline");
-        return;
-      }
-
-      const inactiveDuration =
-        Date.now() - lastActiveAt;
-
-      if (
-        inactiveDuration >=
-        OFFLINE_TIMEOUT_MS
-      ) {
-        setMillStatus("offline");
-      }
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [data, lastActiveAt]);
 
   // ESC FULLSCREEN EXIT
   useEffect(() => {
@@ -1052,86 +984,6 @@ export default function Dashboard({
             </span>
           </button>
 
-          <div
-            className={`
-              inline-flex items-center
-              gap-2
-              rounded-2xl
-              bg-white
-              dark:bg-gray-900
-              border
-              shadow-sm
-
-              ${
-                millStatus === "online"
-                  ? `
-                    border-emerald-200
-                    dark:border-emerald-800
-                    text-emerald-700
-                    dark:text-emerald-300
-                  `
-                  : `
-                    border-red-200
-                    dark:border-red-800
-                    text-red-700
-                    dark:text-red-300
-                  `
-              }
-
-              ${
-                isFullscreen
-                  ? "h-9 px-3"
-                  : "h-11 px-4"
-              }
-            `}
-          >
-            <span
-              className="
-                relative
-                flex h-3 w-3
-              "
-            >
-              {millStatus === "online" && (
-                <span
-                  className="
-                    animate-ping
-                    absolute inline-flex
-                    h-full w-full
-                    rounded-full
-                    bg-emerald-400
-                    opacity-75
-                  "
-                />
-              )}
-
-              <span
-                className={`
-                  relative inline-flex
-                  rounded-full
-                  h-3 w-3
-
-                  ${
-                    millStatus === "online"
-                      ? "bg-emerald-400"
-                      : "bg-red-400"
-                  }
-                `}
-              />
-            </span>
-
-            <span
-              className="
-                text-xs
-                font-bold
-                tracking-wide
-              "
-            >
-              {millStatus === "online"
-                ? "ONLINE"
-                : "OFFLINE"}
-            </span>
-          </div>
-
           <button
             onClick={toggleFullscreen}
             className={`
@@ -1295,6 +1147,7 @@ export default function Dashboard({
                 data={data}
                 history={history}
                 historyWindow={timeRange}
+                liveStatus={liveStatus}
                 dataKey={item.dataKey}
                 item={item}
                 updateItem={(updated) => {
