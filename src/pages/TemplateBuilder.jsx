@@ -4,6 +4,8 @@ import { dataOptions } from "../data/dataOptions";
 import WidgetRenderer from "../components/WidgetRenderer";
 
 import {
+  AlertCircle,
+  CheckCircle2,
   Save,
   LayoutGrid,
   Plus,
@@ -115,6 +117,12 @@ export default function TemplateBuilder({
 
   const [templateName, setTemplateName] =
     useState("");
+
+  const [toast, setToast] = useState(null);
+
+  const showToast = (type, message) => {
+    setToast({ type, message });
+  };
 
   const [activeCell, setActiveCell] =
     useState(null);
@@ -237,10 +245,24 @@ export default function TemplateBuilder({
 
   const isEdit = !!selectedItem;
 
+  useEffect(() => {
+    if (!toast) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(
+      () => setToast(null),
+      toast.type === "error" ? 5500 : 3200
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   const isMultiDataWidget =
     newType === "line" ||
     newType === "area" ||
-    newType === "bar";
+    newType === "bar" ||
+    newType === "pie";
 
   // DEFAULT LABEL
   const getDefaultWidgetLabel = (type) =>
@@ -758,7 +780,8 @@ export default function TemplateBuilder({
     if (
       newType === "line" ||
       newType === "area" ||
-      newType === "bar"
+      newType === "bar" ||
+      newType === "pie"
     ) {
       setNewDataKeys(firstKey ? [firstKey] : []);
       setNewDataKey(firstKey);
@@ -848,7 +871,8 @@ export default function TemplateBuilder({
     setNewDataKeys(
       selectedItem.type === "line" ||
         selectedItem.type === "area" ||
-        selectedItem.type === "bar"
+        selectedItem.type === "bar" ||
+        selectedItem.type === "pie"
         ? selectedItem.dataKeys?.length
           ? selectedItem.dataKeys
           : selectedItem.dataKey
@@ -1151,7 +1175,7 @@ export default function TemplateBuilder({
     );
 
     if (!placement) {
-      alert("❌ No available space for this widget");
+      showToast("error", "No available space for this widget.");
       return;
     }
 
@@ -1168,7 +1192,7 @@ export default function TemplateBuilder({
     );
   };
 
-  // TOGGLE DATA FOR LINE / AREA / BAR CHART
+  // TOGGLE DATA FOR LINE / AREA / BAR / PIE CHART
   const toggleMultiDataKey = (key) => {
     setNewDataKeys((prev) => {
       if (prev.includes(key)) {
@@ -1197,8 +1221,9 @@ export default function TemplateBuilder({
       isMultiDataWidget &&
       newDataKeys.length === 0
     ) {
-      alert(
-        "❌ Please select at least one data source"
+      showToast(
+        "error",
+        "Please select at least one data source."
       );
 
       return;
@@ -1242,12 +1267,12 @@ export default function TemplateBuilder({
       newItem.x + newItem.w > cols ||
       newItem.y + newItem.h > rows
     ) {
-      alert("❌ Widget exceeds grid");
+      showToast("error", "This widget exceeds the dashboard grid.");
       return;
     }
 
     if (hasCollision(newItem)) {
-      alert("❌ Space occupied");
+      showToast("error", "That dashboard space is already occupied.");
       return;
     }
 
@@ -1267,8 +1292,9 @@ export default function TemplateBuilder({
       isMultiDataWidget &&
       newDataKeys.length === 0
     ) {
-      alert(
-        "❌ Please select at least one data source"
+      showToast(
+        "error",
+        "Please select at least one data source."
       );
 
       return;
@@ -1342,8 +1368,9 @@ export default function TemplateBuilder({
     ) {
       setShowInfluxMapping(true);
 
-      alert(
-        "❌ Please configure the Influx bucket, measurement, and device ID before creating this template."
+      showToast(
+        "error",
+        "Configure the Influx bucket, measurement, and device ID before creating this template."
       );
 
       return;
@@ -1400,13 +1427,18 @@ export default function TemplateBuilder({
         throw new Error(text);
       }
 
-      alert("✅ Template Created");
+      setToast({
+        type: "success",
+        message: "Template created successfully.",
+      });
 
-      setPage("templates");
+      setTimeout(() => {
+        setPage("templates");
+      }, 900);
     } catch (err) {
       console.error("❌ SAVE ERROR:", err);
 
-      alert("❌ Failed to save template");
+      showToast("error", "Failed to create the template. Please try again.");
     }
   };
 
@@ -1457,7 +1489,7 @@ export default function TemplateBuilder({
       isDataSourceRequired &&
       !hasSelectedDataSource
     ) {
-      alert("Please select a data source before continuing.");
+      showToast("error", "Please select a data source before continuing.");
       return;
     }
 
@@ -1465,14 +1497,105 @@ export default function TemplateBuilder({
   };
 
   return (
-    <div className="relative h-full overflow-auto bg-gray-100 dark:bg-gray-900 p-6">
+    <div className="template-builder relative h-full overflow-auto bg-transparent p-6 text-gray-900 dark:bg-[#050a1e] dark:text-slate-100">
+      <style>{`
+        .dark .template-builder {
+          color: #e2e8f0;
+        }
+
+        .dark .template-builder .bg-white {
+          background-color: #0f172a !important;
+        }
+
+        .dark .template-builder .bg-gray-50 {
+          background-color: #0b1220 !important;
+        }
+
+        .dark .template-builder .bg-gray-100 {
+          background-color: #0b1220 !important;
+        }
+
+        .dark .template-builder .bg-gray-200 {
+          background-color: #1e293b !important;
+        }
+
+        .dark .template-builder .bg-gray-800,
+        .dark .template-builder .bg-slate-800 {
+          background-color: #1e293b !important;
+        }
+
+        .dark .template-builder .bg-gray-900,
+        .dark .template-builder .bg-slate-900 {
+          background-color: #0f172a !important;
+        }
+
+        .dark .template-builder .bg-gray-950,
+        .dark .template-builder .bg-slate-950 {
+          background-color: #020617 !important;
+        }
+
+        .dark .template-builder .border-gray-200,
+        .dark .template-builder .border-gray-300,
+        .dark .template-builder .border-gray-700,
+        .dark .template-builder .border-slate-700,
+        .dark .template-builder .border-slate-600 {
+          border-color: #334155 !important;
+        }
+
+        .dark .template-builder .text-gray-900,
+        .dark .template-builder .text-gray-800,
+        .dark .template-builder .text-gray-700,
+        .dark .template-builder .text-slate-600 {
+          color: #f8fafc !important;
+        }
+
+        .dark .template-builder .text-gray-600,
+        .dark .template-builder .text-gray-500,
+        .dark .template-builder .text-slate-300 {
+          color: #cbd5e1 !important;
+        }
+
+        .dark .template-builder .text-gray-400,
+        .dark .template-builder .text-gray-300,
+        .dark .template-builder .text-slate-400 {
+          color: #94a3b8 !important;
+        }
+
+        .dark .template-builder input,
+        .dark .template-builder select,
+        .dark .template-builder textarea {
+          color: #f8fafc !important;
+          background-color: #020617 !important;
+          border-color: #475569 !important;
+        }
+
+        .dark .template-builder input::placeholder,
+        .dark .template-builder textarea::placeholder {
+          color: #64748b !important;
+        }
+
+        .dark .template-builder option {
+          color: #f8fafc !important;
+          background-color: #020617 !important;
+        }
+
+        .dark .template-builder .hover\:bg-gray-100:hover,
+        .dark .template-builder .hover\:bg-gray-50:hover {
+          background-color: #1e293b !important;
+        }
+
+        .dark .template-builder .dark\:hover\:bg-gray-800:hover,
+        .dark .template-builder .dark\:hover\:bg-slate-800:hover {
+          background-color: #1e293b !important;
+        }
+      `}</style>
       {/* GRID BACKGROUND */}
       <div
         className="
           absolute inset-0
           bg-[linear-gradient(to_right,#d1d5db_1px,transparent_1px),linear-gradient(to_bottom,#d1d5db_1px,transparent_1px)]
           bg-[size:40px_40px]
-          opacity-10
+          opacity-10 dark:opacity-[0.035]
           pointer-events-none
         "
       />
@@ -1481,10 +1604,10 @@ export default function TemplateBuilder({
       <div
         className="
           sticky top-0 z-20
-          bg-white/80 dark:bg-gray-900/80
+          bg-white dark:bg-slate-900/80
           backdrop-blur-xl
           rounded-3xl
-          border border-gray-200 dark:border-gray-700
+          border border-gray-200 dark:border-slate-700
           p-6 mb-6
           shadow-lg
         "
@@ -1496,7 +1619,7 @@ export default function TemplateBuilder({
               Template Builder
             </h1>
 
-            <p className="text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-gray-500 dark:text-slate-300 mt-1">
               Design industrial dashboard layouts. Drag widgets to reposition them.
             </p>
           </div>
@@ -1531,8 +1654,8 @@ export default function TemplateBuilder({
             className="
               w-full
               rounded-2xl
-              border border-gray-300 dark:border-gray-700
-              bg-white dark:bg-gray-800
+              border border-gray-300 dark:border-slate-600
+              bg-white dark:bg-slate-900
               dark:text-white
               px-4 py-3
               outline-none
@@ -1547,8 +1670,8 @@ export default function TemplateBuilder({
             className="
               mt-5
               rounded-3xl
-              border border-gray-200 dark:border-gray-700
-              bg-gray-50/80 dark:bg-gray-800/60
+              border border-gray-200 dark:border-slate-700
+              bg-gray-50 dark:bg-slate-950/80 dark:bg-gray-800/60
               overflow-hidden
             "
           >
@@ -1566,7 +1689,7 @@ export default function TemplateBuilder({
                 gap-4
                 p-5
                 text-left
-                hover:bg-gray-100/70
+                hover:bg-gray-100 dark:bg-[#050a1e]/70
                 dark:hover:bg-gray-800
                 transition
               "
@@ -1589,7 +1712,7 @@ export default function TemplateBuilder({
                     Data Mapping
                   </h2>
 
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-slate-300 mt-1">
                     Configure the device ID and map dashboard values to Influx channels.
                   </p>
                 </div>
@@ -1598,7 +1721,7 @@ export default function TemplateBuilder({
               <ChevronDown
                 size={20}
                 className={`
-                  text-gray-400
+                  text-gray-400 dark:text-slate-400
                   transition-transform
 
                   ${
@@ -1613,14 +1736,14 @@ export default function TemplateBuilder({
             {showInfluxMapping && (
               <div
                 className="
-                  border-t border-gray-200 dark:border-gray-700
+                  border-t border-gray-200 dark:border-slate-700
                   p-5
                 "
               >
                 {isOrganizationAdmin ? (
                   <div className="space-y-4">
                     <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
                         Assigned Sterilizer / Device
                       </label>
 
@@ -1638,8 +1761,8 @@ export default function TemplateBuilder({
                         className="
                           mt-2 w-full
                           rounded-2xl
-                          border border-gray-300 dark:border-gray-700
-                          bg-white dark:bg-gray-900
+                          border border-gray-300 dark:border-slate-600
+                          bg-white dark:bg-slate-900
                           dark:text-white
                           px-4 py-3
                           outline-none
@@ -1667,29 +1790,29 @@ export default function TemplateBuilder({
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
                           Bucket
                         </p>
-                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-white break-all">
+                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-slate-100 break-all">
                           {influxConfig.bucket || "—"}
                         </p>
                       </div>
 
-                      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
                           Measurement
                         </p>
-                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-white break-all">
+                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-slate-100 break-all">
                           {influxConfig.measurement || "—"}
                         </p>
                       </div>
 
-                      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
                           Device Tag
                         </p>
-                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-white break-all">
+                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-slate-100 break-all">
                           {influxConfig.tagKey || "id"}=
                           {influxConfig.tagValue ||
                             influxConfig.id ||
@@ -1698,14 +1821,14 @@ export default function TemplateBuilder({
                       </div>
                     </div>
 
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <p className="text-xs text-gray-500 dark:text-slate-300">
                       Only devices assigned to your organization are available for mapping.
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
                         Bucket
                       </label>
 
@@ -1732,8 +1855,8 @@ export default function TemplateBuilder({
                         className="
                           mt-2 w-full
                           rounded-2xl
-                          border border-gray-300 dark:border-gray-700
-                          bg-white dark:bg-gray-900
+                          border border-gray-300 dark:border-slate-600
+                          bg-white dark:bg-slate-900
                           dark:text-white
                           px-4 py-3
                           outline-none
@@ -1743,7 +1866,7 @@ export default function TemplateBuilder({
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
                         Measurement
                       </label>
 
@@ -1770,8 +1893,8 @@ export default function TemplateBuilder({
                         className="
                           mt-2 w-full
                           rounded-2xl
-                          border border-gray-300 dark:border-gray-700
-                          bg-white dark:bg-gray-900
+                          border border-gray-300 dark:border-slate-600
+                          bg-white dark:bg-slate-900
                           dark:text-white
                           px-4 py-3
                           outline-none
@@ -1798,7 +1921,7 @@ export default function TemplateBuilder({
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
                         Device ID
                       </label>
 
@@ -1818,8 +1941,8 @@ export default function TemplateBuilder({
                         className="
                           mt-2 w-full
                           rounded-2xl
-                          border border-gray-300 dark:border-gray-700
-                          bg-white dark:bg-gray-900
+                          border border-gray-300 dark:border-slate-600
+                          bg-white dark:bg-slate-900
                           dark:text-white
                           px-4 py-3
                           outline-none
@@ -1876,7 +1999,7 @@ export default function TemplateBuilder({
                       : "Reload Measurements, IDs & Channels"}
                   </button>
 
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-500 dark:text-slate-300">
                     {influxMeasurements.length} measurement(s) ·{" "}
                     {influxIds.length} device ID(s) ·{" "}
                     {influxChannels.length} channel(s) found
@@ -1895,7 +2018,7 @@ export default function TemplateBuilder({
                       Channel Mapping
                     </h3>
 
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-slate-300 mt-1">
                       Select the Influx channel that supplies each dashboard data key.
                     </p>
                   </div>
@@ -1915,16 +2038,16 @@ export default function TemplateBuilder({
                         key={option.key}
                         className="
                           rounded-2xl
-                          border border-gray-200 dark:border-gray-700
-                          bg-white dark:bg-gray-900
+                          border border-gray-200 dark:border-slate-700
+                          bg-white dark:bg-slate-900
                           p-3
                         "
                       >
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-slate-300 truncate">
                           {option.label}
                         </label>
 
-                        <p className="text-[11px] text-gray-400 mt-1 truncate">
+                        <p className="text-[11px] text-gray-400 dark:text-slate-400 mt-1 truncate">
                           Dashboard key: {option.key}
                         </p>
 
@@ -1945,8 +2068,8 @@ export default function TemplateBuilder({
                           className="
                             mt-3 w-full
                             rounded-xl
-                            border border-gray-300 dark:border-gray-700
-                            bg-gray-50 dark:bg-gray-800
+                            border border-gray-300 dark:border-slate-600
+                            bg-gray-50 dark:bg-slate-950 dark:bg-gray-800
                             dark:text-white
                             px-3 py-2.5
                             text-sm
@@ -2027,9 +2150,9 @@ export default function TemplateBuilder({
                     shadow-red-500/25
                   `
                 : `
-                    border-gray-200/80 dark:border-gray-700/80
-                    bg-white/80 dark:bg-gray-900/85
-                    text-gray-500 dark:text-gray-300
+                    border-gray-200 dark:border-slate-700/80 dark:border-gray-700/80
+                    bg-white dark:bg-slate-900/80
+                    text-gray-500 dark:text-slate-300
                   `
             }
           `}
@@ -2135,7 +2258,7 @@ export default function TemplateBuilder({
               className={`
                 rounded-3xl
                 border-2 border-dashed
-                bg-white/40 dark:bg-gray-800/30
+                bg-white dark:bg-slate-900/40 dark:bg-gray-800/30
                 backdrop-blur-sm
                 transition-all duration-200
                 flex items-center justify-center
@@ -2150,7 +2273,7 @@ export default function TemplateBuilder({
                       scale-[1.02]
                     `
                     : `
-                      border-gray-300 dark:border-gray-700
+                      border-gray-300 dark:border-slate-600
                       hover:border-emerald-500
                       hover:bg-emerald-50 dark:hover:bg-emerald-900/20
                     `
@@ -2168,9 +2291,9 @@ export default function TemplateBuilder({
                   </>
                 ) : (
                   <>
-                    <Plus className="mx-auto mb-2 text-gray-400" />
+                    <Plus className="mx-auto mb-2 text-gray-400 dark:text-slate-400" />
 
-                    <p className="text-sm text-gray-400">
+                    <p className="text-sm text-gray-400 dark:text-slate-400">
                       Add Widget
                     </p>
                   </>
@@ -2228,8 +2351,8 @@ export default function TemplateBuilder({
               group
               relative
               min-h-0 min-w-0
-              bg-white dark:bg-gray-800
-              border border-gray-200 dark:border-gray-700
+              bg-white dark:bg-slate-900
+              border border-gray-200 dark:border-slate-700
               rounded-3xl
               shadow-lg
               hover:shadow-2xl
@@ -2258,11 +2381,11 @@ export default function TemplateBuilder({
                 max-w-[70%]
                 text-xs
                 font-semibold
-                text-gray-700
+                text-gray-700 dark:text-slate-200
                 dark:text-white
-                bg-white/90
+                bg-white dark:bg-slate-900/90
                 dark:bg-gray-900/90
-                border border-gray-200
+                border border-gray-200 dark:border-slate-700
                 dark:border-gray-700
                 px-3 py-1
                 rounded-xl
@@ -2280,11 +2403,11 @@ export default function TemplateBuilder({
                 z-10
                 w-8 h-8
                 rounded-xl
-                bg-white/90 dark:bg-gray-900/90
-                border border-gray-200 dark:border-gray-700
+                bg-white dark:bg-slate-900/90
+                border border-gray-200 dark:border-slate-700
                 shadow-sm
                 flex items-center justify-center
-                text-gray-400
+                text-gray-400 dark:text-slate-400
                 group-hover:text-emerald-500
               "
               title="Drag to move"
@@ -2295,7 +2418,7 @@ export default function TemplateBuilder({
             {/* ACTUAL WIDGET PREVIEW */}
             <div className="absolute inset-0 p-4 pointer-events-none">
               {item.type === "image" ? (
-                <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 dark:bg-gray-950">
+                <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 dark:bg-[#050a1e]">
                   <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
                     <WidgetRenderer
                       type={item.type}
@@ -2329,14 +2452,14 @@ export default function TemplateBuilder({
                 absolute bottom-3 right-3
                 w-8 h-8
                 rounded-full
-                bg-white/90 dark:bg-gray-900/90
-                border border-gray-200 dark:border-gray-700
+                bg-white dark:bg-slate-900/90
+                border border-gray-200 dark:border-slate-700
                 shadow
                 flex items-center justify-center
                 opacity-70 group-hover:opacity-100
               "
             >
-              <Pencil className="w-4 h-4 text-gray-500 group-hover:text-emerald-500" />
+              <Pencil className="w-4 h-4 text-gray-500 dark:text-slate-300 group-hover:text-emerald-500" />
             </div>
 
             {/* SIZE BADGE */}
@@ -2344,8 +2467,8 @@ export default function TemplateBuilder({
               className="
                 absolute bottom-3 left-3
                 text-xs
-                text-gray-400
-                bg-white/80 dark:bg-gray-900/80
+                text-gray-400 dark:text-slate-400
+                bg-white dark:bg-slate-900/80
                 px-2 py-1
                 rounded-lg
               "
@@ -2355,6 +2478,62 @@ export default function TemplateBuilder({
           </div>
         ))}
       </div>
+
+      {toast && (
+        <div
+          className={`
+            fixed right-5 top-5 z-[100]
+            flex w-[min(420px,calc(100vw-2.5rem))]
+            items-start gap-3 rounded-2xl border p-4 shadow-2xl
+            backdrop-blur-xl
+            ${
+              toast.type === "error"
+                ? "border-red-200 bg-white dark:bg-slate-900/95 text-red-800 dark:border-red-900 dark:bg-gray-900/95 dark:text-red-200"
+                : "border-emerald-200 bg-white dark:bg-slate-900/95 text-emerald-800 dark:border-emerald-900 dark:bg-gray-900/95 dark:text-emerald-200"
+            }
+          `}
+          role="status"
+        >
+          <div
+            className={`
+              flex h-9 w-9 shrink-0 items-center justify-center rounded-xl
+              ${
+                toast.type === "error"
+                  ? "bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-300"
+                  : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-300"
+              }
+            `}
+          >
+            {toast.type === "error" ? (
+              <AlertCircle size={19} />
+            ) : (
+              <CheckCircle2 size={19} />
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1 pt-0.5">
+            <p className="text-sm font-bold">
+              {toast.type === "error" ? "Action required" : "Template created"}
+            </p>
+            <p className="mt-1 text-sm leading-relaxed opacity-90">
+              {toast.message}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="
+              rounded-xl p-1.5 text-gray-400 dark:text-slate-400 transition
+              hover:bg-gray-100 dark:bg-[#050a1e] hover:text-gray-700 dark:text-slate-200
+              dark:hover:bg-gray-800 dark:hover:text-white
+            "
+            aria-label="Dismiss notification"
+          >
+            <X size={17} />
+          </button>
+        </div>
+      )}
 
       {/* MODAL */}
       {showModal && base && (
@@ -2371,14 +2550,14 @@ export default function TemplateBuilder({
         >
           <div
             className="
-              bg-white dark:bg-gray-900
+              bg-white dark:bg-slate-900
               w-[1450px]
               max-w-[96vw]
               max-h-[92vh]
               rounded-3xl
               shadow-2xl
               overflow-hidden
-              border border-gray-200 dark:border-gray-700
+              border border-gray-200 dark:border-slate-700
               flex flex-col
             "
             onClick={(e) =>
@@ -2389,9 +2568,9 @@ export default function TemplateBuilder({
             <div
               className="
                 flex justify-between items-center
-                border-b border-gray-200 dark:border-gray-700
+                border-b border-gray-200 dark:border-slate-700
                 px-8 py-6
-                bg-white dark:bg-gray-900
+                bg-white dark:bg-slate-900
               "
             >
               <div>
@@ -2401,7 +2580,7 @@ export default function TemplateBuilder({
                     : "Widget Settings"}
                 </h2>
 
-                <p className="text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-gray-500 dark:text-slate-300 mt-1">
                   Configure widget type, data source, size and appearance
                 </p>
               </div>
@@ -2411,7 +2590,7 @@ export default function TemplateBuilder({
                 className="
                   w-10 h-10
                   rounded-xl
-                  hover:bg-gray-100 dark:hover:bg-gray-800
+                  hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800
                   flex items-center justify-center
                   dark:text-white
                 "
@@ -2425,9 +2604,9 @@ export default function TemplateBuilder({
               {/* LEFT PREVIEW */}
               <div
                 className="
-                  bg-gray-100 dark:bg-gray-950
+                  bg-gray-100 dark:bg-[#050a1e]
                   p-8
-                  border-r border-gray-200 dark:border-gray-700
+                  border-r border-gray-200 dark:border-slate-700
                   overflow-hidden
                 "
               >
@@ -2436,8 +2615,8 @@ export default function TemplateBuilder({
                     h-full
                     rounded-3xl
                     border border-dashed
-                    border-gray-300 dark:border-gray-700
-                    bg-white dark:bg-gray-900
+                    border-gray-300 dark:border-slate-600
+                    bg-white dark:bg-slate-900
                     overflow-hidden
                     p-6
                     pointer-events-none
@@ -2448,7 +2627,7 @@ export default function TemplateBuilder({
                     <p
                       className="
                         text-xs uppercase tracking-widest
-                        text-gray-400
+                        text-gray-400 dark:text-slate-400
                       "
                     >
                       Live Preview
@@ -2518,7 +2697,7 @@ export default function TemplateBuilder({
                       flex-1
                       flex items-center justify-center
                       rounded-2xl
-                      bg-gray-50 dark:bg-gray-950
+                      bg-gray-50 dark:bg-slate-950
                       overflow-hidden
                     "
                   >
@@ -2588,7 +2767,7 @@ export default function TemplateBuilder({
                 className="
                   p-8
                   overflow-y-auto
-                  bg-white dark:bg-gray-900
+                  bg-white dark:bg-slate-900
                   flex flex-col
                 "
               >
@@ -2633,7 +2812,7 @@ export default function TemplateBuilder({
                                     ? "bg-emerald-600 text-white shadow"
                                     : isComplete
                                     ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                                    : "bg-gray-200 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                                    : "bg-gray-200 text-gray-500 dark:text-slate-300 dark:bg-gray-800 dark:text-gray-400 dark:text-slate-400"
                                 }
                               `}
                             >
@@ -2652,7 +2831,7 @@ export default function TemplateBuilder({
                                     ? "text-emerald-700 dark:text-emerald-300"
                                     : isComplete
                                     ? "text-slate-600 dark:text-slate-300"
-                                    : "text-gray-400 dark:text-gray-500"
+                                    : "text-gray-400 dark:text-slate-400"
                                 }
                               `}
                             >
@@ -2683,8 +2862,8 @@ export default function TemplateBuilder({
                   <>
                     <div
                       className="
-                        bg-gray-50 dark:bg-gray-800/70
-                        border border-gray-200 dark:border-gray-700
+                        bg-gray-50 dark:bg-slate-950
+                        border border-gray-200 dark:border-slate-700
                         rounded-3xl
                         p-5
                       "
@@ -2693,7 +2872,7 @@ export default function TemplateBuilder({
                         <h3 className="font-bold dark:text-white">
                           1. Choose Widget Type
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-sm text-gray-500 dark:text-slate-300 mt-1">
                           Select how this data should be displayed.
                         </p>
                       </div>
@@ -2714,7 +2893,7 @@ export default function TemplateBuilder({
                                 ${
                                   newType === w.type
                                     ? "bg-emerald-600 text-white border-emerald-600 shadow-lg scale-[1.02]"
-                                    : "bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 dark:text-white"
+                                    : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                 }
                               `}
                             >
@@ -2730,7 +2909,7 @@ export default function TemplateBuilder({
                                   ${
                                     newType === w.type
                                       ? "text-emerald-50"
-                                      : "text-gray-400"
+                                      : "text-gray-400 dark:text-slate-400"
                                   }
                                 `}
                               >
@@ -2785,7 +2964,7 @@ export default function TemplateBuilder({
                           2. Configure Image Widget
                         </h3>
 
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                        <p className="text-sm text-gray-500 dark:text-slate-300 mb-5">
                           Open the image editor to place pins and connect live data.
                         </p>
 
@@ -2793,7 +2972,10 @@ export default function TemplateBuilder({
                           type="button"
                           onClick={() => {
                             if (typeof setEditingImageWidget !== "function") {
-                              alert("setEditingImageWidget is not connected in App.jsx");
+                              showToast(
+                                "error",
+                                "Image editor is not connected in App.jsx."
+                              );
                               return;
                             }
 
@@ -2842,8 +3024,8 @@ export default function TemplateBuilder({
                     ) : (
                       <div
                         className="
-                          bg-gray-50 dark:bg-gray-800/70
-                          border border-gray-200 dark:border-gray-700
+                          bg-gray-50 dark:bg-slate-950
+                          border border-gray-200 dark:border-slate-700
                           rounded-3xl
                           p-5
                         "
@@ -2853,13 +3035,13 @@ export default function TemplateBuilder({
                             <h3 className="font-bold dark:text-white">
                               2. Choose Data Source
                             </h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            <p className="text-sm text-gray-500 dark:text-slate-300 mt-1">
                               Choose the dashboard value this widget should display.
                             </p>
                           </div>
 
                           {isMultiDataWidget && (
-                            <span className="text-xs text-gray-400 whitespace-nowrap">
+                            <span className="text-xs text-gray-400 dark:text-slate-400 whitespace-nowrap">
                               Select multiple
                             </span>
                           )}
@@ -2892,7 +3074,7 @@ export default function TemplateBuilder({
                                       ${
                                         selected
                                           ? "bg-emerald-600 text-white border-emerald-600 shadow"
-                                          : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-emerald-400 dark:text-white"
+                                          : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 hover:border-emerald-400 dark:text-white"
                                       }
                                     `}
                                   >
@@ -2902,13 +3084,13 @@ export default function TemplateBuilder({
                               })}
                           </div>
                         ) : (
-                          <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 p-5 text-sm text-gray-500 dark:text-gray-400">
+                          <div className="rounded-2xl border border-dashed border-gray-300 dark:border-slate-600 p-5 text-sm text-gray-500 dark:text-slate-300">
                             This widget does not require a direct data source.
                           </div>
                         )}
 
                         {isMultiDataWidget && (
-                          <p className="text-xs text-gray-400 mt-4">
+                          <p className="text-xs text-gray-400 dark:text-slate-400 mt-4">
                             Selected: {newDataKeys.length ? newDataKeys.join(", ") : "None"}
                           </p>
                         )}
@@ -2921,12 +3103,12 @@ export default function TemplateBuilder({
                         onClick={() => setWidgetStep(1)}
                         className="
                           rounded-2xl
-                          border border-gray-300 dark:border-gray-700
-                          bg-white dark:bg-gray-800
+                          border border-gray-300 dark:border-slate-600
+                          bg-white dark:bg-slate-900
                           dark:text-white
                           px-5 py-3
                           font-semibold
-                          hover:bg-gray-100 dark:hover:bg-gray-700
+                          hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-700
                           transition
                         "
                       >
@@ -2957,8 +3139,8 @@ export default function TemplateBuilder({
                     <div className="space-y-5">
                       <div
                         className="
-                          bg-gray-50 dark:bg-gray-800/70
-                          border border-gray-200 dark:border-gray-700
+                          bg-gray-50 dark:bg-slate-950
+                          border border-gray-200 dark:border-slate-700
                           rounded-3xl
                           p-5
                         "
@@ -2979,8 +3161,8 @@ export default function TemplateBuilder({
                           className="
                             w-full
                             rounded-2xl
-                            border border-gray-300 dark:border-gray-700
-                            bg-white dark:bg-gray-900
+                            border border-gray-300 dark:border-slate-600
+                            bg-white dark:bg-slate-900
                             dark:text-white
                             px-4 py-3
                             outline-none
@@ -2988,7 +3170,7 @@ export default function TemplateBuilder({
                           "
                         />
 
-                        <p className="text-xs text-gray-400 mt-3">
+                        <p className="text-xs text-gray-400 dark:text-slate-400 mt-3">
                           Leave empty to use the default widget label.
                         </p>
                       </div>
@@ -2996,8 +3178,8 @@ export default function TemplateBuilder({
                       {newType === "bar" && (
                         <div
                           className="
-                            bg-gray-50 dark:bg-gray-800/70
-                            border border-gray-200 dark:border-gray-700
+                            bg-gray-50 dark:bg-slate-950
+                            border border-gray-200 dark:border-slate-700
                             rounded-3xl
                             p-5
                           "
@@ -3017,7 +3199,7 @@ export default function TemplateBuilder({
                                   ${
                                     newOrientation === direction
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow"
-                                      : "bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 dark:text-white"
+                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                   }
                                 `}
                               >
@@ -3030,8 +3212,8 @@ export default function TemplateBuilder({
 
                       <div
                         className="
-                          bg-gray-50 dark:bg-gray-800/70
-                          border border-gray-200 dark:border-gray-700
+                          bg-gray-50 dark:bg-slate-950
+                          border border-gray-200 dark:border-slate-700
                           rounded-3xl
                           p-5
                         "
@@ -3054,7 +3236,7 @@ export default function TemplateBuilder({
                                 ${
                                   newW === s.w && newH === s.h
                                     ? "bg-emerald-600 text-white border-emerald-600 shadow"
-                                    : "bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 dark:text-white"
+                                    : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                 }
                               `}
                             >
@@ -3091,12 +3273,12 @@ export default function TemplateBuilder({
                           onClick={() => setWidgetStep(2)}
                           className="
                             rounded-2xl
-                            border border-gray-300 dark:border-gray-700
-                            bg-white dark:bg-gray-800
+                            border border-gray-300 dark:border-slate-600
+                            bg-white dark:bg-slate-900
                             dark:text-white
                             px-5 py-3
                             font-semibold
-                            hover:bg-gray-100 dark:hover:bg-gray-700
+                            hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-700
                             transition
                           "
                         >

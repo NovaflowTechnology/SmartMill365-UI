@@ -30,10 +30,21 @@ export default function App() {
   ] = useState(false);
 
   // DARK MODE
-  const [dark, setDark] =
-    useState(
-      localStorage.getItem("theme") === "dark"
-    );
+  const [dark, setDark] = useState(() => {
+    const savedTheme = localStorage.getItem("theme");
+
+    if (savedTheme === "dark") {
+      return true;
+    }
+
+    if (savedTheme === "light") {
+      return false;
+    }
+
+    return window.matchMedia?.(
+      "(prefers-color-scheme: dark)"
+    ).matches || false;
+  });
 
   // IMAGE WIDGET
   const [
@@ -170,15 +181,13 @@ export default function App() {
   // APPLY DARK MODE
   // =====================================
   useEffect(() => {
-    if (dark) {
-      document.documentElement.classList.add(
-        "dark"
-      );
-    } else {
-      document.documentElement.classList.remove(
-        "dark"
-      );
-    }
+    document.documentElement.classList.toggle(
+      "dark",
+      dark
+    );
+
+    document.documentElement.style.colorScheme =
+      dark ? "dark" : "light";
   }, [dark]);
 
   // =====================================
@@ -238,6 +247,8 @@ export default function App() {
             fetchDefaultTemplate={
               fetchDefaultTemplate
             }
+            dark={dark}
+            toggleTheme={toggleTheme}
           />
         );
       }
@@ -343,7 +354,10 @@ export default function App() {
               dark={dark}
               toggleTheme={toggleTheme}
             >
-              <DeviceManagement setPage={setPage} />
+              <DeviceManagement
+                setPage={handleNavigate}
+                dark={dark}
+              />
             </Layout>
           </ProtectedRoute>
         );
@@ -380,6 +394,8 @@ export default function App() {
                 setEditingImageWidget
               }
               setPage={setPage}
+              dark={dark}
+              toggleTheme={toggleTheme}
             />
           </ProtectedRoute>
         );

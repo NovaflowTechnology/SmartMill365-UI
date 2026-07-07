@@ -7,6 +7,7 @@ import LinearGaugeWidget from "../widgets/LinearGaugeWidget";
 import ImageWidget from "../widgets/ImageWidget";
 import ImageWidgetConfigurator from "../widgets/ImageWidgetConfigurator";
 import StatusWidget from "../widgets/StatusWidget";
+import PieWidget from "../widgets/PieWidget";
 
 export default function WidgetRenderer({
   type,
@@ -22,11 +23,7 @@ export default function WidgetRenderer({
 }) {
   switch (type) {
     case "status":
-      return (
-        <StatusWidget
-          liveStatus={liveStatus}
-        />
-      );
+      return <StatusWidget liveStatus={liveStatus} />;
 
     case "gauge":
       return (
@@ -60,6 +57,25 @@ export default function WidgetRenderer({
           dataKeys={selectedKeys}
           label={item?.label || "Bar Chart"}
           orientation={item?.orientation || "vertical"}
+        />
+      );
+    }
+
+    case "pie": {
+      const selectedKeys =
+        item?.dataKeys?.length > 0
+          ? item.dataKeys
+          : dataKey
+          ? [dataKey]
+          : [];
+
+      return (
+        <PieWidget
+          data={data}
+          item={{
+            ...item,
+            dataKeys: selectedKeys,
+          }}
         />
       );
     }

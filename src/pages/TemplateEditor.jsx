@@ -219,7 +219,8 @@ export default function TemplateEditor({
   const isMultiDataWidget =
     newType === "line" ||
     newType === "area" ||
-    newType === "bar";
+    newType === "bar" ||
+    newType === "pie";
 
   const displaySizeOptions =
     newType === "image"
@@ -629,7 +630,8 @@ export default function TemplateEditor({
     if (
       newType === "line" ||
       newType === "area" ||
-      newType === "bar"
+      newType === "bar" ||
+      newType === "pie"
     ) {
       setNewDataKey(firstKey);
       setNewDataKeys(firstKey ? [firstKey] : []);
@@ -671,7 +673,8 @@ export default function TemplateEditor({
     setNewDataKeys(
       selectedItem.type === "line" ||
         selectedItem.type === "area" ||
-        selectedItem.type === "bar"
+        selectedItem.type === "bar" ||
+        selectedItem.type === "pie"
         ? selectedItem.dataKeys?.length
           ? selectedItem.dataKeys
           : selectedItem.dataKey
@@ -872,7 +875,7 @@ export default function TemplateEditor({
     setDidDrag(false);
   };
 
-  // TOGGLE MULTIPLE DATA FOR LINE / AREA / BAR CHART
+  // TOGGLE MULTIPLE DATA FOR LINE / AREA / BAR / PIE CHART
   const toggleMultiDataKey = (key) => {
     setNewDataKeys((prev) => {
       if (prev.includes(key)) {

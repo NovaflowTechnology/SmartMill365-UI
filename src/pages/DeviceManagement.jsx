@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
+  CheckCircle2,
   Database,
   Plus,
   RefreshCw,
@@ -20,8 +22,20 @@ const emptyForm = {
 
 const API_BASE_URL = "http://localhost:5000";
 
-export default function DeviceManagement({ setPage }) {
+export default function DeviceManagement({ setPage, dark = false }) {
   const role = localStorage.getItem("role");
+
+  const panelClass = dark
+    ? "border-slate-700 bg-slate-900 text-slate-100 shadow-black/30"
+    : "border-gray-200 bg-white text-gray-900";
+
+  const inputClass = dark
+    ? "border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+    : "border-gray-300 bg-white text-gray-900";
+
+  const mutedPanelClass = dark
+    ? "border-slate-700 bg-slate-950/70"
+    : "border-gray-200 bg-gray-50/80";
   const [organizations, setOrganizations] = useState([]);
   const [devices, setDevices] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -33,6 +47,7 @@ export default function DeviceManagement({ setPage }) {
   const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   // Live metadata used while a superadmin registers a device.
   const [availableBuckets, setAvailableBuckets] = useState([]);
@@ -109,6 +124,19 @@ export default function DeviceManagement({ setPage }) {
       setLoading(false);
     }
   }, [role]);
+
+  useEffect(() => {
+    if (!error && !notice) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setError("");
+      setNotice("");
+    }, error ? 6000 : 3500);
+
+    return () => window.clearTimeout(timer);
+  }, [error, notice]);
 
   useEffect(() => {
     if (!showForm) return;
@@ -451,15 +479,6 @@ export default function DeviceManagement({ setPage }) {
   };
 
   const deleteDevice = async (device) => {
-    const displayName =
-      device.device_name || `${device.measurement_name} / ${device.tag_value}`;
-
-    const confirmed = window.confirm(
-      `Remove “${displayName}” from ${device.org_name}?\n\nOrganization admins will no longer be able to select this device for templates.`,
-    );
-
-    if (!confirmed) return;
-
     setDeletingId(device.id);
     setError("");
     setNotice("");
@@ -479,7 +498,10 @@ export default function DeviceManagement({ setPage }) {
         );
       }
 
-      setDevices((current) => current.filter((item) => item.id !== device.id));
+      setDevices((current) =>
+        current.filter((item) => item.id !== device.id),
+      );
+      setPendingDelete(null);
       setNotice("Device assignment removed.");
     } catch (requestError) {
       console.error("❌ Delete device assignment error:", requestError);
@@ -507,9 +529,67 @@ export default function DeviceManagement({ setPage }) {
   }
 
   return (
-    <div className="min-h-full w-full overflow-auto bg-transparent p-6 dark:bg-gray-900">
+    <div
+      className={`device-management-page min-h-full w-full overflow-auto p-6 ${
+        dark ? "device-management-dark bg-[#050a1e]" : "bg-transparent"
+      }`}
+    >
+      {dark && (
+        <style>{`
+          .device-management-dark {
+            color: #e2e8f0;
+          }
+
+          .device-management-dark .text-gray-900,
+          .device-management-dark .text-gray-800,
+          .device-management-dark .text-gray-700 {
+            color: #f8fafc !important;
+          }
+
+          .device-management-dark .text-gray-600,
+          .device-management-dark .text-gray-500 {
+            color: #cbd5e1 !important;
+          }
+
+          .device-management-dark .text-gray-400,
+          .device-management-dark .text-gray-300 {
+            color: #94a3b8 !important;
+          }
+
+          .device-management-dark input,
+          .device-management-dark select,
+          .device-management-dark textarea {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+            border-color: #334155 !important;
+          }
+
+          .device-management-dark input::placeholder {
+            color: #64748b !important;
+          }
+
+          .device-management-dark option {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+          }
+
+          .device-management-dark thead {
+            color: #bfdbfe !important;
+          }
+
+          .device-management-dark tbody tr {
+            color: #e2e8f0 !important;
+          }
+        `}</style>
+      )}
       <div className="relative z-10 w-full">
-        <div className="sticky top-0 z-20 rounded-3xl border border-gray-200 bg-white/85 p-6 shadow-lg backdrop-blur-xl dark:border-gray-700 dark:bg-gray-900/85">
+        <div
+          className={`sticky top-0 z-20 rounded-3xl border p-6 shadow-lg backdrop-blur-xl ${
+            dark
+              ? "border-slate-700 bg-slate-900/95 shadow-black/30"
+              : "border-gray-200 bg-white/85"
+          }`}
+        >
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="flex items-center gap-3">
@@ -517,10 +597,10 @@ export default function DeviceManagement({ setPage }) {
                   <ServerCog size={22} />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                  <h1 className={dark ? "text-3xl font-bold text-slate-50" : "text-3xl font-bold text-gray-900"}>
                     Device Management
                   </h1>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  <p className={dark ? "mt-1 text-sm text-slate-300" : "mt-1 text-sm text-gray-500"}>
                     Register Influx devices and control which organization can
                     use them.
                   </p>
@@ -533,7 +613,11 @@ export default function DeviceManagement({ setPage }) {
                 type="button"
                 onClick={loadPageData}
                 disabled={loading}
-                className="inline-flex items-center gap-2 rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+                className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  dark
+                    ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                }`}
               >
                 <RefreshCw
                   size={17}
@@ -564,14 +648,14 @@ export default function DeviceManagement({ setPage }) {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search organization, device, bucket, measurement, or tag value..."
-                className="w-full rounded-2xl border border-gray-300 bg-white py-3 pl-11 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                className={`w-full rounded-2xl border py-3 pl-11 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
               />
             </div>
 
             <select
               value={selectedOrgId}
               onChange={(event) => setSelectedOrgId(event.target.value)}
-              className="rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              className={`rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
             >
               <option value="">All organizations</option>
               {organizations.map((organization) => (
@@ -583,25 +667,20 @@ export default function DeviceManagement({ setPage }) {
           </div>
         </div>
 
-        {(error || notice) && (
+
+        <div
+          className={`relative z-10 mt-6 overflow-hidden rounded-3xl border shadow-lg ${panelClass}`}
+        >
           <div
-            className={`relative z-10 mt-5 rounded-2xl border px-5 py-4 text-sm font-medium ${
-              error
-                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+            className={`flex items-center justify-between border-b px-6 py-5 ${
+              dark ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"
             }`}
           >
-            {error || notice}
-          </div>
-        )}
-
-        <div className="relative z-10 mt-6 overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 dark:border-gray-700">
             <div>
-              <h2 className="font-bold text-gray-900 dark:text-white">
+              <h2 className={dark ? "font-bold text-slate-50" : "font-bold text-gray-900"}>
                 Organization Device Assignments
               </h2>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p className={dark ? "mt-1 text-xs text-slate-300" : "mt-1 text-xs text-gray-500"}>
                 {filteredDevices.length} device assignment(s) shown
               </p>
             </div>
@@ -638,7 +717,13 @@ export default function DeviceManagement({ setPage }) {
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900/50 dark:text-gray-400">
+                <thead
+                  className={`text-xs uppercase tracking-wider ${
+                    dark
+                      ? "bg-slate-950 text-sky-200"
+                      : "bg-gray-50 text-gray-500"
+                  }`}
+                >
                   <tr>
                     <th className="px-6 py-4 font-semibold">Organization</th>
                     <th className="px-6 py-4 font-semibold">Device</th>
@@ -649,11 +734,13 @@ export default function DeviceManagement({ setPage }) {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                <tbody
+                  className={dark ? "divide-y divide-slate-800 bg-slate-900" : "divide-y divide-gray-100 bg-white"}
+                >
                   {filteredDevices.map((device) => (
                     <tr
                       key={device.id}
-                      className="transition hover:bg-blue-50/40 dark:hover:bg-blue-900/10"
+                      className={dark ? "transition hover:bg-slate-800/90" : "transition hover:bg-blue-50/40"}
                     >
                       <td className="px-6 py-4 font-semibold text-gray-800 dark:text-gray-100">
                         {device.org_name}
@@ -680,9 +767,13 @@ export default function DeviceManagement({ setPage }) {
                       <td className="px-6 py-4 text-right">
                         <button
                           type="button"
-                          onClick={() => deleteDevice(device)}
+                          onClick={() => setPendingDelete(device)}
                           disabled={deletingId === device.id}
-                          className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/30"
+                          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            dark
+                              ? "border-red-400 bg-red-500/10 text-red-300 hover:border-red-500 hover:bg-red-600 hover:text-white"
+                              : "border-red-300 bg-red-50 text-red-600 hover:border-red-500 hover:bg-red-600 hover:text-white"
+                          }`}
                         >
                           <Trash2 size={15} />
                           {deletingId === device.id ? "Removing..." : "Remove"}
@@ -696,6 +787,132 @@ export default function DeviceManagement({ setPage }) {
           )}
         </div>
       </div>
+
+      {(error || notice) && (
+        <div
+          className="
+            fixed right-5 top-5 z-[80]
+            flex w-[min(420px,calc(100vw-2.5rem))]
+            items-start gap-3 rounded-2xl border p-4 shadow-2xl
+            backdrop-blur-xl
+            animate-[fadeIn_.2s_ease-out]
+          "
+          role="status"
+        >
+          <div
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+              error
+                ? "bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-300"
+                : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-300"
+            }`}
+          >
+            {error ? <AlertCircle size={19} /> : <CheckCircle2 size={19} />}
+          </div>
+
+          <div
+            className={`min-w-0 flex-1 pt-0.5 text-sm ${
+              error
+                ? "text-red-800 dark:text-red-200"
+                : "text-emerald-800 dark:text-emerald-200"
+            }`}
+          >
+            <p className="font-bold">
+              {error ? "Action failed" : "Success"}
+            </p>
+            <p className="mt-1 leading-relaxed opacity-90">
+              {error || notice}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setError("");
+              setNotice("");
+            }}
+            className="
+              rounded-xl p-1.5 text-gray-400 transition
+              hover:bg-gray-100 hover:text-gray-700
+              dark:hover:bg-gray-800 dark:hover:text-white
+            "
+            aria-label="Dismiss notification"
+          >
+            <X size={17} />
+          </button>
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div
+          className="
+            fixed inset-0 z-[70] flex items-center justify-center
+            bg-black/60 p-6 backdrop-blur-sm
+          "
+          onClick={() => {
+            if (!deletingId) setPendingDelete(null);
+          }}
+        >
+          <div
+            className="
+              w-full max-w-md rounded-3xl border border-gray-200
+              bg-white p-7 shadow-2xl
+              dark:border-gray-700 dark:bg-gray-900
+            "
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-300">
+              <Trash2 size={22} />
+            </div>
+
+            <h2 className="mt-5 text-xl font-bold text-gray-900 dark:text-white">
+              Remove device assignment?
+            </h2>
+
+            <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+              Remove 
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                {pendingDelete.device_name ||
+                  `${pendingDelete.measurement_name} / ${pendingDelete.tag_value}`}
+              </span> from {pendingDelete.org_name}. Organization admins will no longer be able to select this device in Template Builder.
+            </p>
+
+            <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                disabled={Boolean(deletingId)}
+                className="
+                  rounded-2xl border border-gray-300 bg-white px-5 py-3
+                  font-semibold text-gray-700 transition hover:bg-gray-100
+                  disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800
+                  dark:text-white dark:hover:bg-gray-700
+                "
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => deleteDevice(pendingDelete)}
+                disabled={Boolean(deletingId)}
+                className="
+                  inline-flex items-center justify-center gap-2 rounded-2xl
+                  bg-red-600 px-5 py-3 font-semibold text-white
+                  transition hover:bg-red-700 disabled:cursor-not-allowed
+                  disabled:opacity-60
+                "
+              >
+                {deletingId ? (
+                  <RefreshCw className="animate-spin" size={17} />
+                ) : (
+                  <Trash2 size={17} />
+                )}
+                {deletingId ? "Removing..." : "Remove Device"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div
@@ -736,7 +953,7 @@ export default function DeviceManagement({ setPage }) {
                   value={form.org_id}
                   onChange={(event) => updateForm("org_id", event.target.value)}
                   required
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className={`mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
                 >
                   <option value="">Select organization</option>
                   {organizations.map((organization) => (
@@ -757,7 +974,7 @@ export default function DeviceManagement({ setPage }) {
                     updateForm("device_name", event.target.value)
                   }
                   placeholder="Sterilizer 01"
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className={`mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
                 />
               </label>
 
@@ -772,7 +989,7 @@ export default function DeviceManagement({ setPage }) {
                   }
                   required
                   disabled={metadataLoading && availableBuckets.length === 0}
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}
                 >
                   <option value="">Select available bucket</option>
                   {availableBuckets.map((bucketName) => (
@@ -794,7 +1011,7 @@ export default function DeviceManagement({ setPage }) {
                   }
                   required
                   disabled={!form.bucket_name || metadataLoading}
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}
                 >
                   <option value="">Select available measurement</option>
                   {availableMeasurements.map((measurementName) => (
@@ -818,7 +1035,7 @@ export default function DeviceManagement({ setPage }) {
                   required
                   pattern="[A-Za-z_][A-Za-z0-9_]*"
                   title="Use letters, numbers, and underscores. The first character cannot be a number."
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
                 />
               </label>
 
@@ -837,7 +1054,7 @@ export default function DeviceManagement({ setPage }) {
                     !form.tag_key ||
                     metadataLoading
                   }
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}
                 >
                   <option value="">Select available device ID</option>
                   {availableIds.map((deviceId) => (
@@ -848,7 +1065,13 @@ export default function DeviceManagement({ setPage }) {
                 </select>
               </label>
 
-              <div className="md:col-span-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300">
+              <div
+                className={`md:col-span-2 rounded-2xl border px-4 py-3 text-xs ${
+                  dark
+                    ? "border-blue-900/80 bg-blue-950/45 text-blue-200"
+                    : "border-blue-100 bg-blue-50 text-blue-700"
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span>
                     {metadataLoading

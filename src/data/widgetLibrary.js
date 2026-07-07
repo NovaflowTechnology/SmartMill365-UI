@@ -72,17 +72,12 @@ export const widgetLibrary = [
   },
 
   {
-    type: "alarm", //I dont want anymore, maybe can change to histogram, table, and logs
-    label: "Alarm",
-    icon: AlertTriangle,
-    supportedData: allDataKeys,
-  },
-  {
     type: "pie",
     label: "Pie",
     icon: PieChart,
     supportedData: allDataKeys,
   },
+  
   {
     type: "image",
     label: "Image",
