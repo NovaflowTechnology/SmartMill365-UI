@@ -4,11 +4,11 @@ import {
   Activity,
   TrendingUp,
   Hash,
-  AlertTriangle,
   Image as ImageIcon,
   Gauge,
   ChartArea,
   Radio,
+  Workflow,
 } from "lucide-react";
 
 export const allDataKeys = [
@@ -33,30 +33,49 @@ export const widgetLibrary = [
     icon: Activity,
     supportedData: allDataKeys,
   },
+
   {
     type: "linearGauge",
     label: "Linear Gauge",
     icon: Gauge,
     supportedData: allDataKeys,
   },
+
   {
     type: "line",
     label: "Line",
     icon: TrendingUp,
     supportedData: allDataKeys,
   },
+
   {
     type: "area",
     label: "Area",
     icon: ChartArea,
     supportedData: allDataKeys,
   },
+
   {
     type: "bar",
     label: "Bar",
     icon: BarChart3,
     supportedData: allDataKeys,
   },
+
+  {
+    type: "pie",
+    label: "Pie",
+    icon: PieChart,
+    supportedData: allDataKeys,
+  },
+
+  {
+    type: "sankey",
+    label: "Sankey",
+    icon: Workflow,
+    supportedData: [],
+  },
+
   {
     type: "bignumber",
     label: "Number",
@@ -72,13 +91,6 @@ export const widgetLibrary = [
   },
 
   {
-    type: "pie",
-    label: "Pie",
-    icon: PieChart,
-    supportedData: allDataKeys,
-  },
-  
-  {
     type: "image",
     label: "Image",
     icon: ImageIcon,
@@ -87,7 +99,7 @@ export const widgetLibrary = [
 ];
 
 /**
- * CHANNEL MAPPING from Novaflow (Veli Important)
+ * CHANNEL MAPPING from Novaflow
  *
  * ch1:  steamPressure
  * ch2:  steamFlowrate

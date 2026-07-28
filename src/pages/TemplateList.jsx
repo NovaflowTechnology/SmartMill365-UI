@@ -20,6 +20,7 @@ export default function TemplateList({
   setPage,
   setSelectedTemplate,
   fetchDefaultTemplate,
+  dark = false,
 }) {
   // =====================================
   // STATES
@@ -77,6 +78,47 @@ export default function TemplateList({
   const canCreateOrEdit =
     role === "superadmin" ||
     role === "admin";
+
+  const [detectedDark, setDetectedDark] = useState(false);
+
+  useEffect(() => {
+    const checkDarkMode = () => {
+      const htmlHasDark = document.documentElement.classList.contains("dark");
+      const bodyHasDark = document.body.classList.contains("dark");
+      const storedTheme = localStorage.getItem("theme");
+      const storedDarkMode = localStorage.getItem("darkMode");
+
+      setDetectedDark(
+        htmlHasDark ||
+          bodyHasDark ||
+          storedTheme === "dark" ||
+          storedDarkMode === "true"
+      );
+    };
+
+    checkDarkMode();
+
+    const observer = new MutationObserver(checkDarkMode);
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    window.addEventListener("storage", checkDarkMode);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("storage", checkDarkMode);
+    };
+  }, []);
+
+  const isDark = dark || detectedDark;
 
   // =====================================
   // SAFE JSON PARSER
@@ -481,9 +523,7 @@ export default function TemplateList({
   if (loading) {
     return (
       <div
-        className="
-          h-full flex items-center justify-center
-        "
+        className={`h-full flex items-center justify-center ${isDark ? "bg-[#050a1e] text-slate-100" : ""}`}
       >
         <div className="text-center">
           <div
@@ -511,7 +551,139 @@ export default function TemplateList({
   // UI
   // =====================================
   return (
-    <div className="p-6">
+    <div
+      className={`template-list-page min-h-full w-full overflow-auto p-6 ${
+        isDark ? "template-list-dark bg-[#050a1e] text-slate-100" : "bg-transparent"
+      }`}
+    >
+      {isDark && (
+        <style>{`
+          .template-list-dark {
+            color: #e2e8f0;
+          }
+
+          .template-list-dark .bg-white {
+            background-color: #0f172a !important;
+          }
+
+          .template-list-dark .bg-gray-50 {
+            background-color: #020617 !important;
+          }
+
+          .template-list-dark .bg-gray-100 {
+            background-color: #1e293b !important;
+          }
+
+          .template-list-dark .bg-gray-200 {
+            background-color: #334155 !important;
+          }
+
+          .template-list-dark .bg-gray-700,
+          .template-list-dark .bg-gray-800,
+          .template-list-dark .bg-gray-900 {
+            background-color: #0f172a !important;
+          }
+
+          .template-list-dark .border-gray-200,
+          .template-list-dark .border-gray-300,
+          .template-list-dark .border-gray-600,
+          .template-list-dark .border-gray-700 {
+            border-color: #334155 !important;
+          }
+
+          .template-list-dark .text-gray-900,
+          .template-list-dark .text-gray-800,
+          .template-list-dark .text-gray-700 {
+            color: #f8fafc !important;
+          }
+
+          .template-list-dark .text-gray-600,
+          .template-list-dark .text-gray-500 {
+            color: #cbd5e1 !important;
+          }
+
+          .template-list-dark .text-gray-400,
+          .template-list-dark .text-gray-300 {
+            color: #94a3b8 !important;
+          }
+
+          .template-list-dark input,
+          .template-list-dark select,
+          .template-list-dark textarea {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+            border-color: #334155 !important;
+          }
+
+          .template-list-dark input::placeholder,
+          .template-list-dark textarea::placeholder {
+            color: #64748b !important;
+          }
+
+          .template-list-dark option {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+          }
+
+          .template-list-dark .from-gray-100 {
+            --tw-gradient-from: #111827 var(--tw-gradient-from-position) !important;
+            --tw-gradient-to: rgb(17 24 39 / 0) var(--tw-gradient-to-position) !important;
+            --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+          }
+
+          .template-list-dark .to-gray-200 {
+            --tw-gradient-to: #334155 var(--tw-gradient-to-position) !important;
+          }
+
+          .template-list-dark .hover\:shadow-2xl:hover {
+            box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.45) !important;
+          }
+
+          .template-list-dark .bg-emerald-50 {
+            background-color: rgba(6, 78, 59, 0.28) !important;
+          }
+
+          .template-list-dark .border-emerald-200,
+          .template-list-dark .border-emerald-800 {
+            border-color: rgba(16, 185, 129, 0.35) !important;
+          }
+
+          .template-list-dark .text-emerald-700 {
+            color: #6ee7b7 !important;
+          }
+
+          .template-list-dark .bg-yellow-100 {
+            background-color: rgba(113, 63, 18, 0.55) !important;
+          }
+
+          .template-list-dark .text-yellow-700 {
+            color: #fde68a !important;
+          }
+
+          .template-list-dark .border-yellow-300,
+          .template-list-dark .border-yellow-600 {
+            border-color: rgba(250, 204, 21, 0.55) !important;
+          }
+
+          .template-list-dark .bg-yellow-50 {
+            background-color: rgba(113, 63, 18, 0.3) !important;
+          }
+
+          .template-list-dark .bg-emerald-100 {
+            background-color: rgba(6, 78, 59, 0.55) !important;
+          }
+
+          .template-list-dark .text-emerald-600 {
+            color: #34d399 !important;
+          }
+
+          .template-list-dark .shadow-lg,
+          .template-list-dark .shadow-xl,
+          .template-list-dark .shadow-2xl {
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28) !important;
+          }
+        `}</style>
+      )}
       {/* HEADER */}
       <div
         className="

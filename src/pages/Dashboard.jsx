@@ -262,6 +262,7 @@ export default function Dashboard({
   template,
   setFullscreen,
   setPage,
+  dark = false,
 }) {
   const [data, setData] = useState({});
   const [history, setHistory] = useState([]);
@@ -283,6 +284,9 @@ export default function Dashboard({
   });
   const [liveStatus, setLiveStatus] =
     useState(null);
+
+  const [sankeyValues, setSankeyValues] =
+    useState({});
 
   const [isFullscreen, setIsFullscreen] =
     useState(false);
@@ -310,12 +314,54 @@ export default function Dashboard({
     `Template #${template?.id || ""}` ||
     "Dashboard";
 
+  const [detectedDark, setDetectedDark] = useState(false);
+
+  useEffect(() => {
+    const checkDarkMode = () => {
+      const htmlHasDark = document.documentElement.classList.contains("dark");
+      const bodyHasDark = document.body.classList.contains("dark");
+      const storedTheme = localStorage.getItem("theme");
+      const storedDarkMode = localStorage.getItem("darkMode");
+
+      setDetectedDark(
+        htmlHasDark ||
+          bodyHasDark ||
+          storedTheme === "dark" ||
+          storedDarkMode === "true"
+      );
+    };
+
+    checkDarkMode();
+
+    const observer = new MutationObserver(checkDarkMode);
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    window.addEventListener("storage", checkDarkMode);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("storage", checkDarkMode);
+    };
+  }, []);
+
+  const isDarkMode = dark || detectedDark;
+
   // UPDATE TEMPLATE ITEMS WHEN TEMPLATE CHANGES
   useEffect(() => {
     setItems(layout?.items || []);
     setData({});
     setHistory([]);
     setLiveStatus(null);
+    setSankeyValues({});
   }, [template]);
 
   // FETCH TEMPLATE-SPECIFIC LIVE DATA
@@ -337,6 +383,7 @@ export default function Dashboard({
       );
 
       setLiveStatus(null);
+      setSankeyValues({});
       return;
     }
 
@@ -349,6 +396,7 @@ export default function Dashboard({
       );
 
       setLiveStatus(null);
+      setSankeyValues({});
       return;
     }
 
@@ -380,6 +428,7 @@ export default function Dashboard({
             influx: influxConfig,
             channelMap,
             ...timeRequest,
+            items: layout?.items || items || [],
           }),
         }
       );
@@ -397,6 +446,7 @@ export default function Dashboard({
 
       setData(incoming);
       setLiveStatus(result?.liveStatus || null);
+      setSankeyValues(result?.sankeyValues || {});
 
       // Use real historical rows returned by InfluxDB. Do not build
       // chart history from the current live reading on the browser.
@@ -412,6 +462,7 @@ export default function Dashboard({
       );
 
       setLiveStatus(null);
+      setSankeyValues({});
       setDataError(
         err.message ||
           "Unable to retrieve live data."
@@ -448,7 +499,7 @@ export default function Dashboard({
     const handleEsc = (e) => {
       if (e.key === "Escape") {
         setIsFullscreen(false);
-        setFullscreen(false);
+        setFullscreen?.(false);
       }
     };
 
@@ -465,7 +516,7 @@ export default function Dashboard({
     const next = !isFullscreen;
 
     setIsFullscreen(next);
-    setFullscreen(next);
+    setFullscreen?.(next);
   };
 
   const getLabel = (key) =>
@@ -496,26 +547,61 @@ export default function Dashboard({
   if (!template) {
     return (
       <div
-        className="
-          h-full
+        className={`
+          dashboard-page
+          ${isDarkMode ? "dashboard-dark bg-[#050a1e] text-slate-100" : ""}
+          min-h-[calc(100vh-3rem)]
+          w-full
           flex items-center
           justify-center
           p-6
-        "
+        `}
       >
+        {isDarkMode && (
+          <style>{`
+            .dashboard-dark {
+              color: #e2e8f0;
+              background-color: #050a1e !important;
+            }
+
+            .dashboard-dark .text-gray-900,
+            .dashboard-dark .text-gray-800,
+            .dashboard-dark .text-gray-700 {
+              color: #f8fafc !important;
+            }
+
+            .dashboard-dark .text-gray-600,
+            .dashboard-dark .text-gray-500,
+            .dashboard-dark .text-gray-400,
+            .dashboard-dark .text-gray-300 {
+              color: #cbd5e1 !important;
+            }
+
+            .dashboard-dark .bg-gray-100 {
+              background-color: #1e293b !important;
+            }
+
+            .dashboard-dark .hover\\:bg-gray-200:hover {
+              background-color: #334155 !important;
+            }
+          `}</style>
+        )}
+
         <div
-          className="
+          className={`
             max-w-xl
             w-full
-            bg-white
-            dark:bg-gray-800
-            border border-gray-200
-            dark:border-gray-700
             rounded-3xl
-            shadow-lg
+            border
             p-10
             text-center
-          "
+            shadow-lg
+            ${
+              isDarkMode
+                ? "border-slate-700 bg-slate-900 text-slate-100 shadow-black/30"
+                : "border-gray-200 bg-white text-gray-900"
+            }
+          `}
         >
           <div
             className="
@@ -606,28 +692,127 @@ export default function Dashboard({
             </button>
           </div>
         </div>
-      </div>
+        </div>
     );
   }
 
   return (
     <div
-      className={
-        isFullscreen
-          ? `
-            fixed inset-0
-            bg-gray-100
-            dark:bg-gray-900
-            z-50
-            flex flex-col
-            p-4
-          `
-          : `
-            h-full
-            flex flex-col
-          `
-      }
+      className={`
+        dashboard-page
+        ${isDarkMode ? "dashboard-dark bg-[#050a1e] text-slate-100" : ""}
+        ${
+          isFullscreen
+            ? `
+              fixed inset-0
+              ${isDarkMode ? "bg-[#050a1e]" : "bg-gray-100 dark:bg-gray-900"}
+              z-50
+              flex flex-col
+              p-4
+            `
+            : `
+              min-h-[calc(100vh-3rem)]
+              w-full
+              flex flex-col
+              ${isDarkMode ? "bg-[#050a1e]" : ""}
+            `
+        }
+      `}
     >
+      {isDarkMode && (
+        <style>{`
+          .dashboard-dark {
+            color: #e2e8f0;
+            background-color: #050a1e !important;
+          }
+
+          .dashboard-dark * {
+            scrollbar-color: #334155 #020617;
+          }
+
+          .dashboard-dark .bg-white {
+            background-color: #0f172a !important;
+          }
+
+          .dashboard-dark .bg-gray-50,
+          .dashboard-dark .bg-gray-100 {
+            background-color: #0b1220 !important;
+          }
+
+          .dashboard-dark .bg-gray-200,
+          .dashboard-dark .bg-gray-700 {
+            background-color: #1e293b !important;
+          }
+
+          .dashboard-dark .bg-gray-800,
+          .dashboard-dark .bg-slate-800 {
+            background-color: #0f172a !important;
+          }
+
+          .dashboard-dark .bg-gray-900,
+          .dashboard-dark .bg-slate-900,
+          .dashboard-dark .bg-slate-950 {
+            background-color: #020617 !important;
+          }
+
+          .dashboard-dark .border-gray-200,
+          .dashboard-dark .border-gray-300,
+          .dashboard-dark .border-gray-600,
+          .dashboard-dark .border-gray-700,
+          .dashboard-dark .border-slate-700 {
+            border-color: #334155 !important;
+          }
+
+          .dashboard-dark .text-gray-900,
+          .dashboard-dark .text-gray-800,
+          .dashboard-dark .text-gray-700 {
+            color: #f8fafc !important;
+          }
+
+          .dashboard-dark .text-gray-600,
+          .dashboard-dark .text-gray-500,
+          .dashboard-dark .text-gray-400,
+          .dashboard-dark .text-gray-300 {
+            color: #cbd5e1 !important;
+          }
+
+          .dashboard-dark input,
+          .dashboard-dark select,
+          .dashboard-dark textarea {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+            border-color: #334155 !important;
+          }
+
+          .dashboard-dark input::placeholder,
+          .dashboard-dark textarea::placeholder {
+            color: #64748b !important;
+          }
+
+          .dashboard-dark option {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+          }
+
+          .dashboard-dark .hover\:bg-gray-50:hover,
+          .dashboard-dark .hover\:bg-gray-100:hover,
+          .dashboard-dark .dark\:hover\:bg-gray-700:hover,
+          .dashboard-dark .dark\:hover\:bg-gray-800:hover {
+            background-color: #1e293b !important;
+          }
+
+          .dashboard-dark .recharts-cartesian-axis-tick-value,
+          .dashboard-dark .recharts-text,
+          .dashboard-dark .recharts-label {
+            fill: #cbd5e1 !important;
+            color: #cbd5e1 !important;
+          }
+
+          .dashboard-dark .recharts-cartesian-grid line {
+            stroke: #334155 !important;
+          }
+        `}</style>
+      )}
       {/* HEADER */}
       <div
         className={`
@@ -1149,7 +1334,10 @@ export default function Dashboard({
                 historyWindow={timeRange}
                 liveStatus={liveStatus}
                 dataKey={item.dataKey}
-                item={item}
+                item={{
+                  ...item,
+                  sankeyRuntimeValues: sankeyValues[item.id] || {},
+                }}
                 updateItem={(updated) => {
                   setItems((prev) =>
                     prev.map((it) =>

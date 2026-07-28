@@ -18,7 +18,7 @@ import {
   UserMinus,
 } from "lucide-react";
 
-export default function OrganizationManagement() {
+export default function OrganizationManagement({ dark = false }) {
   const currentRole = localStorage.getItem("role");
   const currentOrgId = localStorage.getItem("org_id");
   const currentOrgName = localStorage.getItem("org_name");
@@ -683,7 +683,242 @@ export default function OrganizationManagement() {
   ).length;
 
   return (
-    <div className="p-6">
+    <div
+      className="
+        organization-management-page
+        min-h-full
+        w-full
+        overflow-auto
+        bg-transparent
+        p-6
+        text-gray-900
+        dark:bg-[#050a1e]
+        dark:text-slate-100
+      "
+    >
+      <style>{`
+          .dark .organization-management-page {
+            color: #e2e8f0;
+          }
+
+          .dark .organization-management-page .bg-white {
+            background-color: #0f172a !important;
+          }
+
+          .dark .organization-management-page .bg-gray-50,
+          .dark .organization-management-page .bg-gray-100 {
+            background-color: #0b1220 !important;
+          }
+
+          .dark .organization-management-page .bg-gray-200 {
+            background-color: #1e293b !important;
+          }
+
+          .dark .organization-management-page .bg-gray-800,
+          .dark .organization-management-page .bg-gray-900 {
+            background-color: #0f172a !important;
+          }
+
+          .dark .organization-management-page .bg-white\/70 {
+            background-color: rgba(15, 23, 42, 0.7) !important;
+          }
+
+          .dark .organization-management-page .from-cyan-50 {
+            --tw-gradient-from: rgba(14, 116, 144, 0.18) var(--tw-gradient-from-position) !important;
+            --tw-gradient-to: rgba(14, 116, 144, 0) var(--tw-gradient-to-position) !important;
+            --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+          }
+
+          .dark .organization-management-page .via-purple-50 {
+            --tw-gradient-to: rgba(88, 28, 135, 0) var(--tw-gradient-to-position) !important;
+            --tw-gradient-stops: var(--tw-gradient-from), rgba(88, 28, 135, 0.18) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+          }
+
+          .dark .organization-management-page .to-white {
+            --tw-gradient-to: #0f172a var(--tw-gradient-to-position) !important;
+          }
+
+          .dark .organization-management-page .border-gray-200,
+          .dark .organization-management-page .border-gray-300,
+          .dark .organization-management-page .border-gray-700,
+          .dark .organization-management-page .border-white\/70 {
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page .text-gray-900,
+          .dark .organization-management-page .text-gray-800,
+          .dark .organization-management-page .text-gray-700 {
+            color: #f8fafc !important;
+          }
+
+          .dark .organization-management-page .text-gray-600,
+          .dark .organization-management-page .text-gray-500 {
+            color: #cbd5e1 !important;
+          }
+
+          .dark .organization-management-page .text-gray-400,
+          .dark .organization-management-page .text-gray-300 {
+            color: #94a3b8 !important;
+          }
+
+          .dark .organization-management-page input,
+          .dark .organization-management-page select,
+          .dark .organization-management-page textarea {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page input::placeholder,
+          .dark .organization-management-page textarea::placeholder {
+            color: #64748b !important;
+          }
+
+          .dark .organization-management-page option {
+            color: #f8fafc !important;
+            background-color: #020617 !important;
+          }
+
+          .dark .organization-management-page .bg-cyan-50\/60,
+          .dark .organization-management-page .bg-emerald-50\/60,
+          .dark .organization-management-page .bg-purple-50\/60 {
+            background-color: rgba(15, 23, 42, 0.92) !important;
+          }
+
+          .dark .organization-management-page .border-cyan-100,
+          .dark .organization-management-page .border-emerald-100,
+          .dark .organization-management-page .border-purple-100 {
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page thead {
+            background-color: #020617 !important;
+            color: #bfdbfe !important;
+          }
+
+          .dark .organization-management-page tbody {
+            background-color: #0f172a;
+          }
+
+          .dark .organization-management-page tbody tr {
+            color: #e2e8f0 !important;
+          }
+
+          /* Slight alternating row contrast in dark mode */
+          .dark .organization-management-page tbody tr:nth-child(odd) {
+            background-color: #0f172a;
+          }
+
+          .dark .organization-management-page tbody tr:nth-child(even) {
+            background-color: #111c30;
+          }
+
+          .dark .organization-management-page tbody td {
+            background-color: transparent !important;
+          }
+
+          .dark .organization-management-page tbody tr:hover {
+            background-color: #1e293b !important;
+          }
+
+          .dark .organization-management-page tbody tr.bg-purple-50 {
+            background-color: rgba(88, 28, 135, 0.3) !important;
+          }
+
+          .dark .organization-management-page .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+            border-color: #1e293b !important;
+          }
+
+          .dark .organization-management-page .shadow-lg {
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3) !important;
+          }
+
+          .dark .organization-management-page .bg-white,
+          .dark .organization-management-page .bg-white\/70,
+          .dark .organization-management-page .bg-white\/85 {
+            background-color: #0f172a !important;
+          }
+
+          .dark .organization-management-page table,
+          .dark .organization-management-page tbody {
+            background-color: #0f172a;
+            color: #e2e8f0;
+          }
+
+          .dark .organization-management-page tr:hover,
+          .dark .organization-management-page .hover\:bg-gray-50:hover,
+          .dark .organization-management-page .hover\:bg-gray-100:hover {
+            background-color: #1e293b !important;
+          }
+
+          .dark .organization-management-page h1,
+          .dark .organization-management-page h2,
+          .dark .organization-management-page h3,
+          .dark .organization-management-page h4 {
+            color: #f8fafc !important;
+          }
+
+          /* Do not force every .font-bold / .font-semibold to white.
+             Badges use font-semibold too, so forcing white makes labels such as
+             Need Template, Organization Setup, and count pills unreadable. */
+          .dark .organization-management-page .bg-yellow-100.text-yellow-700,
+          .dark .organization-management-page .bg-yellow-100 .text-yellow-700 {
+            color: #92400e !important;
+          }
+
+          .dark .organization-management-page .bg-cyan-100.text-cyan-700,
+          .dark .organization-management-page .bg-cyan-100 .text-cyan-700 {
+            color: #155e75 !important;
+          }
+
+          .dark .organization-management-page .bg-purple-100.text-purple-700,
+          .dark .organization-management-page .bg-purple-100 .text-purple-700 {
+            color: #6b21a8 !important;
+          }
+
+          .dark .organization-management-page .bg-blue-100.text-blue-700,
+          .dark .organization-management-page .bg-blue-100 .text-blue-700 {
+            color: #1d4ed8 !important;
+          }
+
+          .dark .organization-management-page .bg-emerald-100.text-emerald-700,
+          .dark .organization-management-page .bg-emerald-100 .text-emerald-700 {
+            color: #047857 !important;
+          }
+
+          .dark .organization-management-page .text-cyan-500,
+          .dark .organization-management-page .text-emerald-500,
+          .dark .organization-management-page .text-purple-500,
+          .dark .organization-management-page .text-yellow-500,
+          .dark .organization-management-page .text-blue-500,
+          .dark .organization-management-page .text-red-500 {
+            color: inherit;
+          }
+
+          .dark .organization-management-page .text-cyan-500 {
+            color: #22d3ee !important;
+          }
+
+          .dark .organization-management-page .text-emerald-500 {
+            color: #34d399 !important;
+          }
+
+          .dark .organization-management-page .text-purple-500 {
+            color: #c084fc !important;
+          }
+
+          .dark .organization-management-page .text-yellow-500 {
+            color: #facc15 !important;
+          }
+
+          .dark .organization-management-page .text-blue-500 {
+            color: #60a5fa !important;
+          }
+
+          .dark .organization-management-page .text-red-500 {
+            color: #f87171 !important;
+          }
+        `}</style>
       {/* HEADER */}
       <div
         className="
@@ -732,12 +967,13 @@ export default function OrganizationManagement() {
 
       {/* SUMMARY CARDS */}
       <div
-        className="
+        className={`
           grid grid-cols-1
           md:grid-cols-4
           gap-5
           mb-8
-        "
+          ${isAdmin ? "hidden" : ""}
+        `}
       >
         <div
           className="
@@ -917,11 +1153,13 @@ export default function OrganizationManagement() {
                 "
               >
                 <ShieldCheck className="w-5 h-5 text-purple-500" />
-                Administration Actions
+                {isSuperadmin ? "Administration Actions" : "Create User"}
               </h2>
 
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Control Panel
+                {isSuperadmin
+                  ? "Control Panel"
+                  : `Add users directly into ${currentOrgName || "your organization"}.`}
               </p>
             </div>
 
@@ -988,28 +1226,30 @@ export default function OrganizationManagement() {
                 New User
               </button>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveAction("assignment")
-                }
-                className={`
-                  flex items-center justify-center gap-2
-                  px-4 py-3
-                  rounded-2xl
-                  text-sm font-semibold
-                  transition
-
-                  ${
-                    activeAction === "assignment"
-                      ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
-                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+              {isSuperadmin && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveAction("assignment")
                   }
-                `}
-              >
-                <Users size={17} />
-                Assignment
-              </button>
+                  className={`
+                    flex items-center justify-center gap-2
+                    px-4 py-3
+                    rounded-2xl
+                    text-sm font-semibold
+                    transition
+
+                    ${
+                      activeAction === "assignment"
+                        ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
+                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    }
+                  `}
+                >
+                  <Users size={17} />
+                  Assignment
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1351,14 +1591,16 @@ export default function OrganizationManagement() {
                 className="
                   mt-4
                   rounded-2xl
+                  border
+                  border-emerald-100
                   bg-white/70
-                  dark:bg-gray-900/50
-                  border border-emerald-100
-                  dark:border-emerald-900/50
                   px-4 py-3
                   text-xs
+                  font-medium
                   text-gray-500
-                  dark:text-gray-400
+                  dark:border-emerald-500/30
+                  dark:bg-emerald-950/35
+                  dark:text-emerald-100
                 "
               >
                 Password must be at least 6 characters. Superadmin accounts should still be created manually in the database for safety.
@@ -1367,7 +1609,7 @@ export default function OrganizationManagement() {
           )}
 
           {/* UPDATE ASSIGNMENT */}
-          {activeAction === "assignment" && (
+          {isSuperadmin && activeAction === "assignment" && (
             <div
               className="
                 rounded-3xl
@@ -1850,14 +2092,15 @@ export default function OrganizationManagement() {
 
       {/* ORGANIZATION TABLE CARD */}
       <div
-        className="
+        className={`
           bg-white dark:bg-gray-800
           border border-gray-200 dark:border-gray-700
           rounded-3xl
           shadow-lg
           overflow-hidden
           mb-8
-        "
+          ${isAdmin ? "hidden" : ""}
+        `}
       >
         {/* TABLE HEADER */}
         <div
@@ -2334,7 +2577,9 @@ export default function OrganizationManagement() {
             </h2>
 
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Select an organization above to view, edit, or remove its users.
+              {isSuperadmin
+                ? "Select an organization above to view, edit, or remove its users."
+                : "View users in your organization and update their roles."}
             </p>
           </div>
 

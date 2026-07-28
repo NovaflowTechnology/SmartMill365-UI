@@ -5,8 +5,20 @@ import { dataRanges } from "../data/dataRanges";
 export default function ImageWidget({
   valueMap = {},
   pins = [],
+  image = null,
+  customDataOptions = [],
 }) {
   const safePins = Array.isArray(pins) ? pins : [];
+
+  const allDataOptions = [
+    ...dataOptions,
+    ...(Array.isArray(customDataOptions) ? customDataOptions : []),
+  ];
+
+  const imageSrc =
+    image?.croppedSrc ||
+    image?.originalSrc ||
+    boilerImg;
 
   const getStatus = (value, config) => {
     const warning = Number(config?.warning);
@@ -47,23 +59,23 @@ export default function ImageWidget({
   return (
     <div
       className="
-        relative w-full h-full overflow-hidden rounded-2xl
+        relative h-full w-full overflow-hidden rounded-2xl
         bg-gray-100 dark:bg-gray-900
       "
     >
       <img
-        src={boilerImg}
-        alt="Boiler system diagram"
+        src={imageSrc}
+        alt="System process diagram"
         draggable={false}
         className="
-          absolute inset-0 w-full h-full object-cover select-none
+          absolute inset-0 h-full w-full select-none object-contain
         "
       />
 
       <div
         className="
-          absolute inset-0 pointer-events-none z-0
-          bg-black/20
+          absolute inset-0 z-0 pointer-events-none
+          bg-black/10
         "
       />
 
@@ -77,15 +89,22 @@ export default function ImageWidget({
           ? numericValue
           : 0;
 
-        const config = dataRanges?.[pin.dataKey] || {};
+        const dataOption = allDataOptions.find(
+          (option) => option.key === pin.dataKey
+        );
+
+        const config = {
+          ...(dataRanges?.[pin.dataKey] || {}),
+          unit:
+            dataOption?.unit ||
+            dataRanges?.[pin.dataKey]?.unit ||
+            "",
+        };
 
         const status = getStatus(value, config);
         const style = statusStyles[status];
 
-        const label =
-          dataOptions.find(
-            (option) => option.key === pin.dataKey
-          )?.label || pin.dataKey;
+        const label = dataOption?.label || pin.dataKey;
 
         const x = Math.min(
           100,
@@ -98,9 +117,7 @@ export default function ImageWidget({
         );
 
         const formattedValue = Number.isFinite(value)
-          ? value.toFixed(
-              Number.isInteger(value) ? 0 : 1
-            )
+          ? value.toFixed(Number.isInteger(value) ? 0 : 1)
           : "0";
 
         return (
@@ -119,7 +136,7 @@ export default function ImageWidget({
             {status === "critical" && (
               <div
                 className={`
-                  absolute w-8 h-8 rounded-full opacity-30
+                  absolute h-8 w-8 rounded-full opacity-30
                   animate-ping ${style.pin}
                 `}
               />
@@ -127,7 +144,7 @@ export default function ImageWidget({
 
             <div
               className={`
-                relative w-5 h-5 rounded-full
+                relative h-5 w-5 rounded-full
                 border-2 border-white shadow-xl
                 ${style.pin}
                 ${status === "critical" ? "animate-pulse" : ""}
@@ -157,7 +174,7 @@ export default function ImageWidget({
               </div>
 
               <div className="text-sm font-bold">
-                {formattedValue} {config.unit || ""}
+                {formattedValue} {config.unit}
               </div>
 
               <div

@@ -251,6 +251,171 @@ const canAccessInfluxDevice = async ({
 };
 
 // =====================================
+// SANKEY ACTUAL DATA HELPERS
+// =====================================
+const fetchLatestSankeyOutputValue = async ({
+  queryApi,
+  user,
+  bucketName,
+  measurementName,
+  tagKey = "id",
+  tagValue,
+  channel,
+}) => {
+  if (
+    !bucketName ||
+    !measurementName ||
+    !tagKey ||
+    !tagValue ||
+    !channel
+  ) {
+    return {
+      value: null,
+      timestamp: null,
+      error: "Missing Sankey data source configuration",
+    };
+  }
+
+  if (!isValidFluxColumnName(tagKey)) {
+    return {
+      value: null,
+      timestamp: null,
+      error: "Invalid Sankey tag key",
+    };
+  }
+
+  const allowed = await canAccessInfluxDevice({
+    user,
+    bucketName,
+    measurementName,
+    tagKey,
+    tagValue,
+  });
+
+  if (!allowed) {
+    return {
+      value: null,
+      timestamp: null,
+      error: "No permission for this Sankey data source",
+    };
+  }
+
+  const fluxQuery = `
+    from(bucket: "${escapeFluxString(bucketName)}")
+      |> range(start: -24h)
+      |> filter(fn: (r) =>
+        r._measurement == "${escapeFluxString(measurementName)}"
+      )
+      |> filter(fn: (r) =>
+        r["${escapeFluxString(tagKey)}"] == "${escapeFluxString(tagValue)}"
+      )
+      |> filter(fn: (r) =>
+        r["_field"] == "${escapeFluxString(channel)}"
+      )
+      |> last()
+      |> keep(columns: ["_time", "_field", "_value"])
+  `;
+
+  const rows = await queryApi.collectRows(fluxQuery);
+
+  if (!rows.length) {
+    return {
+      value: null,
+      timestamp: null,
+      error: "No Sankey data found in the last 24 hours",
+    };
+  }
+
+  const row = rows[0];
+  const numericValue = Number(row._value);
+
+  return {
+    value: Number.isFinite(numericValue)
+      ? numericValue
+      : null,
+    timestamp: row._time || null,
+    error: null,
+  };
+};
+
+const fetchSankeyRuntimeValues = async ({
+  queryApi,
+  user,
+  items = [],
+}) => {
+  const sankeyValues = {};
+
+  const sankeyItems = Array.isArray(items)
+    ? items.filter((item) => item?.type === "sankey")
+    : [];
+
+  for (const item of sankeyItems) {
+    const outputs = Array.isArray(item?.sankeyConfig?.outputs)
+      ? item.sankeyConfig.outputs
+      : [];
+
+    sankeyValues[item.id] = {};
+
+    for (const output of outputs) {
+      const dataSource = output?.dataSource || {};
+
+      const bucketName = dataSource.bucket;
+      const measurementName = dataSource.measurement;
+      const tagKey = dataSource.tagKey || "id";
+      const tagValue =
+        dataSource.tagValue ||
+        dataSource.id ||
+        "";
+      const channel = dataSource.channel;
+
+      try {
+        const result = await fetchLatestSankeyOutputValue({
+          queryApi,
+          user,
+          bucketName,
+          measurementName,
+          tagKey,
+          tagValue,
+          channel,
+        });
+
+        sankeyValues[item.id][output.id] = {
+          value: result.value,
+          timestamp: result.timestamp,
+          error: result.error,
+          source: {
+            bucket: bucketName,
+            measurement: measurementName,
+            tagKey,
+            tagValue,
+            channel,
+          },
+        };
+      } catch (err) {
+        console.error("❌ Sankey output fetch error:", err);
+
+        sankeyValues[item.id][output.id] = {
+          value: null,
+          timestamp: null,
+          error:
+            err.message ||
+            "Failed to fetch Sankey output value",
+          source: {
+            bucket: bucketName,
+            measurement: measurementName,
+            tagKey,
+            tagValue,
+            channel,
+          },
+        };
+      }
+    }
+  }
+
+  return sankeyValues;
+};
+
+// =====================================
 // LOGIN
 // =====================================
 app.post("/login", (req, res) => {
@@ -2265,6 +2430,7 @@ app.post(
       historyWindow = "-15m",
       startTime,
       endTime,
+      items = [],
     } = req.body;
 
     const selectedBucket = influx?.bucket || bucket;
@@ -2503,6 +2669,12 @@ app.post(
         queryApi.collectRows(historyFluxQuery),
       ]);
 
+      const sankeyValues = await fetchSankeyRuntimeValues({
+        queryApi,
+        user: req.user,
+        items,
+      });
+
       const latestByField = new Map();
 
       liveRows.forEach((row) => {
@@ -2665,6 +2837,7 @@ app.post(
         returnedFields: `${liveStatus.returnedFieldCount}/${liveStatus.expectedFieldCount}`,
         missingFields: liveStatus.missingFields,
         historyCount: history.length,
+        sankeyItems: Object.keys(sankeyValues || {}).length,
         oldest: history[0]
           ? new Date(history[0].timestamp).toISOString()
           : "No data",
@@ -2688,6 +2861,7 @@ app.post(
         },
         data,
         history,
+        sankeyValues,
         message: liveTimestamp
           ? undefined
           : "No recent data found for this Influx device",

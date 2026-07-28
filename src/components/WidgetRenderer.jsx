@@ -8,6 +8,7 @@ import ImageWidget from "../widgets/ImageWidget";
 import ImageWidgetConfigurator from "../widgets/ImageWidgetConfigurator";
 import StatusWidget from "../widgets/StatusWidget";
 import PieWidget from "../widgets/PieWidget";
+import SankeyWidget from "../widgets/SankeyWidget";
 
 export default function WidgetRenderer({
   type,
@@ -29,7 +30,7 @@ export default function WidgetRenderer({
       return (
         <GaugeWidget
           value={value}
-          label={dataKey}
+          label={item?.label || dataKey}
           dataKey={dataKey}
         />
       );
@@ -38,7 +39,7 @@ export default function WidgetRenderer({
       return (
         <LinearGaugeWidget
           value={value}
-          label={dataKey}
+          label={item?.label || dataKey}
           dataKey={dataKey}
         />
       );
@@ -80,11 +81,19 @@ export default function WidgetRenderer({
       );
     }
 
+    case "sankey":
+      return (
+        <SankeyWidget
+          data={data}
+          item={item}
+        />
+      );
+
     case "bignumber":
       return (
         <BigNumberWidget
           value={value}
-          label={dataKey}
+          label={item?.label || dataKey}
           dataKey={dataKey}
         />
       );
@@ -153,7 +162,9 @@ export default function WidgetRenderer({
       if (editMode) {
         return (
           <ImageWidgetConfigurator
-            pins={item.pins || []}
+            pins={item?.pins || []}
+            image={item?.image}
+            customDataOptions={item?.customDataOptions || []}
             setPins={(updatedPins) => {
               updateItem({
                 ...item,
@@ -166,8 +177,10 @@ export default function WidgetRenderer({
 
       return (
         <ImageWidget
-          pins={item.pins || []}
+          pins={item?.pins || []}
           valueMap={data}
+          image={item?.image}
+          customDataOptions={item?.customDataOptions || []}
         />
       );
 
