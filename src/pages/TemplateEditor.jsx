@@ -11,7 +11,6 @@ import {
   LayoutGrid,
   Plus,
   Trash2,
-  Pencil,
   X,
   Move,
   Database,
@@ -61,6 +60,18 @@ const commonUnitOptions = [
   "A",
   "V",
 ];
+
+const minSizeByType = {
+  image: { w: 2, h: 1 },
+  sankey: { w: 3, h: 2 },
+  line: { w: 2, h: 2 },
+  area: { w: 2, h: 2 },
+  bar: { w: 2, h: 2 },
+  pie: { w: 2, h: 2 },
+};
+
+const getMinimumWidgetSize = (type) =>
+  minSizeByType[type] || { w: 1, h: 1 };
 
 const defaultInfluxConfig = {
   bucket: "Mill",
@@ -350,6 +361,10 @@ export default function TemplateEditor({
   const [dragPreview, setDragPreview] =
     useState(null);
 
+  // RESIZE WIDGET
+  const [resizingItemId, setResizingItemId] =
+    useState(null);
+
   // CURRENT SELECTED ITEM
   const selectedItem = items.find(
     (i) => i.id === activeItemId
@@ -605,6 +620,44 @@ export default function TemplateEditor({
       Math.max(min, Math.round(numericValue))
     );
   };
+
+  const getClampedWidgetSize = (type, width, height) => {
+    const minimum = getMinimumWidgetSize(type);
+
+    return {
+      w: clampGridSize(width, minimum.w, cols),
+      h: clampGridSize(height, minimum.h, rows),
+    };
+  };
+
+  const updateManualWidgetWidth = (value) => {
+    const size = getClampedWidgetSize(newType, value, newH);
+    setNewW(size.w);
+    setNewH(size.h);
+  };
+
+  const updateManualWidgetHeight = (value) => {
+    const size = getClampedWidgetSize(newType, newW, value);
+    setNewW(size.w);
+    setNewH(size.h);
+  };
+
+  const resizeWouldCollide = (resizedItem, candidateItems = items) =>
+    candidateItems.some((item) => {
+      if (item.id === resizedItem.id) {
+        return false;
+      }
+
+      const overlapX =
+        resizedItem.x < item.x + item.w &&
+        resizedItem.x + resizedItem.w > item.x;
+
+      const overlapY =
+        resizedItem.y < item.y + item.h &&
+        resizedItem.y + resizedItem.h > item.y;
+
+      return overlapX && overlapY;
+    });
 
   const updateGridRows = (value) => {
     const { minimumRows } = getMinimumGridSizeForItems();
@@ -1750,6 +1803,102 @@ export default function TemplateEditor({
     );
   };
 
+  const startResizeWidget = (event, item) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setActiveItemId(item.id);
+    setActiveCell(null);
+    setResizingItemId(item.id);
+    setDidDrag(true);
+  };
+
+  useEffect(() => {
+    if (!resizingItemId) {
+      return undefined;
+    }
+
+    const handleResizeMove = (event) => {
+      const rect = gridRef.current?.getBoundingClientRect();
+
+      if (!rect?.width || !rect?.height) {
+        return;
+      }
+
+      const pointerCol = Math.min(
+        cols - 1,
+        Math.max(
+          0,
+          Math.floor(((event.clientX - rect.left) / rect.width) * cols)
+        )
+      );
+
+      const pointerRow = Math.min(
+        rows - 1,
+        Math.max(
+          0,
+          Math.floor(((event.clientY - rect.top) / rect.height) * rows)
+        )
+      );
+
+      setItems((previousItems) => {
+        const resizingItem = previousItems.find(
+          (item) => item.id === resizingItemId
+        );
+
+        if (!resizingItem) {
+          return previousItems;
+        }
+
+        const minimum = getMinimumWidgetSize(resizingItem.type);
+
+        const nextW = Math.min(
+          cols - resizingItem.x,
+          Math.max(minimum.w, pointerCol - resizingItem.x + 1)
+        );
+
+        const nextH = Math.min(
+          rows - resizingItem.y,
+          Math.max(minimum.h, pointerRow - resizingItem.y + 1)
+        );
+
+        const resizedItem = {
+          ...resizingItem,
+          w: nextW,
+          h: nextH,
+        };
+
+        if (
+          resizedItem.x + resizedItem.w > cols ||
+          resizedItem.y + resizedItem.h > rows ||
+          resizeWouldCollide(resizedItem, previousItems)
+        ) {
+          return previousItems;
+        }
+
+        return previousItems.map((item) =>
+          item.id === resizingItemId ? resizedItem : item
+        );
+      });
+    };
+
+    const stopResize = () => {
+      setResizingItemId(null);
+
+      setTimeout(() => {
+        setDidDrag(false);
+      }, 100);
+    };
+
+    window.addEventListener("mousemove", handleResizeMove);
+    window.addEventListener("mouseup", stopResize);
+
+    return () => {
+      window.removeEventListener("mousemove", handleResizeMove);
+      window.removeEventListener("mouseup", stopResize);
+    };
+  }, [resizingItemId, cols, rows]);
+
   // TOGGLE DATA FOR LINE / AREA / BAR / PIE CHART
   const toggleMultiDataKey = (key) => {
     setNewDataKeys((prev) => {
@@ -2143,6 +2292,26 @@ export default function TemplateEditor({
     }
 
     const sankeyDataKeys = getSankeyDataKeys(preparedSankeyConfig);
+
+    const proposedUpdatedItem = {
+      ...selectedItem,
+      type: newType,
+      w: newW,
+      h: newH,
+    };
+
+    if (
+      proposedUpdatedItem.x + proposedUpdatedItem.w > cols ||
+      proposedUpdatedItem.y + proposedUpdatedItem.h > rows
+    ) {
+      showToast("error", "This widget exceeds the dashboard grid.");
+      return;
+    }
+
+    if (resizeWouldCollide(proposedUpdatedItem)) {
+      showToast("error", "This widget size overlaps with another widget.");
+      return;
+    }
 
     const updatedItems = items.map((item) =>
       item.id === selectedItem.id
@@ -3333,9 +3502,14 @@ export default function TemplateEditor({
         {items.map((item) => (
           <div
             key={item.id}
-            draggable
+            draggable={!resizingItemId}
             onDragStart={(e) => {
               e.stopPropagation();
+
+              if (resizingItemId) {
+                e.preventDefault();
+                return;
+              }
 
               setDraggingItemId(item.id);
               setDragPreview({
@@ -3391,6 +3565,8 @@ export default function TemplateEditor({
               ${
                 draggingItemId === item.id
                   ? "opacity-50 scale-95"
+                  : resizingItemId === item.id
+                  ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950"
                   : ""
               }
             `}
@@ -3479,21 +3655,30 @@ export default function TemplateEditor({
               )}
             </div>
 
-            {/* EDIT ICON */}
-            <div
+            {/* RESIZE HANDLE */}
+            <button
+              type="button"
+              onMouseDown={(event) => startResizeWidget(event, item)}
+              onClick={(event) => event.stopPropagation()}
               className="
                 absolute bottom-3 right-3
-                w-8 h-8
-                rounded-full
+                z-20
+                w-9 h-9
+                rounded-xl
                 bg-white dark:bg-slate-900/90
                 border border-gray-200 dark:border-slate-700
                 shadow
                 flex items-center justify-center
-                opacity-70 group-hover:opacity-100
+                opacity-80 group-hover:opacity-100
+                cursor-se-resize
+                hover:border-emerald-500
+                hover:text-emerald-500
+                transition
               "
+              title="Drag to resize"
             >
-              <Pencil className="w-4 h-4 text-gray-500 dark:text-slate-300 group-hover:text-emerald-500" />
-            </div>
+              <Move className="w-4 h-4 rotate-45 text-gray-500 dark:text-slate-300 group-hover:text-emerald-500" />
+            </button>
 
             {/* SIZE BADGE */}
             <div
@@ -4460,13 +4645,24 @@ export default function TemplateEditor({
                           p-5
                         "
                       >
-                        <h3 className="font-bold mb-4 dark:text-white">
-                          Widget Size
-                        </h3>
+                        <div className="mb-4">
+                          <h3 className="font-bold dark:text-white">
+                            Widget Size
+                          </h3>
+
+                          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                            Choose a preset or enter custom grid dimensions. Drag-resize on the canvas also updates this size.
+                          </p>
+                        </div>
 
                         <div className="grid grid-cols-3 gap-3">
                           {(newType === "image" ? imageSizeOptions : sizeOptions).map((s, i) => {
-                            const exceedsGrid = s.w > cols || s.h > rows;
+                            const minimum = getMinimumWidgetSize(newType);
+                            const exceedsGrid =
+                              s.w > cols ||
+                              s.h > rows ||
+                              s.w < minimum.w ||
+                              s.h < minimum.h;
 
                             return (
                               <button
@@ -4476,8 +4672,9 @@ export default function TemplateEditor({
                                 onClick={() => {
                                   if (exceedsGrid) return;
 
-                                  setNewW(s.w);
-                                  setNewH(s.h);
+                                  const size = getClampedWidgetSize(newType, s.w, s.h);
+                                  setNewW(size.w);
+                                  setNewH(size.h);
                                 }}
                                 className={`
                                   py-4 rounded-2xl border transition-all font-medium
@@ -4495,6 +4692,62 @@ export default function TemplateEditor({
                             );
                           })}
                         </div>
+
+                        <div className="mt-5 grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
+                              Width
+                            </label>
+
+                            <input
+                              type="number"
+                              min={getMinimumWidgetSize(newType).w}
+                              max={cols}
+                              value={newW}
+                              onChange={(event) => updateManualWidgetWidth(event.target.value)}
+                              className="
+                                mt-2 w-full
+                                rounded-2xl
+                                border border-gray-300 dark:border-slate-600
+                                bg-white dark:bg-slate-900
+                                px-4 py-3
+                                text-center
+                                font-bold
+                                outline-none
+                                focus:ring-2 focus:ring-emerald-500
+                              "
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
+                              Height
+                            </label>
+
+                            <input
+                              type="number"
+                              min={getMinimumWidgetSize(newType).h}
+                              max={rows}
+                              value={newH}
+                              onChange={(event) => updateManualWidgetHeight(event.target.value)}
+                              className="
+                                mt-2 w-full
+                                rounded-2xl
+                                border border-gray-300 dark:border-slate-600
+                                bg-white dark:bg-slate-900
+                                px-4 py-3
+                                text-center
+                                font-bold
+                                outline-none
+                                focus:ring-2 focus:ring-emerald-500
+                              "
+                            />
+                          </div>
+                        </div>
+
+                        <p className="mt-3 text-xs text-gray-400 dark:text-slate-400">
+                          Current size: {newW} × {newH} grid units
+                        </p>
                       </div>
 
                       <div

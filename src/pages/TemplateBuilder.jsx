@@ -355,6 +355,14 @@ export default function TemplateBuilder({
   const [dragPreview, setDragPreview] =
     useState(null);
 
+  // DRAG RESIZE
+  const [
+    resizingItemId,
+    setResizingItemId,
+  ] = useState(null);
+
+  const resizeStartRef = useRef(null);
+
   // CURRENT SELECTED ITEM
   const selectedItem = items.find(
     (i) => i.id === activeItemId
@@ -1424,6 +1432,198 @@ export default function TemplateBuilder({
     });
   };
 
+  const getMinimumWidgetSize = (type) => {
+    if (type === "image") {
+      return { w: 2, h: 1 };
+    }
+
+    if (type === "sankey") {
+      return { w: 3, h: 2 };
+    }
+
+    if (
+      type === "line" ||
+      type === "area" ||
+      type === "bar" ||
+      type === "pie"
+    ) {
+      return { w: 2, h: 2 };
+    }
+
+    return { w: 1, h: 1 };
+  };
+
+  const isResizeAvailable = (candidate) => {
+    if (
+      candidate.x < 0 ||
+      candidate.y < 0 ||
+      candidate.x + candidate.w > cols ||
+      candidate.y + candidate.h > rows
+    ) {
+      return false;
+    }
+
+    return !items.some((item) => {
+      if (item.id === candidate.id) {
+        return false;
+      }
+
+      const overlapX =
+        candidate.x < item.x + item.w &&
+        candidate.x + candidate.w > item.x;
+
+      const overlapY =
+        candidate.y < item.y + item.h &&
+        candidate.y + candidate.h > item.y;
+
+      return overlapX && overlapY;
+    });
+  };
+
+  const getDraftSizeBounds = () => {
+    const minimumSize = getMinimumWidgetSize(newType);
+    const originX = selectedItem?.x ?? activeCell?.col ?? 0;
+    const originY = selectedItem?.y ?? activeCell?.row ?? 0;
+
+    const maxW = Math.max(1, cols - originX);
+    const maxH = Math.max(1, rows - originY);
+
+    return {
+      minW: Math.min(minimumSize.w, maxW),
+      minH: Math.min(minimumSize.h, maxH),
+      maxW,
+      maxH,
+    };
+  };
+
+  const applyDraftWidgetSize = (width, height) => {
+    const { minW, minH, maxW, maxH } = getDraftSizeBounds();
+
+    const safeW = Math.min(
+      maxW,
+      Math.max(minW, Math.round(Number(width) || minW))
+    );
+
+    const safeH = Math.min(
+      maxH,
+      Math.max(minH, Math.round(Number(height) || minH))
+    );
+
+    setNewW(safeW);
+    setNewH(safeH);
+  };
+
+  const startResizeWidget = (event, item) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = gridRef.current?.getBoundingClientRect();
+
+    if (!rect?.width || !rect?.height) {
+      return;
+    }
+
+    resizeStartRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      item: { ...item },
+      cellWidth: rect.width / cols,
+      cellHeight: rect.height / rows,
+    };
+
+    setResizingItemId(item.id);
+    setDraggingItemId(null);
+    setDragPreview(null);
+    setDragOverCell(null);
+    setDragOverTrash(false);
+    setDidDrag(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event) => {
+      const resizeStart = resizeStartRef.current;
+
+      if (!resizeStart) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const {
+        startX,
+        startY,
+        item,
+        cellWidth,
+        cellHeight,
+      } = resizeStart;
+
+      const deltaCols =
+        cellWidth > 0
+          ? Math.round((event.clientX - startX) / cellWidth)
+          : 0;
+
+      const deltaRows =
+        cellHeight > 0
+          ? Math.round((event.clientY - startY) / cellHeight)
+          : 0;
+
+      const minimumSize = getMinimumWidgetSize(item.type);
+
+      const nextW = Math.min(
+        cols - item.x,
+        Math.max(minimumSize.w, item.w + deltaCols)
+      );
+
+      const nextH = Math.min(
+        rows - item.y,
+        Math.max(minimumSize.h, item.h + deltaRows)
+      );
+
+      const candidate = {
+        ...item,
+        w: nextW,
+        h: nextH,
+      };
+
+      if (!isResizeAvailable(candidate)) {
+        return;
+      }
+
+      setItems((previousItems) =>
+        previousItems.map((currentItem) =>
+          currentItem.id === item.id
+            ? {
+                ...currentItem,
+                w: candidate.w,
+                h: candidate.h,
+              }
+            : currentItem
+        )
+      );
+    };
+
+    const handleMouseUp = () => {
+      if (!resizeStartRef.current) {
+        return;
+      }
+
+      resizeStartRef.current = null;
+      setResizingItemId(null);
+
+      setTimeout(() => {
+        setDidDrag(false);
+      }, 80);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [cols, rows, items]);
+
   // =====================================
   // SMART DRAG & DROP
   // =====================================
@@ -2060,6 +2260,22 @@ export default function TemplateBuilder({
 
     const sankeyDataKeys = getSankeyDataKeys(preparedSankeyConfig);
 
+    const resizedCandidate = {
+      ...selectedItem,
+      type: newType,
+      w: newW,
+      h: newH,
+    };
+
+    if (!isResizeAvailable(resizedCandidate)) {
+      showToast(
+        "error",
+        "This widget size exceeds the grid or overlaps another widget."
+      );
+
+      return;
+    }
+
     const updatedItems = items.map((item) =>
       item.id === selectedItem.id
         ? {
@@ -2398,6 +2614,15 @@ export default function TemplateBuilder({
         .dark .template-builder .dark\:hover\:bg-gray-800:hover,
         .dark .template-builder .dark\:hover\:bg-slate-800:hover {
           background-color: #1e293b !important;
+        }
+
+        .template-builder .resize-handle {
+          touch-action: none;
+        }
+
+        .template-builder .resizing-widget {
+          outline: 2px solid rgba(16, 185, 129, 0.9);
+          outline-offset: 2px;
         }
       `}</style>
       {/* GRID BACKGROUND */}
@@ -3215,8 +3440,13 @@ export default function TemplateBuilder({
         {items.map((item) => (
           <div
             key={item.id}
-            draggable
+            draggable={!resizingItemId}
             onDragStart={(e) => {
+              if (resizingItemId) {
+                e.preventDefault();
+                return;
+              }
+
               e.stopPropagation();
 
               setDraggingItemId(item.id);
@@ -3273,6 +3503,12 @@ export default function TemplateBuilder({
               ${
                 draggingItemId === item.id
                   ? "opacity-50 scale-95"
+                  : ""
+              }
+
+              ${
+                resizingItemId === item.id
+                  ? "resizing-widget"
                   : ""
               }
             `}
@@ -3368,10 +3604,36 @@ export default function TemplateBuilder({
               )}
             </div>
 
+            {/* RESIZE HANDLE */}
+            <button
+              type="button"
+              onMouseDown={(event) => startResizeWidget(event, item)}
+              onClick={(event) => event.stopPropagation()}
+              className="
+                resize-handle
+                absolute bottom-3 right-3
+                z-20
+                w-9 h-9
+                rounded-2xl
+                border border-emerald-300 dark:border-emerald-700
+                bg-white/95 dark:bg-slate-900/95
+                shadow-lg
+                flex items-center justify-center
+                text-emerald-600 dark:text-emerald-300
+                opacity-80 group-hover:opacity-100
+                cursor-se-resize
+                transition
+                hover:scale-110
+              "
+              title="Drag to resize"
+            >
+              ↘
+            </button>
+
             {/* EDIT ICON */}
             <div
               className="
-                absolute bottom-3 right-3
+                absolute bottom-14 right-3
                 w-8 h-8
                 rounded-full
                 bg-white dark:bg-slate-900/90
@@ -4400,13 +4662,20 @@ export default function TemplateBuilder({
                           p-5
                         "
                       >
-                        <h3 className="font-bold mb-4 dark:text-white">
-                          Widget Size
-                        </h3>
+                        <div className="mb-4 flex flex-col gap-1">
+                          <h3 className="font-bold dark:text-white">
+                            Widget Size
+                          </h3>
+
+                          <p className="text-xs text-gray-500 dark:text-slate-400">
+                            Choose a preset size or enter custom grid dimensions. Drag-resize on the canvas updates the same width and height values.
+                          </p>
+                        </div>
 
                         <div className="grid grid-cols-3 gap-3">
                           {(newType === "image" ? imageSizeOptions : sizeOptions).map((s, i) => {
-                            const exceedsGrid = s.w > cols || s.h > rows;
+                            const bounds = getDraftSizeBounds();
+                            const exceedsGrid = s.w > bounds.maxW || s.h > bounds.maxH;
 
                             return (
                               <button
@@ -4416,8 +4685,7 @@ export default function TemplateBuilder({
                                 onClick={() => {
                                   if (exceedsGrid) return;
 
-                                  setNewW(s.w);
-                                  setNewH(s.h);
+                                  applyDraftWidgetSize(s.w, s.h);
                                 }}
                                 className={`
                                   py-4 rounded-2xl border transition-all font-medium
@@ -4434,6 +4702,102 @@ export default function TemplateBuilder({
                               </button>
                             );
                           })}
+                        </div>
+
+                        <div
+                          className="
+                            mt-5
+                            rounded-3xl
+                            border border-gray-200 dark:border-slate-700
+                            bg-white dark:bg-slate-900
+                            p-4
+                          "
+                        >
+                          <div className="flex items-center justify-between gap-3 mb-3">
+                            <div>
+                              <p className="text-sm font-bold text-gray-800 dark:text-white">
+                                Manual Size
+                              </p>
+
+                              <p className="text-xs text-gray-400 dark:text-slate-400">
+                                Grid units, not pixels.
+                              </p>
+                            </div>
+
+                            <span
+                              className="
+                                rounded-full
+                                bg-emerald-100 dark:bg-emerald-900/30
+                                px-3 py-1
+                                text-xs font-bold
+                                text-emerald-700 dark:text-emerald-300
+                              "
+                            >
+                              {newW} × {newH}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
+                                Width
+                              </label>
+
+                              <input
+                                type="number"
+                                min={getDraftSizeBounds().minW}
+                                max={getDraftSizeBounds().maxW}
+                                value={newW}
+                                onChange={(event) =>
+                                  applyDraftWidgetSize(event.target.value, newH)
+                                }
+                                className="
+                                  mt-2 w-full
+                                  rounded-2xl
+                                  border border-gray-300 dark:border-slate-600
+                                  bg-white dark:bg-slate-950
+                                  px-4 py-3
+                                  text-center
+                                  font-bold
+                                  outline-none
+                                  focus:ring-2 focus:ring-emerald-500
+                                  dark:text-white
+                                "
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
+                                Height
+                              </label>
+
+                              <input
+                                type="number"
+                                min={getDraftSizeBounds().minH}
+                                max={getDraftSizeBounds().maxH}
+                                value={newH}
+                                onChange={(event) =>
+                                  applyDraftWidgetSize(newW, event.target.value)
+                                }
+                                className="
+                                  mt-2 w-full
+                                  rounded-2xl
+                                  border border-gray-300 dark:border-slate-600
+                                  bg-white dark:bg-slate-950
+                                  px-4 py-3
+                                  text-center
+                                  font-bold
+                                  outline-none
+                                  focus:ring-2 focus:ring-emerald-500
+                                  dark:text-white
+                                "
+                              />
+                            </div>
+                          </div>
+
+                          <p className="mt-3 text-xs text-gray-400 dark:text-slate-400">
+                            Allowed range: width {getDraftSizeBounds().minW}–{getDraftSizeBounds().maxW}, height {getDraftSizeBounds().minH}–{getDraftSizeBounds().maxH}.
+                          </p>
                         </div>
                       </div>
 
