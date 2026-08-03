@@ -4235,11 +4235,27 @@ export default function TemplateDesigner({
                     <WidgetRenderer
                       type={item.type}
                       value={previewValues[item.dataKey]}
-                      data={previewValues}
+                      data={{
+                        ...previewValues,
+                        logs:
+                          item.type === "logs"
+                            ? Array.isArray(item.logs) &&
+                              item.logs.length > 0
+                              ? item.logs
+                              : previewLogs
+                            : undefined,
+                      }}
                       history={previewHistory}
                       dataKey={item.dataKey}
                       item={{
                         ...item,
+                        logs:
+                          item.type === "logs"
+                            ? Array.isArray(item.logs) &&
+                              item.logs.length > 0
+                              ? item.logs
+                              : previewLogs
+                            : item.logs,
                         previewMode: item.type === "sankey",
                         sankeyConfig:
                           item.type === "sankey"
@@ -4255,11 +4271,27 @@ export default function TemplateDesigner({
                 <WidgetRenderer
                   type={item.type}
                   value={previewValues[item.dataKey]}
-                  data={previewValues}
+                  data={{
+                    ...previewValues,
+                    logs:
+                      item.type === "logs"
+                        ? Array.isArray(item.logs) &&
+                          item.logs.length > 0
+                          ? item.logs
+                          : previewLogs
+                        : undefined,
+                  }}
                   history={previewHistory}
                   dataKey={item.dataKey}
                   item={{
                     ...item,
+                    logs:
+                      item.type === "logs"
+                        ? Array.isArray(item.logs) &&
+                          item.logs.length > 0
+                          ? item.logs
+                          : previewLogs
+                        : item.logs,
                     previewMode: item.type === "sankey",
                     sankeyConfig:
                       item.type === "sankey"
@@ -4661,7 +4693,18 @@ export default function TemplateDesigner({
                         <WidgetRenderer
                           type={newType}
                           value={previewValues[newDataKey]}
-                          data={previewValues}
+                          data={{
+                            ...previewValues,
+                            logs:
+                              newType === "logs"
+                                ? Array.isArray(
+                                    selectedItem?.logs
+                                  ) &&
+                                  selectedItem.logs.length > 0
+                                  ? selectedItem.logs
+                                  : previewLogs
+                                : undefined,
+                          }}
                           history={previewHistory}
                           dataKey={
                             isMultiDataWidget
@@ -4701,6 +4744,27 @@ export default function TemplateDesigner({
                             bigNumberDisplay:
                               newType === "bignumber"
                                 ? { ...newBigNumberDisplay }
+                                : undefined,
+
+                            logDisplay:
+                              newType === "logs"
+                                ? {
+                                    ...newLogDisplay,
+                                    levelFilter: [
+                                      ...(newLogDisplay.levelFilter ||
+                                        []),
+                                    ],
+                                  }
+                                : undefined,
+
+                            logs:
+                              newType === "logs"
+                                ? Array.isArray(
+                                    selectedItem?.logs
+                                  ) &&
+                                  selectedItem.logs.length > 0
+                                  ? selectedItem.logs
+                                  : previewLogs
                                 : undefined,
 
                             rangeConfig: supportsRangeConfiguration(
@@ -5293,7 +5357,7 @@ export default function TemplateDesigner({
                               dark:text-blue-200
                             "
                           >
-                            The template stores only the Logs widget display settings. Replace the preview entries with logs from your backend or live dashboard data.
+                            Sample events are shown in the preview so you can test the layout and filters. On the dashboard, these entries are replaced by logs returned from your backend or live data feed.
                           </div>
                         </div>
                       )}
