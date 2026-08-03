@@ -32,6 +32,7 @@ export default function WidgetRenderer({
           value={value}
           label={item?.label || dataKey}
           dataKey={dataKey}
+          rangeConfig={item?.rangeConfig}
         />
       );
 
@@ -41,6 +42,7 @@ export default function WidgetRenderer({
           value={value}
           label={item?.label || dataKey}
           dataKey={dataKey}
+          rangeConfig={item?.rangeConfig}
         />
       );
 
@@ -58,6 +60,7 @@ export default function WidgetRenderer({
           dataKeys={selectedKeys}
           label={item?.label || "Bar Chart"}
           orientation={item?.orientation || "vertical"}
+          rangeConfig={item?.rangeConfig}
         />
       );
     }
@@ -82,12 +85,7 @@ export default function WidgetRenderer({
     }
 
     case "sankey":
-      return (
-        <SankeyWidget
-          data={data}
-          item={item}
-        />
-      );
+      return <SankeyWidget data={data} item={item} />;
 
     case "bignumber":
       return (
@@ -95,6 +93,8 @@ export default function WidgetRenderer({
           value={value}
           label={item?.label || dataKey}
           dataKey={dataKey}
+          display={item?.bigNumberDisplay}
+          rangeConfig={item?.rangeConfig}
         />
       );
 
@@ -120,6 +120,7 @@ export default function WidgetRenderer({
           data={history}
           label={item?.label || "Area Trend"}
           historyWindow={historyWindow}
+          rangeConfig={item?.rangeConfig}
           lines={selectedKeys.map((key, index) => ({
             key,
             color: colors[index % colors.length],
@@ -150,6 +151,7 @@ export default function WidgetRenderer({
           data={history}
           label={item?.label || "Trend"}
           historyWindow={historyWindow}
+          rangeConfig={item?.rangeConfig}
           lines={selectedKeys.map((key, index) => ({
             key,
             color: colors[index % colors.length],
@@ -185,10 +187,6 @@ export default function WidgetRenderer({
       );
 
     default:
-      return (
-        <div className="text-gray-400">
-          Unknown Widget
-        </div>
-      );
+      return <div className="text-gray-400">Unknown Widget</div>;
   }
 }

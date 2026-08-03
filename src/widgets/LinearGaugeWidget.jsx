@@ -1,35 +1,77 @@
 import { dataRanges } from "../data/dataRanges";
 
+const DEFAULT_RANGE_CONFIG = {
+  min: 0,
+  max: 100,
+  unit: "",
+  warning: 70,
+  danger: 90,
+};
+
+const toNumber = (value, fallback) => {
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue)
+    ? numericValue
+    : fallback;
+};
+
+const clamp = (value, min, max) =>
+  Math.min(max, Math.max(min, value));
+
 export default function LinearGaugeWidget({
   value = 0,
   label = "Value",
-  dataKey,
+  dataKey = "",
+  rangeConfig,
 }) {
-  const config =
-    dataRanges[dataKey] || {
-      min: 0,
-      max: 100,
-      unit: "",
-      warning: 70,
-      danger: 90,
-    };
+  const config = {
+    ...DEFAULT_RANGE_CONFIG,
+    ...(dataRanges[dataKey] || {}),
+    ...(rangeConfig || {}),
+  };
 
-  const min = config.min ?? 0;
-  const max = config.max ?? 100;
-  const unit = config.unit || "";
+  const min = toNumber(config.min, 0);
 
-  const warning = config.warning ?? max * 0.8;
-  const danger = config.danger ?? max * 0.9;
-
-  const numericValue = Number(value) || 0;
-
-  const percentage = Math.min(
-    100,
-    Math.max(
-      0,
-      ((numericValue - min) / (max - min)) * 100
-    )
+  const configuredMax = toNumber(
+    config.max,
+    100
   );
+
+  const max =
+    configuredMax > min
+      ? configuredMax
+      : min + 1;
+
+  const warning = toNumber(
+    config.warning,
+    min + (max - min) * 0.7
+  );
+
+  const danger = toNumber(
+    config.danger,
+    min + (max - min) * 0.9
+  );
+
+  const unit = String(
+    config.unit || ""
+  ).trim();
+
+  const numericValue = toNumber(
+    value,
+    min
+  );
+
+  const clampedValue = clamp(
+    numericValue,
+    min,
+    max
+  );
+
+  const percentage =
+    ((clampedValue - min) /
+      (max - min)) *
+    100;
 
   const status =
     numericValue >= danger
@@ -40,77 +82,80 @@ export default function LinearGaugeWidget({
 
   const valueColor =
     status === "danger"
-      ? "text-red-500"
+      ? "text-red-500 dark:text-red-400"
       : status === "warning"
-      ? "text-yellow-500"
-      : "text-green-500";
+      ? "text-amber-500 dark:text-amber-400"
+      : "text-emerald-500 dark:text-emerald-400";
 
   const barColor =
     status === "danger"
       ? "bg-red-500"
       : status === "warning"
-      ? "bg-yellow-400"
-      : "bg-green-500";
+      ? "bg-amber-400"
+      : "bg-emerald-500";
 
   return (
     <div
       className="
-        w-full h-full
-        flex flex-col
-        justify-center
-        rounded-2xl
-        bg-white dark:bg-gray-800
-        p-5
+        flex h-full w-full
+        flex-col justify-center
+        overflow-hidden
+        px-5 py-4
       "
     >
       {/* LABEL */}
-      <div className="
-        text-sm text-gray-500
-        mb-2
-        text-center mb-4
-      ">
+      <div
+        className="
+          mb-3 truncate
+          text-center text-sm
+          font-medium
+          text-gray-500
+          dark:text-gray-400
+        "
+      >
         {label}
       </div>
 
       {/* VALUE */}
-      <div className="text-center mb-4">
+      <div className="mb-4 text-center">
         <div
           className={`
             text-4xl font-light
+            leading-none
             ${valueColor}
           `}
         >
           {numericValue.toFixed(1)}
         </div>
 
-        <div
-          className="
-            text-xs
-            text-gray-500 dark:text-gray-400
-            mt-2
-          "
-        >
-          {unit}
-        </div>
+        {unit && (
+          <div
+            className="
+              mt-2 text-xs
+              text-gray-500
+              dark:text-gray-400
+            "
+          >
+            {unit}
+          </div>
+        )}
       </div>
 
       {/* BAR */}
-        <div
+      <div
         className="
-            w-[75%]
-            max-w-[260px]
-            h-3
-            mx-auto
-            rounded-full
-            bg-gray-200 dark:bg-gray-700
-            overflow-hidden
-            mb-3
+          mx-auto mb-3
+          h-3 w-[75%]
+          max-w-[260px]
+          overflow-hidden
+          rounded-full
+          bg-gray-200
+          dark:bg-gray-700
         "
-        >
+      >
         <div
           className={`
-            h-full
-            rounded-full
+            h-full rounded-full
             transition-all duration-500
             ${barColor}
           `}
@@ -123,9 +168,9 @@ export default function LinearGaugeWidget({
       {/* RANGE */}
       <div
         className="
-          text-center
-          text-xs
-          text-gray-500 dark:text-gray-400
+          text-center text-xs
+          text-gray-500
+          dark:text-gray-400
         "
       >
         {min} — {max}

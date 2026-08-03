@@ -6,7 +6,7 @@ import {
 
 export const defaultSankeyConfig = {
   sourceName: "Boiler A",
-  unit: "t/h",
+  unit: "psi",
   outputs: [
     {
       id: "output-1",
@@ -64,14 +64,25 @@ const nodeColors = [
 ];
 
 const linkColors = [
-  "rgba(96, 165, 250, 0.48)",
-  "rgba(52, 211, 153, 0.48)",
-  "rgba(251, 191, 36, 0.52)",
-  "rgba(248, 113, 113, 0.48)",
-  "rgba(167, 139, 250, 0.48)",
-  "rgba(34, 211, 238, 0.48)",
-  "rgba(244, 114, 182, 0.48)",
-  "rgba(163, 230, 53, 0.48)",
+  "rgba(96, 165, 250, 0.5)",
+  "rgba(52, 211, 153, 0.5)",
+  "rgba(251, 191, 36, 0.54)",
+  "rgba(248, 113, 113, 0.5)",
+  "rgba(167, 139, 250, 0.5)",
+  "rgba(34, 211, 238, 0.5)",
+  "rgba(244, 114, 182, 0.5)",
+  "rgba(163, 230, 53, 0.5)",
+];
+
+const linkLabelColors = [
+  "#1d4ed8",
+  "#047857",
+  "#b45309",
+  "#b91c1c",
+  "#6d28d9",
+  "#0e7490",
+  "#be185d",
+  "#4d7c0f",
 ];
 
 const previewOnlyValues = [44.1, 33, 31.2, 28.5, 22.8, 18.6];
@@ -161,7 +172,11 @@ const getOutputRuntimeValue = (item, output) => {
 
 function CustomNode(props) {
   const { x, y, width, height, index, payload } = props;
-  const color = payload?.color || nodeColors[index % nodeColors.length];
+  const color =
+    payload?.color ||
+    nodeColors[index % nodeColors.length];
+
+  const isSource = Boolean(payload?.isSource);
 
   return (
     <g>
@@ -172,35 +187,19 @@ function CustomNode(props) {
         height={height}
         rx={0}
         fill={color}
-        stroke="rgba(255,255,255,0.9)"
-        strokeWidth={1}
       />
 
       <text
-        x={payload?.isSource ? x + width + 10 : x - 10}
-        y={y + height / 2 - 7}
-        textAnchor={payload?.isSource ? "start" : "end"}
+        x={isSource ? x + width + 12 : x - 12}
+        y={y + height / 2}
+        textAnchor={isSource ? "start" : "end"}
         dominantBaseline="middle"
-        fill="#0f172a"
+        fill={isSource ? "#1e3a8a" : payload?.labelColor || "#334155"}
         fontSize={12}
         fontWeight={800}
       >
         {payload?.name}
       </text>
-
-      {payload?.displayValue && (
-        <text
-          x={payload?.isSource ? x + width + 10 : x - 10}
-          y={y + height / 2 + 9}
-          textAnchor={payload?.isSource ? "start" : "end"}
-          dominantBaseline="middle"
-          fill="#475569"
-          fontSize={11}
-          fontWeight={700}
-        >
-          {payload.displayValue}
-        </text>
-      )}
     </g>
   );
 }
@@ -218,7 +217,20 @@ function CustomLink(props) {
     index,
   } = props;
 
-  const color = payload?.color || linkColors[index % linkColors.length];
+  const color =
+    payload?.color ||
+    linkColors[index % linkColors.length];
+
+  const labelColor =
+    payload?.labelColor ||
+    linkLabelColors[
+      index % linkLabelColors.length
+    ];
+
+  const safeLinkWidth = Math.max(
+    2,
+    Number(linkWidth) || 0
+  );
 
   return (
     <g>
@@ -231,22 +243,19 @@ function CustomLink(props) {
         `}
         fill="none"
         stroke={color}
-        strokeWidth={Math.max(2, linkWidth)}
+        strokeWidth={safeLinkWidth}
         strokeLinecap="butt"
       />
 
-      {linkWidth >= 12 && (
+      {safeLinkWidth >= 12 && (
         <text
           x={(sourceX + targetX) / 2}
           y={(sourceY + targetY) / 2}
           textAnchor="middle"
           dominantBaseline="middle"
-          fill="#0f172a"
+          fill={labelColor}
           fontSize={11}
-          fontWeight={800}
-          paintOrder="stroke"
-          stroke="white"
-          strokeWidth={4}
+          fontWeight={900}
         >
           {payload?.displayValue}
         </text>
@@ -301,7 +310,14 @@ export default function SankeyWidget({
       runtimeTimestamp: runtimeInfo?.timestamp || null,
       runtimeError: runtimeInfo?.error || null,
       color: linkColors[index % linkColors.length],
-      nodeColor: nodeColors[(index + 1) % nodeColors.length],
+      labelColor:
+        linkLabelColors[
+          index % linkLabelColors.length
+        ],
+      nodeColor:
+        linkLabelColors[
+          index % linkLabelColors.length
+        ],
       displayValue: `${formatNumber(value)} ${config.unit || ""}`,
     };
   });
@@ -334,8 +350,8 @@ export default function SankeyWidget({
     ...validOutputs.map((output) => ({
       name: output.name,
       color: output.nodeColor,
+      labelColor: output.labelColor,
       isSource: false,
-      displayValue: output.displayValue,
     })),
   ];
 
@@ -347,6 +363,7 @@ export default function SankeyWidget({
     dataKey: output.dataKey,
     channel: output.dataSource?.channel,
     color: output.color,
+    labelColor: output.labelColor,
     displayValue: output.displayValue,
     isActual: output.isActual,
     timestamp: output.runtimeTimestamp,
@@ -354,22 +371,67 @@ export default function SankeyWidget({
   }));
 
   return (
-    <div className="h-full w-full overflow-hidden border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-500">
+    <div
+      className="
+        flex h-full w-full
+        flex-col overflow-hidden
+        bg-transparent
+        px-4 py-4
+      "
+    >
+      {/* SIMPLE HEADER */}
+      <div
+        className="
+          mb-3 flex shrink-0
+          items-center justify-between
+          gap-4
+        "
+      >
+        <div className="min-w-0">
+          <p
+            className="
+              text-[10px] font-black
+              uppercase tracking-[0.2em]
+              text-emerald-600
+              dark:text-emerald-400
+            "
+          >
             Sankey flow
           </p>
 
-          <h3 className="mt-1 text-lg font-black text-gray-800 dark:text-white">
-            {item?.label || "Sankey Widget"}
-          </h3>
+          {item?.label &&
+            item.label !== "Sankey Widget" &&
+            item.label !== "Sankey Flow" && (
+              <h3
+                className="
+                  mt-1 truncate
+                  text-base font-black
+                  text-slate-900
+                  dark:text-white
+                "
+              >
+                {item.label}
+              </h3>
+            )}
 
-          <p className="mt-1 text-xs text-gray-400">
+          <p
+            className="
+              mt-1 text-xs
+              text-slate-500
+              dark:text-slate-400
+            "
+          >
             Flow distribution from {config.sourceName || "source"} to configured outputs.
           </p>
 
-          <p className="mt-1 text-[11px] font-bold text-gray-400">
+          <p
+            className="
+              mt-1 text-[11px]
+              font-semibold
+              text-slate-400
+              dark:text-slate-500
+            "
+          >
             {actualOutputCount > 0
               ? `${actualOutputCount}/${validOutputs.length} output(s) using actual data`
               : previewOnlyOutputCount > 0
@@ -378,60 +440,124 @@ export default function SankeyWidget({
           </p>
         </div>
 
-        <div className="bg-emerald-50 px-4 py-3 text-right dark:bg-emerald-900/30">
-          <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-300">
-            Total
+        <div
+          className="
+            shrink-0 rounded-2xl
+            border border-emerald-200
+            bg-emerald-50
+            px-4 py-2.5
+            text-right
+            shadow-sm
+            dark:border-emerald-900/60
+            dark:bg-emerald-500/10
+          "
+        >
+          <p
+            className="
+              text-[9px] font-black
+              uppercase tracking-[0.14em]
+              text-emerald-700
+              dark:text-emerald-300
+            "
+          >
+            Total flow
           </p>
 
-          <p className="text-xl font-black text-emerald-700 dark:text-emerald-200">
-            {formatNumber(totalValue)} {config.unit || ""}
+          <p
+            className="
+              mt-1 text-lg font-black
+              leading-none
+              text-emerald-800
+              dark:text-emerald-200
+            "
+          >
+            {formatNumber(totalValue)}
+            {config.unit && (
+              <span className="ml-1 text-xs font-bold">
+                {config.unit}
+              </span>
+            )}
           </p>
         </div>
       </div>
 
       {links.length === 0 ? (
-        <div className="flex h-[calc(100%-76px)] items-center justify-center border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-400 dark:border-slate-700 dark:bg-slate-950">
+        <div
+          className="
+            flex min-h-0 flex-1
+            items-center justify-center
+            rounded-2xl
+            border border-dashed
+            border-slate-300
+            bg-transparent
+            text-sm text-slate-500
+            dark:border-slate-700
+            dark:text-slate-400
+          "
+        >
           No valid Sankey outputs configured
         </div>
       ) : (
-        <div className="h-[calc(100%-76px)] w-full bg-gray-50 p-2 dark:bg-slate-950">
-          <ResponsiveContainer width="100%" height="100%">
+        <div
+          className="
+            min-h-0 flex-1
+            overflow-hidden
+            rounded-2xl
+            bg-transparent
+          "
+        >
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+          >
             <Sankey
               data={{
                 nodes,
                 links,
               }}
-              nodeWidth={10}
-              nodePadding={40}
-              linkCurvature={0.48}
+              nodeWidth={9}
+              nodePadding={34}
+              linkCurvature={0.42}
               iterations={72}
               node={<CustomNode />}
               link={<CustomLink />}
               margin={{
-                top: 34,
-                right: 180,
-                bottom: 34,
-                left: 120,
+                top: 28,
+                right: 150,
+                bottom: 28,
+                left: 105,
               }}
             >
               <Tooltip
                 contentStyle={{
-                  borderRadius: 0,
-                  border: "1px solid rgba(148,163,184,0.35)",
-                  boxShadow: "0 20px 40px rgba(15,23,42,0.18)",
+                  borderRadius: 14,
+                  border:
+                    "1px solid rgba(148,163,184,0.28)",
+                  background:
+                    "rgba(15,23,42,0.96)",
+                  color: "#f8fafc",
+                  boxShadow:
+                    "0 18px 40px rgba(15,23,42,0.24)",
                   fontSize: 12,
                   fontWeight: 700,
                 }}
-                formatter={(value, name, props) => {
-                  const payload = props?.payload || {};
+                itemStyle={{
+                  color: "#f8fafc",
+                }}
+                formatter={(
+                  value,
+                  name,
+                  props
+                ) => {
+                  const payload =
+                    props?.payload || {};
 
                   return [
-                    `${formatNumber(value)} ${config.unit || ""}`,
-                    payload?.isActual
-                      ? `${payload?.label || "Flow"} · Actual`
-                      : item?.previewMode || item?.isBuilderPreview
-                      ? `${payload?.label || "Flow"} · Preview only`
-                      : `${payload?.label || "Flow"} · No actual data`,
+                    `${formatNumber(value)} ${
+                      config.unit || ""
+                    }`,
+                    payload?.label ||
+                      "Flow",
                   ];
                 }}
                 labelFormatter={() => ""}
