@@ -9,6 +9,7 @@ import {
   ServerCog,
   Trash2,
   X,
+  ChevronRight,
 } from "lucide-react";
 
 const emptyForm = {
@@ -21,6 +22,88 @@ const emptyForm = {
 };
 
 const API_BASE_URL = "http://localhost:5000";
+
+const MetadataList = ({
+  title,
+  values = [],
+  activeValue = "",
+  emptyText,
+  onSelect,
+  dark = false,
+}) => (
+  <div
+    className={`min-w-0 rounded-2xl border p-3 ${
+      dark
+        ? "border-slate-700 bg-slate-950/70"
+        : "border-slate-200 bg-slate-50"
+    }`}
+  >
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <p
+        className={`text-[10px] font-black uppercase tracking-wider ${
+          dark ? "text-slate-300" : "text-slate-500"
+        }`}
+      >
+        {title}
+      </p>
+
+      <span
+        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+          dark
+            ? "bg-slate-800 text-slate-200"
+            : "bg-white text-slate-600"
+        }`}
+      >
+        {values.length}
+      </span>
+    </div>
+
+    <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+      {values.length === 0 ? (
+        <p
+          className={`rounded-xl px-2 py-3 text-center text-[11px] ${
+            dark ? "text-slate-500" : "text-slate-400"
+          }`}
+        >
+          {emptyText}
+        </p>
+      ) : (
+        values.map((value) => {
+          const selected =
+            String(value) === String(activeValue);
+
+          return (
+            <button
+              key={String(value)}
+              type="button"
+              onClick={() => onSelect?.(value)}
+              className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-[11px] font-semibold transition ${
+                selected
+                  ? dark
+                    ? "bg-blue-500/15 text-blue-200 ring-1 ring-blue-500/40"
+                    : "bg-blue-100 text-blue-800 ring-1 ring-blue-200"
+                  : dark
+                  ? "text-slate-300 hover:bg-slate-800"
+                  : "text-slate-600 hover:bg-white"
+              }`}
+            >
+              <span className="truncate font-mono">
+                {value}
+              </span>
+
+              {onSelect && (
+                <ChevronRight
+                  size={13}
+                  className="shrink-0 opacity-60"
+                />
+              )}
+            </button>
+          );
+        })
+      )}
+    </div>
+  </div>
+);
 
 export default function DeviceManagement({ setPage, dark = false }) {
   const role = localStorage.getItem("role");
@@ -922,31 +1005,70 @@ export default function DeviceManagement({ setPage, dark = false }) {
           <form
             onSubmit={submitDevice}
             onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-2xl rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            className={`w-full max-w-4xl overflow-hidden rounded-3xl border shadow-2xl ${
+              dark
+                ? "border-slate-700 bg-slate-900 text-slate-100"
+                : "border-slate-200 bg-white text-slate-900"
+            }`}
           >
-            <div className="flex items-center justify-between border-b border-gray-200 px-7 py-6 dark:border-gray-700">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Assign Influx Device
-                </h2>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Only the selected organization will be able to map and access
-                  this device.
-                </p>
+            <div
+              className={`flex items-center justify-between border-b px-7 py-6 ${
+                dark
+                  ? "border-slate-700 bg-slate-900"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+                    dark
+                      ? "bg-blue-500/15 text-blue-300"
+                      : "bg-blue-100 text-blue-600"
+                  }`}
+                >
+                  <Database size={21} />
+                </div>
+
+                <div>
+                  <h2
+                    className={`text-xl font-bold ${
+                      dark ? "text-white" : "text-slate-900"
+                    }`}
+                  >
+                    Assign Influx Device
+                  </h2>
+
+                  <p
+                    className={`mt-1 text-sm ${
+                      dark ? "text-slate-300" : "text-slate-500"
+                    }`}
+                  >
+                    Choose a real Influx source and assign it to one organization.
+                  </p>
+                </div>
               </div>
+
               <button
                 type="button"
                 onClick={closeCreateForm}
-                className="rounded-xl p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-white"
+                className={`rounded-xl p-2 transition ${
+                  dark
+                    ? "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                }`}
                 aria-label="Close dialog"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="grid gap-5 p-7 md:grid-cols-2">
+            <div
+              className={`grid gap-5 p-7 md:grid-cols-2 ${
+                dark ? "bg-slate-900" : "bg-white"
+              }`}
+            >
               <label className="md:col-span-2">
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
                   Organization
                 </span>
                 <select
@@ -965,7 +1087,7 @@ export default function DeviceManagement({ setPage, dark = false }) {
               </label>
 
               <label>
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
                   Device display name
                 </span>
                 <input
@@ -979,7 +1101,7 @@ export default function DeviceManagement({ setPage, dark = false }) {
               </label>
 
               <label>
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
                   Bucket
                 </span>
                 <select
@@ -1001,7 +1123,7 @@ export default function DeviceManagement({ setPage, dark = false }) {
               </label>
 
               <label>
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
                   Measurement
                 </span>
                 <select
@@ -1023,7 +1145,7 @@ export default function DeviceManagement({ setPage, dark = false }) {
               </label>
 
               <label>
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
                   Tag key
                 </span>
                 <input
@@ -1040,7 +1162,7 @@ export default function DeviceManagement({ setPage, dark = false }) {
               </label>
 
               <label>
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
                   Tag value / device ID
                 </span>
                 <select
@@ -1065,54 +1187,155 @@ export default function DeviceManagement({ setPage, dark = false }) {
                 </select>
               </label>
 
-              <div
-                className={`md:col-span-2 rounded-2xl border px-4 py-3 text-xs ${
-                  dark
-                    ? "border-blue-900/80 bg-blue-950/45 text-blue-200"
-                    : "border-blue-100 bg-blue-50 text-blue-700"
-                }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    {metadataLoading
-                      ? "Loading available Influx metadata..."
-                      : `${availableBuckets.length} bucket(s) · ${availableMeasurements.length} measurement(s) · ${availableIds.length} device ID(s) · ${availableChannels.length} channel(s)`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={refreshInfluxMetadata}
-                    disabled={metadataLoading}
-                    className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCw
-                      size={14}
-                      className={metadataLoading ? "animate-spin" : ""}
-                    />
-                    Refresh metadata
-                  </button>
+              <div className="md:col-span-2">
+                <div
+                  className={`rounded-2xl border px-4 py-3 text-xs ${
+                    dark
+                      ? "border-blue-900/80 bg-blue-950/35 text-blue-200"
+                      : "border-blue-100 bg-blue-50 text-blue-700"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold">
+                      {metadataLoading
+                        ? "Loading available Influx metadata..."
+                        : `${availableBuckets.length} bucket(s) · ${availableMeasurements.length} measurement(s) · ${availableIds.length} device ID(s) · ${availableChannels.length} channel(s)`}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={refreshInfluxMetadata}
+                      disabled={metadataLoading}
+                      className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <RefreshCw
+                        size={14}
+                        className={metadataLoading ? "animate-spin" : ""}
+                      />
+                      Refresh metadata
+                    </button>
+                  </div>
+
+                  {metadataError && (
+                    <p className="mt-2 text-red-500 dark:text-red-300">
+                      {metadataError}
+                    </p>
+                  )}
                 </div>
 
-                {metadataError && (
-                  <p className="mt-2 text-red-600 dark:text-red-300">
-                    {metadataError}
-                  </p>
-                )}
+                <div
+                  className={`mt-4 rounded-3xl border p-4 ${
+                    dark
+                      ? "border-slate-700 bg-slate-900"
+                      : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <h3
+                        className={`text-sm font-black ${
+                          dark ? "text-white" : "text-slate-900"
+                        }`}
+                      >
+                        Available Influx Sources
+                      </h3>
+
+                      <p
+                        className={`mt-1 text-xs ${
+                          dark ? "text-slate-400" : "text-slate-500"
+                        }`}
+                      >
+                        Select a bucket and measurement to browse the device IDs and channels detected in InfluxDB.
+                      </p>
+                    </div>
+
+                    <Database
+                      size={18}
+                      className="shrink-0 text-blue-500"
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <MetadataList
+                      title="Buckets"
+                      values={availableBuckets}
+                      activeValue={form.bucket_name}
+                      emptyText="No buckets found"
+                      dark={dark}
+                      onSelect={(value) =>
+                        updateForm("bucket_name", value)
+                      }
+                    />
+
+                    <MetadataList
+                      title="Measurements"
+                      values={availableMeasurements}
+                      activeValue={form.measurement_name}
+                      emptyText={
+                        form.bucket_name
+                          ? "No measurements found"
+                          : "Select a bucket first"
+                      }
+                      dark={dark}
+                      onSelect={(value) =>
+                        updateForm("measurement_name", value)
+                      }
+                    />
+
+                    <MetadataList
+                      title="Device IDs"
+                      values={availableIds}
+                      activeValue={form.tag_value}
+                      emptyText={
+                        form.measurement_name
+                          ? "No device IDs found"
+                          : "Select a measurement first"
+                      }
+                      dark={dark}
+                      onSelect={(value) =>
+                        updateForm("tag_value", value)
+                      }
+                    />
+
+                    <MetadataList
+                      title="Channels"
+                      values={availableChannels}
+                      emptyText={
+                        form.measurement_name
+                          ? "No channels found"
+                          : "Select a measurement first"
+                      }
+                      dark={dark}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-gray-200 px-7 py-6 sm:flex-row sm:justify-end dark:border-gray-700">
+            <div
+              className={`flex flex-col-reverse gap-3 border-t px-7 py-6 sm:flex-row sm:justify-end ${
+                dark
+                  ? "border-slate-700 bg-slate-950/40"
+                  : "border-slate-200 bg-slate-50/70"
+              }`}
+            >
               <button
                 type="button"
                 onClick={closeCreateForm}
                 disabled={saving}
-                className="rounded-2xl border border-gray-300 bg-white px-5 py-3 font-semibold text-gray-700 transition hover:bg-gray-100 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+                className={`rounded-2xl border px-5 py-3 font-semibold transition disabled:opacity-60 ${
+                  dark
+                    ? "border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                }`}
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-lg transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? (
                   <RefreshCw className="animate-spin" size={17} />

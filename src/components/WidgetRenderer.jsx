@@ -9,6 +9,7 @@ import ImageWidgetConfigurator from "../widgets/ImageWidgetConfigurator";
 import StatusWidget from "../widgets/StatusWidget";
 import PieWidget from "../widgets/PieWidget";
 import SankeyWidget from "../widgets/SankeyWidget";
+import LogsWidget from "../widgets/LogsWidget";
 
 export default function WidgetRenderer({
   type,
@@ -24,7 +25,35 @@ export default function WidgetRenderer({
 }) {
   switch (type) {
     case "status":
-      return <StatusWidget liveStatus={liveStatus} />;
+      return (
+        <StatusWidget
+          liveStatus={liveStatus}
+        />
+      );
+
+    case "logs": {
+      const logs =
+        Array.isArray(item?.logs)
+          ? item.logs
+          : Array.isArray(data?.logs)
+          ? data.logs
+          : Array.isArray(liveStatus?.logs)
+          ? liveStatus.logs
+          : [];
+
+      return (
+        <LogsWidget
+          logs={logs}
+          label={
+            item?.label ||
+            "System Logs"
+          }
+          display={
+            item?.logDisplay
+          }
+        />
+      );
+    }
 
     case "gauge":
       return (
@@ -58,9 +87,17 @@ export default function WidgetRenderer({
         <BarWidget
           data={data}
           dataKeys={selectedKeys}
-          label={item?.label || "Bar Chart"}
-          orientation={item?.orientation || "vertical"}
-          rangeConfig={item?.rangeConfig}
+          label={
+            item?.label ||
+            "Bar Chart"
+          }
+          orientation={
+            item?.orientation ||
+            "vertical"
+          }
+          rangeConfig={
+            item?.rangeConfig
+          }
         />
       );
     }
@@ -85,7 +122,12 @@ export default function WidgetRenderer({
     }
 
     case "sankey":
-      return <SankeyWidget data={data} item={item} />;
+      return (
+        <SankeyWidget
+          data={data}
+          item={item}
+        />
+      );
 
     case "bignumber":
       return (
@@ -93,8 +135,12 @@ export default function WidgetRenderer({
           value={value}
           label={item?.label || dataKey}
           dataKey={dataKey}
-          display={item?.bigNumberDisplay}
-          rangeConfig={item?.rangeConfig}
+          display={
+            item?.bigNumberDisplay
+          }
+          rangeConfig={
+            item?.rangeConfig
+          }
         />
       );
 
@@ -118,13 +164,26 @@ export default function WidgetRenderer({
       return (
         <AreaWidget
           data={history}
-          label={item?.label || "Area Trend"}
-          historyWindow={historyWindow}
-          rangeConfig={item?.rangeConfig}
-          lines={selectedKeys.map((key, index) => ({
-            key,
-            color: colors[index % colors.length],
-          }))}
+          label={
+            item?.label ||
+            "Area Trend"
+          }
+          historyWindow={
+            historyWindow
+          }
+          rangeConfig={
+            item?.rangeConfig
+          }
+          lines={selectedKeys.map(
+            (key, index) => ({
+              key,
+              color:
+                colors[
+                  index %
+                    colors.length
+                ],
+            })
+          )}
         />
       );
     }
@@ -149,13 +208,26 @@ export default function WidgetRenderer({
       return (
         <LineWidget
           data={history}
-          label={item?.label || "Trend"}
-          historyWindow={historyWindow}
-          rangeConfig={item?.rangeConfig}
-          lines={selectedKeys.map((key, index) => ({
-            key,
-            color: colors[index % colors.length],
-          }))}
+          label={
+            item?.label ||
+            "Trend"
+          }
+          historyWindow={
+            historyWindow
+          }
+          rangeConfig={
+            item?.rangeConfig
+          }
+          lines={selectedKeys.map(
+            (key, index) => ({
+              key,
+              color:
+                colors[
+                  index %
+                    colors.length
+                ],
+            })
+          )}
         />
       );
     }
@@ -166,8 +238,13 @@ export default function WidgetRenderer({
           <ImageWidgetConfigurator
             pins={item?.pins || []}
             image={item?.image}
-            customDataOptions={item?.customDataOptions || []}
-            setPins={(updatedPins) => {
+            customDataOptions={
+              item?.customDataOptions ||
+              []
+            }
+            setPins={(
+              updatedPins
+            ) => {
               updateItem({
                 ...item,
                 pins: updatedPins,
@@ -182,11 +259,18 @@ export default function WidgetRenderer({
           pins={item?.pins || []}
           valueMap={data}
           image={item?.image}
-          customDataOptions={item?.customDataOptions || []}
+          customDataOptions={
+            item?.customDataOptions ||
+            []
+          }
         />
       );
 
     default:
-      return <div className="text-gray-400">Unknown Widget</div>;
+      return (
+        <div className="text-gray-400">
+          Unknown Widget
+        </div>
+      );
   }
 }

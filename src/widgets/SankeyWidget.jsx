@@ -4,6 +4,8 @@ import {
   Tooltip,
 } from "recharts";
 
+import { useId } from "react";
+
 export const defaultSankeyConfig = {
   sourceName: "Boiler A",
   unit: "psi",
@@ -52,37 +54,72 @@ export const defaultSankeyConfig = {
 
 const nodeColors = [
   "#2563eb",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#06b6d4",
-  "#ec4899",
-  "#84cc16",
-  "#f97316",
-  "#14b8a6",
+  "#059669",
+  "#d97706",
+  "#dc2626",
+  "#7c3aed",
+  "#0891b2",
+  "#db2777",
+  "#65a30d",
 ];
 
-const linkColors = [
-  "rgba(96, 165, 250, 0.5)",
-  "rgba(52, 211, 153, 0.5)",
-  "rgba(251, 191, 36, 0.54)",
-  "rgba(248, 113, 113, 0.5)",
-  "rgba(167, 139, 250, 0.5)",
-  "rgba(34, 211, 238, 0.5)",
-  "rgba(244, 114, 182, 0.5)",
-  "rgba(163, 230, 53, 0.5)",
-];
-
-const linkLabelColors = [
-  "#1d4ed8",
-  "#047857",
-  "#b45309",
-  "#b91c1c",
-  "#6d28d9",
-  "#0e7490",
-  "#be185d",
-  "#4d7c0f",
+const linkColorPairs = [
+  {
+    start: "#bfdbfe",
+    middle: "#93c5fd",
+    end: "#60a5fa",
+    text: "#1d4ed8",
+    node: "#2563eb",
+  },
+  {
+    start: "#a7f3d0",
+    middle: "#6ee7b7",
+    end: "#34d399",
+    text: "#047857",
+    node: "#059669",
+  },
+  {
+    start: "#fde68a",
+    middle: "#fcd34d",
+    end: "#fbbf24",
+    text: "#b45309",
+    node: "#d97706",
+  },
+  {
+    start: "#fecaca",
+    middle: "#fca5a5",
+    end: "#f87171",
+    text: "#b91c1c",
+    node: "#dc2626",
+  },
+  {
+    start: "#ddd6fe",
+    middle: "#c4b5fd",
+    end: "#a78bfa",
+    text: "#6d28d9",
+    node: "#7c3aed",
+  },
+  {
+    start: "#a5f3fc",
+    middle: "#67e8f9",
+    end: "#22d3ee",
+    text: "#0e7490",
+    node: "#0891b2",
+  },
+  {
+    start: "#fbcfe8",
+    middle: "#f9a8d4",
+    end: "#f472b6",
+    text: "#be185d",
+    node: "#db2777",
+  },
+  {
+    start: "#d9f99d",
+    middle: "#bef264",
+    end: "#a3e635",
+    text: "#4d7c0f",
+    node: "#65a30d",
+  },
 ];
 
 const previewOnlyValues = [44.1, 33, 31.2, 28.5, 22.8, 18.6];
@@ -204,48 +241,115 @@ function CustomNode(props) {
   );
 }
 
-function CustomLink(props) {
-  const {
-    sourceX,
-    targetX,
-    sourceY,
-    targetY,
-    sourceControlX,
-    targetControlX,
-    linkWidth,
-    payload,
-    index,
-  } = props;
+function CustomLink({
+  sourceX,
+  targetX,
+  sourceY,
+  targetY,
+  sourceControlX,
+  targetControlX,
+  linkWidth,
+  payload,
+  index,
+  gradientPrefix,
+}) {
+  const colorPair =
+    linkColorPairs[
+      index % linkColorPairs.length
+    ];
 
-  const color =
-    payload?.color ||
-    linkColors[index % linkColors.length];
+  const gradientId =
+    `${gradientPrefix}-link-${index}`;
+
+  const gradientStart =
+    payload?.gradientStart ||
+    colorPair.start;
+
+  const gradientMiddle =
+    payload?.gradientMiddle ||
+    colorPair.middle;
+
+  const gradientEnd =
+    payload?.gradientEnd ||
+    colorPair.end;
 
   const labelColor =
     payload?.labelColor ||
-    linkLabelColors[
-      index % linkLabelColors.length
-    ];
+    colorPair.text;
 
   const safeLinkWidth = Math.max(
-    2,
+    3,
     Number(linkWidth) || 0
   );
 
+  const path = `
+    M${sourceX},${sourceY}
+    C${sourceControlX},${sourceY}
+     ${targetControlX},${targetY}
+     ${targetX},${targetY}
+  `;
+
   return (
-    <g>
+    <g
+      style={{
+        animation:
+          "sankeyLinkFade 420ms ease-out both",
+        animationDelay:
+          `${index * 70}ms`,
+      }}
+    >
+      <defs>
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1={sourceX}
+          y1={sourceY}
+          x2={targetX}
+          y2={targetY}
+        >
+          <stop
+            offset="0%"
+            stopColor={gradientStart}
+            stopOpacity="0.88"
+          />
+
+          <stop
+            offset="55%"
+            stopColor={gradientMiddle}
+            stopOpacity="0.8"
+          />
+
+          <stop
+            offset="100%"
+            stopColor={gradientEnd}
+            stopOpacity="0.92"
+          />
+        </linearGradient>
+      </defs>
+
+      {/* Full-width flow. No filter or transform, so the link is not clipped. */}
       <path
-        d={`
-          M${sourceX},${sourceY}
-          C${sourceControlX},${sourceY}
-           ${targetControlX},${targetY}
-           ${targetX},${targetY}
-        `}
+        d={path}
         fill="none"
-        stroke={color}
+        stroke={`url(#${gradientId})`}
         strokeWidth={safeLinkWidth}
         strokeLinecap="butt"
       />
+
+      {/* Very light internal sheen without reducing the visible thickness. */}
+      {safeLinkWidth >= 18 && (
+        <path
+          d={path}
+          fill="none"
+          stroke="rgba(255,255,255,0.16)"
+          strokeWidth={Math.max(
+            1,
+            safeLinkWidth * 0.08
+          )}
+          strokeLinecap="butt"
+          pointerEvents="none"
+        />
+      )}
 
       {safeLinkWidth >= 12 && (
         <text
@@ -268,6 +372,11 @@ export default function SankeyWidget({
   data = {},
   item = {},
 }) {
+  const generatedId = useId();
+
+  const gradientPrefix =
+    `sankey-${generatedId.replace(/:/g, "")}`;
+
   const config = normalizeSankeyConfig(
     item?.sankeyConfig || defaultSankeyConfig
   );
@@ -309,15 +418,30 @@ export default function SankeyWidget({
         Number.isFinite(Number(previewOnlyValue)),
       runtimeTimestamp: runtimeInfo?.timestamp || null,
       runtimeError: runtimeInfo?.error || null,
-      color: linkColors[index % linkColors.length],
+      gradientStart:
+        linkColorPairs[
+          index % linkColorPairs.length
+        ].start,
+
+      gradientMiddle:
+        linkColorPairs[
+          index % linkColorPairs.length
+        ].middle,
+
+      gradientEnd:
+        linkColorPairs[
+          index % linkColorPairs.length
+        ].end,
+
       labelColor:
-        linkLabelColors[
-          index % linkLabelColors.length
-        ],
+        linkColorPairs[
+          index % linkColorPairs.length
+        ].text,
+
       nodeColor:
-        linkLabelColors[
-          index % linkLabelColors.length
-        ],
+        linkColorPairs[
+          index % linkColorPairs.length
+        ].node,
       displayValue: `${formatNumber(value)} ${config.unit || ""}`,
     };
   });
@@ -362,8 +486,17 @@ export default function SankeyWidget({
     label: output.name,
     dataKey: output.dataKey,
     channel: output.dataSource?.channel,
-    color: output.color,
-    labelColor: output.labelColor,
+    gradientStart:
+      output.gradientStart,
+
+    gradientMiddle:
+      output.gradientMiddle,
+
+    gradientEnd:
+      output.gradientEnd,
+
+    labelColor:
+      output.labelColor,
     displayValue: output.displayValue,
     isActual: output.isActual,
     timestamp: output.runtimeTimestamp,
@@ -373,12 +506,31 @@ export default function SankeyWidget({
   return (
     <div
       className="
+        sankey-widget
         flex h-full w-full
         flex-col overflow-hidden
         bg-transparent
         px-4 py-4
       "
     >
+      <style>{`
+        @keyframes sankeyLinkFade {
+          from {
+            opacity: 0;
+          }
+
+          to {
+            opacity: 1;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .sankey-widget g {
+            animation: none !important;
+          }
+        }
+      `}</style>
+
       {/* SIMPLE HEADER */}
       <div
         className="
@@ -520,7 +672,7 @@ export default function SankeyWidget({
               linkCurvature={0.42}
               iterations={72}
               node={<CustomNode />}
-              link={<CustomLink />}
+              link={<CustomLink gradientPrefix={gradientPrefix} />}
               margin={{
                 top: 28,
                 right: 150,

@@ -431,7 +431,7 @@ export default function App() {
                 setEditingSankeyWidget
               }
               setPage={setPage}
-              dark={dark}
+              darkMode={dark}
               toggleTheme={toggleTheme}
             />
           </ProtectedRoute>

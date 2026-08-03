@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   ArrowLeft,
@@ -8,6 +8,8 @@ import {
   Workflow,
   Database,
   RefreshCw,
+  Moon,
+  Sun,
 } from "lucide-react";
 
 import SankeyWidget, {
@@ -73,11 +75,80 @@ const defaultDataSource = {
   channel: "",
 };
 
+const readDarkMode = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const html = document.documentElement;
+  const body = document.body;
+
+  const storedTheme =
+    localStorage.getItem("theme") ||
+    localStorage.getItem("colorTheme") ||
+    localStorage.getItem("appearance");
+
+  const storedDarkMode =
+    localStorage.getItem("darkMode");
+
+  return (
+    html.classList.contains("dark") ||
+    body.classList.contains("dark") ||
+    html.dataset.theme === "dark" ||
+    body.dataset.theme === "dark" ||
+    storedTheme === "dark" ||
+    storedDarkMode === "true"
+  );
+};
+
 export default function SankeyFlowEditor({
   sankeyWidget,
   setSankeyWidget,
   setPage,
+  darkMode,
+  toggleTheme,
 }) {
+  const [detectedDarkMode, setDetectedDarkMode] =
+    useState(() => readDarkMode());
+
+  const isDarkMode =
+    typeof darkMode === "boolean"
+      ? darkMode
+      : detectedDarkMode;
+
+  useEffect(() => {
+    if (typeof darkMode === "boolean") {
+      return undefined;
+    }
+
+    const updateTheme = () => {
+      setDetectedDarkMode(readDarkMode());
+    };
+
+    updateTheme();
+
+    const observer = new MutationObserver(updateTheme);
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
+
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
+
+    window.addEventListener("storage", updateTheme);
+    window.addEventListener("themechange", updateTheme);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("storage", updateTheme);
+      window.removeEventListener("themechange", updateTheme);
+    };
+  }, [darkMode]);
+
   const initialConfig = normalizeSankeyConfig(
     sankeyWidget?.sankeyConfig || defaultSankeyConfig
   );
@@ -383,6 +454,15 @@ export default function SankeyFlowEditor({
     }
   };
 
+  // Automatically load available devices and Influx suggestions
+  // when the Sankey editor opens. The Reload button remains available
+  // for manual refreshes.
+  useEffect(() => {
+    reloadInfluxOptions();
+    // Run only when the editor is first opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const reloadOutputChannels = async (output) => {
     const token = localStorage.getItem("token");
     const dataSource = {
@@ -504,41 +584,277 @@ export default function SankeyFlowEditor({
   }, 0);
 
   return (
-    <div className="flex h-screen w-full bg-gray-100 text-gray-900 dark:bg-[#050a1e] dark:text-white">
+    <div
+      data-theme={isDarkMode ? "dark" : "light"}
+      className={
+        isDarkMode
+          ? "sankey-flow-editor-theme dark h-screen w-full"
+          : "sankey-flow-editor-theme h-screen w-full"
+      }
+    >
+      <style>{`
+        .sankey-flow-editor-theme[data-theme="dark"] {
+          background: #020617;
+          color: #e2e8f0;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .bg-white {
+          background-color: #0f172a !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .bg-slate-50,
+        .sankey-flow-editor-theme[data-theme="dark"] .bg-gray-50,
+        .sankey-flow-editor-theme[data-theme="dark"] .bg-gray-100 {
+          background-color: #0b1220 !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .bg-slate-900 {
+          background-color: #0f172a !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .bg-slate-950 {
+          background-color: #020617 !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .text-slate-900,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-900,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-800,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-700 {
+          color: #f8fafc !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .text-slate-500,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-500,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-600 {
+          color: #cbd5e1 !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .text-slate-400,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-400,
+        .sankey-flow-editor-theme[data-theme="dark"] .text-gray-300 {
+          color: #94a3b8 !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .border-slate-200,
+        .sankey-flow-editor-theme[data-theme="dark"] .border-gray-200,
+        .sankey-flow-editor-theme[data-theme="dark"] .border-gray-300 {
+          border-color: #334155 !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] input,
+        .sankey-flow-editor-theme[data-theme="dark"] select,
+        .sankey-flow-editor-theme[data-theme="dark"] textarea {
+          background-color: #020617 !important;
+          border-color: #475569 !important;
+          color: #f8fafc !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] input::placeholder,
+        .sankey-flow-editor-theme[data-theme="dark"] textarea::placeholder {
+          color: #64748b !important;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] option {
+          background-color: #020617;
+          color: #f8fafc;
+        }
+
+        .sankey-flow-editor-theme[data-theme="dark"] .shadow-sm,
+        .sankey-flow-editor-theme[data-theme="dark"] .shadow-xl {
+          box-shadow:
+            0 12px 30px rgba(0, 0, 0, 0.28) !important;
+        }
+      `}</style>
+
+      <div className="flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#020617] dark:text-slate-100">
       {/* PREVIEW */}
-      <div className="relative flex-1 overflow-hidden p-6">
-        <div className="absolute left-6 right-6 top-6 z-20 flex items-center justify-between border border-white/20 bg-slate-950/60 px-5 py-4 shadow-2xl backdrop-blur-xl">
-          <div className="flex items-center gap-3">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-5 dark:bg-[#07101f]">
+        <div
+          className="
+            z-20 flex shrink-0
+            items-center justify-between
+            gap-4 rounded-2xl
+            border px-4 py-3
+            shadow-lg backdrop-blur-xl
+          "
+          style={{
+            backgroundColor: isDarkMode
+              ? "rgba(15, 23, 42, 0.96)"
+              : "rgba(255, 255, 255, 0.96)",
+            borderColor: isDarkMode
+              ? "rgba(71, 85, 105, 0.75)"
+              : "rgba(226, 232, 240, 1)",
+          }}
+        >
+          <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
-              onClick={() => setPage(sankeyWidget?.returnPage || "builder")}
-              className="bg-white/10 p-2 text-white transition hover:bg-white/20"
+              onClick={() =>
+                setPage(
+                  sankeyWidget?.returnPage ||
+                    "builder"
+                )
+              }
+              className="
+                inline-flex h-10 w-10
+                shrink-0 items-center
+                justify-center rounded-xl
+                border border-slate-200
+                bg-slate-100 text-slate-700
+                transition hover:bg-slate-200
+                dark:border-slate-700
+                dark:bg-slate-800
+                dark:text-white
+                dark:hover:bg-slate-700
+              "
+              aria-label="Back to widget settings"
+              title="Back to widget settings"
             >
               <ArrowLeft size={18} />
             </button>
 
-            <div>
-              <h1 className="text-lg font-black text-white">
-                Sankey Flow Editor
-              </h1>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Workflow
+                  size={17}
+                  className="shrink-0 text-emerald-500"
+                />
 
-              <p className="text-xs text-gray-300">
-                Configure source, outputs, and Influx data sources.
+                <h1
+                  className="
+                    truncate text-base
+                    font-black
+                    text-slate-900
+                    dark:text-white
+                  "
+                >
+                  Sankey Flow Editor
+                </h1>
+              </div>
+
+              <p
+                className="
+                  mt-0.5 truncate text-xs
+                  text-slate-500
+                  dark:text-slate-400
+                "
+              >
+                Configure the source, outputs, and
+                device channels.
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleSave}
-            className="inline-flex items-center gap-2 bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-emerald-700"
-          >
-            <Save size={16} />
-            Save
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <div
+              className="
+                hidden rounded-xl
+                border px-3 py-2
+                text-right sm:block
+              "
+              style={{
+                backgroundColor: isDarkMode
+                  ? "rgba(15, 23, 42, 0.9)"
+                  : "#f8fafc",
+                borderColor: isDarkMode
+                  ? "#475569"
+                  : "#cbd5e1",
+              }}
+            >
+              <p
+                className="
+                  text-[9px] font-black
+                  uppercase tracking-wider
+                "
+                style={{
+                  color: isDarkMode
+                    ? "#93c5fd"
+                    : "#2563eb",
+                }}
+              >
+                Data sources
+              </p>
+
+              <p
+                className="
+                  mt-0.5 text-xs
+                  font-extrabold
+                "
+                style={{
+                  color: isDarkMode
+                    ? "#f8fafc"
+                    : "#0f172a",
+                }}
+              >
+                {influxLoading
+                  ? "Loading…"
+                  : `${influxIds.length} device${
+                      influxIds.length === 1
+                        ? ""
+                        : "s"
+                    }`}
+              </p>
+            </div>
+
+            {typeof toggleTheme === "function" && (
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="
+                  inline-flex h-10 w-10
+                  items-center justify-center
+                  rounded-xl border
+                  border-slate-200
+                  bg-slate-100
+                  text-slate-700
+                  transition hover:bg-slate-200
+                  dark:border-slate-700
+                  dark:bg-slate-800
+                  dark:text-slate-100
+                  dark:hover:bg-slate-700
+                "
+                aria-label={
+                  isDarkMode
+                    ? "Switch to light mode"
+                    : "Switch to dark mode"
+                }
+                title={
+                  isDarkMode
+                    ? "Switch to light mode"
+                    : "Switch to dark mode"
+                }
+              >
+                {isDarkMode ? (
+                  <Sun size={17} />
+                ) : (
+                  <Moon size={17} />
+                )}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSave}
+              className="
+                inline-flex h-10
+                items-center gap-2
+                rounded-xl
+                bg-emerald-600
+                px-4 text-sm
+                font-black text-white
+                shadow-lg
+                shadow-emerald-600/20
+                transition
+                hover:bg-emerald-700
+              "
+            >
+              <Save size={15} />
+              Save
+            </button>
+          </div>
         </div>
 
-        <div className="h-full pt-24">
+        <div className="mt-4 min-h-0 flex-1">
           <SankeyWidget
             data={previewData}
             item={{
@@ -551,22 +867,70 @@ export default function SankeyFlowEditor({
       </div>
 
       {/* SETTINGS PANEL */}
-      <div className="w-[560px] overflow-y-auto border-l border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="sticky top-0 z-10 border-b border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="flex items-center gap-2 text-lg font-black">
-            <Workflow size={20} className="text-emerald-500" />
-            Flow Settings
-          </h2>
+      <div className="w-[560px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0b1220]">
+        <div
+          className="
+            sticky top-0 z-10
+            border-b p-5
+            backdrop-blur-xl
+          "
+          style={{
+            backgroundColor: isDarkMode
+              ? "rgba(15, 23, 42, 0.98)"
+              : "rgba(255, 255, 255, 0.98)",
+            borderColor: isDarkMode
+              ? "#334155"
+              : "#e2e8f0",
+            boxShadow: isDarkMode
+              ? "0 10px 24px rgba(0, 0, 0, 0.18)"
+              : "0 8px 20px rgba(15, 23, 42, 0.06)",
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className="
+                flex h-10 w-10 shrink-0
+                items-center justify-center
+                rounded-xl
+                border border-emerald-200
+                bg-emerald-50
+                text-emerald-600
+                dark:border-emerald-900/60
+                dark:bg-emerald-500/10
+                dark:text-emerald-300
+              "
+            >
+              <Workflow size={19} />
+            </div>
 
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Add output cards. Each output automatically becomes a flow from the source.
-          </p>
+            <div className="min-w-0">
+              <h2
+                className="
+                  text-base font-black
+                  text-slate-900
+                  dark:text-white
+                "
+              >
+                Flow Settings
+              </h2>
+
+              <p
+                className="
+                  mt-1 text-xs leading-5
+                  text-slate-500
+                  dark:text-slate-400
+                "
+              >
+                Add output cards. Each output automatically becomes a flow from the source.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-5 p-5">
           {/* SUMMARY */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-blue-50 p-3 text-center dark:bg-blue-900/20">
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-center shadow-sm dark:border-blue-900/50 dark:bg-blue-500/10">
               <p className="text-[10px] font-black uppercase tracking-wider text-blue-500">
                 Source
               </p>
@@ -575,7 +939,7 @@ export default function SankeyFlowEditor({
               </p>
             </div>
 
-            <div className="bg-emerald-50 p-3 text-center dark:bg-emerald-900/20">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-center shadow-sm dark:border-emerald-900/50 dark:bg-emerald-500/10">
               <p className="text-[10px] font-black uppercase tracking-wider text-emerald-500">
                 Outputs
               </p>
@@ -584,7 +948,7 @@ export default function SankeyFlowEditor({
               </p>
             </div>
 
-            <div className="bg-amber-50 p-3 text-center dark:bg-amber-900/20">
+            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-center shadow-sm dark:border-amber-900/50 dark:bg-amber-500/10">
               <p className="text-[10px] font-black uppercase tracking-wider text-amber-500">
                 Total
               </p>
@@ -595,7 +959,7 @@ export default function SankeyFlowEditor({
           </div>
 
           {/* SOURCE */}
-          <div className="border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <h3 className="text-sm font-black">Source</h3>
 
             <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
@@ -617,7 +981,7 @@ export default function SankeyFlowEditor({
                     })
                   }
                   placeholder="Boiler A"
-                  className="mt-2 w-full border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 />
               </div>
 
@@ -636,7 +1000,7 @@ export default function SankeyFlowEditor({
                     })
                   }
                   placeholder="t/h"
-                  className="mt-2 w-full border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 />
 
                 <datalist id="sankey-unit-options">
@@ -649,7 +1013,7 @@ export default function SankeyFlowEditor({
           </div>
 
           {/* METADATA */}
-          <div className="border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="flex items-center gap-2 text-sm font-black">
@@ -658,7 +1022,7 @@ export default function SankeyFlowEditor({
                 </h3>
 
                 <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                  Reload device ID and channel suggestions, then reload each output to get device-specific channels.
+                  Device IDs load automatically. Reload here to refresh the available measurements, devices, and channels.
                 </p>
               </div>
 
@@ -666,7 +1030,7 @@ export default function SankeyFlowEditor({
                 type="button"
                 onClick={reloadInfluxOptions}
                 disabled={influxLoading}
-                className="inline-flex items-center gap-2 bg-slate-800 px-4 py-2 text-xs font-black text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2 text-xs font-black text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
               >
                 <RefreshCw
                   size={14}
@@ -707,7 +1071,7 @@ export default function SankeyFlowEditor({
           </div>
 
           {/* OUTPUTS */}
-          <div className="border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-black">Outputs</h3>
@@ -720,7 +1084,7 @@ export default function SankeyFlowEditor({
               <button
                 type="button"
                 onClick={addOutput}
-                className="inline-flex items-center gap-1 bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-700"
+                className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
               >
                 <Plus size={14} />
                 Add Output
@@ -776,7 +1140,7 @@ export default function SankeyFlowEditor({
                 return (
                   <div
                     key={output.id}
-                    className="border border-gray-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-[#111827]"
                   >
                     <div className="mb-3 flex items-center justify-between">
                       <p className="text-xs font-black uppercase tracking-wider text-gray-500 dark:text-slate-400">
@@ -808,7 +1172,7 @@ export default function SankeyFlowEditor({
                             })
                           }
                           placeholder={`Sterilizer ${index + 1}`}
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         />
                       </div>
 
@@ -824,7 +1188,7 @@ export default function SankeyFlowEditor({
                               dataKey: event.target.value,
                             })
                           }
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         >
                           <option value="">Use channel only</option>
 
@@ -850,7 +1214,7 @@ export default function SankeyFlowEditor({
                             })
                           }
                           placeholder="Mill"
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         />
                       </div>
 
@@ -869,7 +1233,7 @@ export default function SankeyFlowEditor({
                             })
                           }
                           placeholder="PBLR"
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         />
                       </div>
 
@@ -904,12 +1268,14 @@ export default function SankeyFlowEditor({
                               tagValue: selectedValue,
                             });
                           }}
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         >
                           <option value="">
                             {uniqueDeviceIdOptions.length
                               ? "Select available ID"
-                              : "Click Reload to load device IDs"}
+                              : influxLoading
+                              ? "Loading available device IDs..."
+                              : "No available device IDs found"}
                           </option>
 
                           {dataSource.tagValue && !currentDeviceIdExists && (
@@ -941,7 +1307,7 @@ export default function SankeyFlowEditor({
                             })
                           }
                           placeholder="ch2"
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         />
 
                         <datalist id={`sankey-channel-options-${output.id}`}>
@@ -965,11 +1331,11 @@ export default function SankeyFlowEditor({
                             })
                           }
                           placeholder="id"
-                          className="mt-1 w-full border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                         />
                       </div>
 
-                      <div className="col-span-2 flex items-center justify-between gap-3 border border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+                      <div className="col-span-2 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/70">
                         <div>
                           <p className="text-[11px] font-black text-gray-600 dark:text-slate-300">
                             Device-specific channel reload
@@ -993,7 +1359,7 @@ export default function SankeyFlowEditor({
                           type="button"
                           onClick={() => reloadOutputChannels(output)}
                           disabled={meta.loading}
-                          className="inline-flex items-center gap-2 bg-slate-800 px-3 py-2 text-xs font-black text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-xs font-black text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
                         >
                           <RefreshCw
                             size={13}
@@ -1015,10 +1381,8 @@ export default function SankeyFlowEditor({
             </div>
           </div>
 
-          <div className="border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
-            Actual dashboard data requires Bucket, Measurement, Device ID, and Channel to match your InfluxDB device exactly. If actual data is unavailable, this flow will display 0 instead of a backup value.
-          </div>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -266,6 +266,7 @@ export default function Dashboard({
 }) {
   const [data, setData] = useState({});
   const [history, setHistory] = useState([]);
+  const [logs, setLogs] = useState([]);
   const [timeRange, setTimeRange] =
     useState("15m");
 
@@ -360,6 +361,7 @@ export default function Dashboard({
     setItems(layout?.items || []);
     setData({});
     setHistory([]);
+    setLogs([]);
     setLiveStatus(null);
     setSankeyValues({});
   }, [template]);
@@ -384,6 +386,7 @@ export default function Dashboard({
 
       setLiveStatus(null);
       setSankeyValues({});
+      setLogs([]);
       return;
     }
 
@@ -397,6 +400,7 @@ export default function Dashboard({
 
       setLiveStatus(null);
       setSankeyValues({});
+      setLogs([]);
       return;
     }
 
@@ -448,6 +452,20 @@ export default function Dashboard({
       setLiveStatus(result?.liveStatus || null);
       setSankeyValues(result?.sankeyValues || {});
 
+      // Logs should be returned separately by the backend. The widget
+      // renderer also supports logs inside data.logs or liveStatus.logs,
+      // but keeping a dedicated state prevents them from being mixed with
+      // numeric channel values.
+      setLogs(
+        Array.isArray(result?.logs)
+          ? result.logs
+          : Array.isArray(result?.liveStatus?.logs)
+          ? result.liveStatus.logs
+          : Array.isArray(incoming?.logs)
+          ? incoming.logs
+          : []
+      );
+
       // Use real historical rows returned by InfluxDB. Do not build
       // chart history from the current live reading on the browser.
       setHistory(
@@ -463,6 +481,7 @@ export default function Dashboard({
 
       setLiveStatus(null);
       setSankeyValues({});
+      setLogs([]);
       setDataError(
         err.message ||
           "Unable to retrieve live data."
@@ -539,6 +558,10 @@ export default function Dashboard({
 
     if (item?.type === "image") {
       return "System Diagram";
+    }
+
+    if (item?.type === "logs") {
+      return "System Logs";
     }
 
     return getLabel(item.dataKey);
@@ -1329,10 +1352,16 @@ export default function Dashboard({
               <WidgetRenderer
                 type={item.type}
                 value={data[item.dataKey]}
-                data={data}
+                data={{
+                  ...data,
+                  logs,
+                }}
                 history={history}
                 historyWindow={timeRange}
-                liveStatus={liveStatus}
+                liveStatus={{
+                  ...(liveStatus || {}),
+                  logs,
+                }}
                 dataKey={item.dataKey}
                 item={{
                   ...item,

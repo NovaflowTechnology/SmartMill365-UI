@@ -18,7 +18,9 @@ import {
   Database,
   RefreshCw,
   ChevronDown,
+  ChevronRight,
   Check,
+  ScrollText,
 } from "lucide-react";
 
 const GRID_MIN_ROWS = 1;
@@ -72,16 +74,46 @@ const defaultImageDraft = {
 };
 
 const defaultBigNumberDisplay = {
+  mode: "number",
+
   style: "modern",
   showLabel: true,
   showUnit: true,
   showTrend: true,
+  showRawValue: false,
+
   decimals: 1,
   unit: "",
   alignment: "center",
   valueSize: "large",
   valueColor: "default",
   trendThreshold: 0.5,
+
+  mappings: [
+    {
+      value: 0,
+      text: "OFF",
+      color: "red",
+    },
+    {
+      value: 1,
+      text: "MANUAL",
+      color: "amber",
+    },
+    {
+      value: 2,
+      text: "AUTO",
+      color: "green",
+    },
+    {
+      value: 3,
+      text: "MANUAL INLET",
+      color: "orange",
+    },
+  ],
+
+  fallbackText: "",
+  fallbackColor: "default",
 };
 
 const defaultRangeConfig = {
@@ -92,8 +124,84 @@ const defaultRangeConfig = {
   danger: 90,
 };
 
-const supportsRangeConfiguration = (type) =>
-  !["image", "status", "sankey"].includes(type);
+const defaultLogDisplay = {
+  showTimestamp: true,
+  showSource: true,
+  showLevel: true,
+  showSearch: true,
+  compact: false,
+  maxEntries: 50,
+  sortOrder: "newest",
+  levelFilter: [
+    "info",
+    "success",
+    "warning",
+    "error",
+  ],
+};
+
+const previewLogs = [
+  {
+    id: "preview-log-1",
+    timestamp: new Date(
+      Date.now() - 30 * 1000
+    ).toISOString(),
+    level: "warning",
+    source: "Sterilizer 2",
+    message:
+      "Steam pressure exceeded the configured warning threshold.",
+  },
+  {
+    id: "preview-log-2",
+    timestamp: new Date(
+      Date.now() - 95 * 1000
+    ).toISOString(),
+    level: "success",
+    source: "Device 01",
+    message:
+      "Influx device connection restored successfully.",
+  },
+  {
+    id: "preview-log-3",
+    timestamp: new Date(
+      Date.now() - 4 * 60 * 1000
+    ).toISOString(),
+    level: "info",
+    source: "Template",
+    message:
+      "Dashboard configuration was updated.",
+  },
+  {
+    id: "preview-log-4",
+    timestamp: new Date(
+      Date.now() - 7 * 60 * 1000
+    ).toISOString(),
+    level: "error",
+    source: "InfluxDB",
+    message:
+      "Failed to retrieve the latest channel value.",
+  },
+];
+
+const supportsRangeConfiguration = (
+  type,
+  displayMode = "number"
+) => {
+  if (
+    ["image", "status", "sankey", "logs"].includes(type)
+  ) {
+    return false;
+  }
+
+  if (
+    type === "bignumber" &&
+    displayMode === "valueMapping"
+  ) {
+    return false;
+  }
+
+  return true;
+};
 
 const defaultInfluxConfig = {
   bucket: "Mill",
@@ -214,6 +322,98 @@ const getUniqueDataKey = (baseKey, options) => {
   return uniqueKey;
 };
 
+const InfluxMetadataList = ({
+  title,
+  values = [],
+  activeValue = "",
+  emptyText,
+  onSelect,
+}) => (
+  <div
+    className="
+      min-w-0 rounded-2xl border
+      border-slate-200 bg-slate-50 p-3
+      dark:border-slate-700
+      dark:bg-slate-950/70
+    "
+  >
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <p
+        className="
+          text-[10px] font-black
+          uppercase tracking-wider
+          text-slate-500 dark:text-slate-300
+        "
+      >
+        {title}
+      </p>
+
+      <span
+        className="
+          rounded-full bg-white
+          px-2 py-0.5
+          text-[10px] font-bold
+          text-slate-600
+          dark:bg-slate-800
+          dark:text-slate-200
+        "
+      >
+        {values.length}
+      </span>
+    </div>
+
+    <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+      {values.length === 0 ? (
+        <p
+          className="
+            rounded-xl px-2 py-3
+            text-center text-[11px]
+            text-slate-400 dark:text-slate-500
+          "
+        >
+          {emptyText}
+        </p>
+      ) : (
+        values.map((value) => {
+          const selected =
+            String(value) === String(activeValue);
+
+          return (
+            <button
+              key={String(value)}
+              type="button"
+              onClick={() => onSelect?.(value)}
+              className={`
+                flex w-full items-center
+                justify-between gap-2
+                rounded-xl px-2.5 py-2
+                text-left text-[11px]
+                font-semibold transition
+                ${
+                  selected
+                    ? "bg-blue-100 text-blue-800 ring-1 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:ring-blue-500/40"
+                    : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
+                }
+              `}
+            >
+              <span className="truncate font-mono">
+                {value}
+              </span>
+
+              {onSelect && (
+                <ChevronRight
+                  size={13}
+                  className="shrink-0 opacity-60"
+                />
+              )}
+            </button>
+          );
+        })
+      )}
+    </div>
+  </div>
+);
+
 export default function TemplateDesigner({
   mode = "create",
   setPage,
@@ -289,6 +489,13 @@ export default function TemplateDesigner({
     ...defaultRangeConfig,
   });
 
+  const [
+    newLogDisplay,
+    setNewLogDisplay,
+  ] = useState({
+    ...defaultLogDisplay,
+  });
+
   const [customDataOptions, setCustomDataOptions] = useState([]);
 
   const [customDataDraft, setCustomDataDraft] = useState({
@@ -354,6 +561,9 @@ export default function TemplateDesigner({
     selectedDeviceId,
     setSelectedDeviceId,
   ] = useState("");
+
+  const [influxBuckets, setInfluxBuckets] =
+    useState([]);
 
   const [influxIds, setInfluxIds] =
     useState([]);
@@ -782,6 +992,22 @@ export default function TemplateDesigner({
     if (type === "bignumber" && !isEdit) {
       setNewBigNumberDisplay({
         ...defaultBigNumberDisplay,
+        mappings:
+          defaultBigNumberDisplay.mappings.map(
+            (mapping) => ({ ...mapping })
+          ),
+      });
+    }
+
+    if (type === "logs" && !isEdit) {
+      setNewW(2);
+      setNewH(2);
+      setNewLabel("System Logs");
+      setNewLogDisplay({
+        ...defaultLogDisplay,
+        levelFilter: [
+          ...defaultLogDisplay.levelFilter,
+        ],
       });
     }
 
@@ -817,6 +1043,30 @@ export default function TemplateDesigner({
     }
 
     return Array.isArray(result) ? result : [];
+  };
+
+  const fetchInfluxBuckets = async (token) => {
+    const res = await fetch(
+      "http://localhost:5000/influx/buckets",
+      {
+        headers: {
+          Authorization: token,
+        },
+      }
+    );
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        result?.error ||
+          "Failed to load available Influx buckets"
+      );
+    }
+
+    return Array.isArray(result?.buckets)
+      ? result.buckets
+      : [];
   };
 
   const fetchInfluxMeasurements = async (
@@ -984,6 +1234,16 @@ export default function TemplateDesigner({
 
         setAvailableDevices(devices);
 
+        setInfluxBuckets(
+          [
+            ...new Set(
+              devices
+                .map((device) => device.bucket_name)
+                .filter(Boolean)
+            ),
+          ].sort()
+        );
+
         const selectedStillExists = devices.some(
           (device) =>
             String(device.id) === String(selectedDeviceId)
@@ -1008,15 +1268,34 @@ export default function TemplateDesigner({
         return;
       }
 
+      const buckets =
+        await fetchInfluxBuckets(token);
+
+      setInfluxBuckets(buckets);
+
       const selectedBucket =
-        influxConfig.bucket.trim();
+        influxConfig.bucket.trim() ||
+        buckets[0] ||
+        "";
 
       const selectedMeasurement =
         influxConfig.measurement.trim();
 
       if (!selectedBucket) {
-        setInfluxError("Bucket is required.");
+        setInfluxMeasurements([]);
+        setInfluxIds([]);
+        setInfluxChannels([]);
+        setInfluxError(
+          "No Influx buckets are available."
+        );
         return;
+      }
+
+      if (!influxConfig.bucket.trim()) {
+        setInfluxConfig((current) => ({
+          ...current,
+          bucket: selectedBucket,
+        }));
       }
 
       const measurements =
@@ -1269,6 +1548,16 @@ export default function TemplateDesigner({
     influxConfig.measurement,
   ]);
 
+  useEffect(() => {
+    if (!showCustomDataModal || !canConfigureInflux) {
+      return;
+    }
+
+    refreshInfluxMetadata();
+    // Refresh once whenever the modal opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCustomDataModal]);
+
   // UPDATE ONE DATA KEY → CHANNEL MAPPING
   const updateChannelMapping = (
     dataKey,
@@ -1305,7 +1594,10 @@ export default function TemplateDesigner({
 
   // LOAD A RANGE PRESET WHEN THE USER CHANGES THE DATA SOURCE.
   useEffect(() => {
-    if (!newDataKey || !supportsRangeConfiguration(newType)) return;
+    if (!newDataKey || !supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    )) return;
 
     // The selected-widget effect loads the saved range. Do not overwrite it
     // unless the user changes to a different data source.
@@ -1484,12 +1776,38 @@ export default function TemplateDesigner({
     setNewBigNumberDisplay({
       ...defaultBigNumberDisplay,
       ...(selectedItem.bigNumberDisplay || {}),
+
+      mappings: Array.isArray(
+        selectedItem.bigNumberDisplay?.mappings
+      )
+        ? selectedItem.bigNumberDisplay.mappings.map(
+            (mapping) => ({ ...mapping })
+          )
+        : defaultBigNumberDisplay.mappings.map(
+            (mapping) => ({ ...mapping })
+          ),
     });
 
     setNewRangeConfig({
       ...defaultRangeConfig,
       ...(dataRanges[selectedItem.dataKey] || {}),
       ...(selectedItem.rangeConfig || {}),
+    });
+
+    setNewLogDisplay({
+      ...defaultLogDisplay,
+      ...(selectedItem.logDisplay || {}),
+
+      levelFilter: Array.isArray(
+        selectedItem.logDisplay?.levelFilter
+      )
+        ? [
+            ...selectedItem.logDisplay
+              .levelFilter,
+          ]
+        : [
+            ...defaultLogDisplay.levelFilter,
+          ],
     });
 
     setImageDraftPins(
@@ -2211,7 +2529,10 @@ export default function TemplateDesigner({
   };
 
   const validateRangeConfig = () => {
-    if (!supportsRangeConfiguration(newType)) return true;
+    if (!supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    )) return true;
 
     const min = Number(newRangeConfig.min);
     const max = Number(newRangeConfig.max);
@@ -2335,7 +2656,26 @@ export default function TemplateDesigner({
           ? { ...newBigNumberDisplay }
           : undefined,
 
-      rangeConfig: supportsRangeConfiguration(newType)
+      logDisplay:
+        newType === "logs"
+          ? {
+              ...newLogDisplay,
+              levelFilter: [
+                ...(newLogDisplay.levelFilter ||
+                  []),
+              ],
+            }
+          : undefined,
+
+      logs:
+        newType === "logs"
+          ? previewLogs
+          : undefined,
+
+      rangeConfig: supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    )
         ? { ...newRangeConfig }
         : undefined,
 
@@ -2378,9 +2718,20 @@ export default function TemplateDesigner({
     setSankeyConfig(defaultSankeyConfig);
     setNewBigNumberDisplay({
       ...defaultBigNumberDisplay,
+      mappings:
+        defaultBigNumberDisplay.mappings.map(
+          (mapping) => ({ ...mapping })
+        ),
     });
     setNewRangeConfig({
       ...defaultRangeConfig,
+    });
+
+    setNewLogDisplay({
+      ...defaultLogDisplay,
+      levelFilter: [
+        ...defaultLogDisplay.levelFilter,
+      ],
     });
   };
 
@@ -2492,7 +2843,27 @@ export default function TemplateDesigner({
                 ? { ...newBigNumberDisplay }
                 : undefined,
 
-            rangeConfig: supportsRangeConfiguration(newType)
+            logDisplay:
+              newType === "logs"
+                ? {
+                    ...newLogDisplay,
+                    levelFilter: [
+                      ...(newLogDisplay.levelFilter ||
+                        []),
+                    ],
+                  }
+                : undefined,
+
+            logs:
+              newType === "logs"
+                ? selectedItem.logs ||
+                  previewLogs
+                : selectedItem.logs,
+
+            rangeConfig: supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    )
               ? { ...newRangeConfig }
               : undefined,
 
@@ -2524,9 +2895,20 @@ export default function TemplateDesigner({
     setSankeyConfig(defaultSankeyConfig);
     setNewBigNumberDisplay({
       ...defaultBigNumberDisplay,
+      mappings:
+        defaultBigNumberDisplay.mappings.map(
+          (mapping) => ({ ...mapping })
+        ),
     });
     setNewRangeConfig({
       ...defaultRangeConfig,
+    });
+
+    setNewLogDisplay({
+      ...defaultLogDisplay,
+      levelFilter: [
+        ...defaultLogDisplay.levelFilter,
+      ],
     });
   };
 
@@ -2544,9 +2926,20 @@ export default function TemplateDesigner({
     setSankeyConfig(defaultSankeyConfig);
     setNewBigNumberDisplay({
       ...defaultBigNumberDisplay,
+      mappings:
+        defaultBigNumberDisplay.mappings.map(
+          (mapping) => ({ ...mapping })
+        ),
     });
     setNewRangeConfig({
       ...defaultRangeConfig,
+    });
+
+    setNewLogDisplay({
+      ...defaultLogDisplay,
+      levelFilter: [
+        ...defaultLogDisplay.levelFilter,
+      ],
     });
   };
 
@@ -2696,7 +3089,26 @@ export default function TemplateDesigner({
             ? { ...newBigNumberDisplay }
             : undefined,
 
-        rangeConfig: supportsRangeConfiguration(newType)
+        logDisplay:
+          newType === "logs"
+            ? {
+                ...newLogDisplay,
+                levelFilter: [
+                  ...(newLogDisplay.levelFilter ||
+                    []),
+                ],
+              }
+            : undefined,
+
+        logs:
+          newType === "logs"
+            ? previewLogs
+            : undefined,
+
+        rangeConfig: supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    )
           ? { ...newRangeConfig }
           : undefined,
 
@@ -2851,6 +3263,27 @@ export default function TemplateDesigner({
         .dark .template-builder .dark\:hover\:bg-gray-800:hover,
         .dark .template-builder .dark\:hover\:bg-slate-800:hover {
           background-color: #1e293b !important;
+        }
+
+        .template-builder .data-mapping-toggle {
+          background-color: transparent;
+        }
+
+        .template-builder .data-mapping-toggle:hover {
+          background-color: rgba(16, 185, 129, 0.07);
+        }
+
+        .dark .template-builder .data-mapping-toggle {
+          background-color: rgba(2, 6, 23, 0.28);
+        }
+
+        .dark .template-builder .data-mapping-toggle:hover {
+          background-color: rgba(16, 185, 129, 0.1) !important;
+        }
+
+        .template-builder .data-mapping-toggle:focus-visible {
+          outline: 2px solid rgba(16, 185, 129, 0.65);
+          outline-offset: -2px;
         }
 
         .template-builder .resize-handle {
@@ -3039,11 +3472,11 @@ export default function TemplateDesigner({
         {canConfigureInflux && (
           <div
             className="
-              mt-5
-              rounded-3xl
-              border border-gray-200 dark:border-slate-700
-              bg-gray-50 dark:bg-slate-950/80 dark:bg-gray-800/60
-              overflow-hidden
+              mt-5 overflow-hidden
+              rounded-3xl border
+              border-gray-200 bg-gray-50
+              dark:border-slate-700
+              dark:bg-slate-950/80
             "
           >
             <button
@@ -3054,15 +3487,11 @@ export default function TemplateDesigner({
                 )
               }
               className="
-                w-full
-                flex items-center
-                justify-between
-                gap-4
-                p-5
-                text-left
-                hover:bg-gray-100 dark:bg-[#050a1e]/70
-                dark:hover:bg-gray-800
-                transition
+                data-mapping-toggle
+                flex w-full items-center
+                justify-between gap-4
+                p-5 text-left
+                transition-colors duration-200
               "
             >
               <div className="flex items-center gap-3">
@@ -4274,7 +4703,10 @@ export default function TemplateDesigner({
                                 ? { ...newBigNumberDisplay }
                                 : undefined,
 
-                            rangeConfig: supportsRangeConfiguration(newType)
+                            rangeConfig: supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    )
                               ? { ...newRangeConfig }
                               : undefined,
 
@@ -4596,63 +5028,346 @@ export default function TemplateDesigner({
                         </p>
                       </div>
 
+                      {newType === "logs" && (
+                        <div
+                          className="
+                            rounded-3xl border
+                            border-gray-200 bg-gray-50
+                            p-5
+                            dark:border-slate-700
+                            dark:bg-slate-950
+                          "
+                        >
+                          <div className="mb-5 flex items-start gap-3">
+                            <div
+                              className="
+                                flex h-10 w-10
+                                shrink-0 items-center
+                                justify-center rounded-2xl
+                                bg-blue-100 text-blue-600
+                                dark:bg-blue-500/15
+                                dark:text-blue-300
+                              "
+                            >
+                              <ScrollText size={19} />
+                            </div>
+
+                            <div>
+                              <h3 className="font-bold text-gray-900 dark:text-white">
+                                Logs Display
+                              </h3>
+
+                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                Configure how alarms, device events, and system activity are displayed.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                Sort Order
+                              </label>
+
+                              <select
+                                value={
+                                  newLogDisplay.sortOrder
+                                }
+                                onChange={(event) =>
+                                  setNewLogDisplay(
+                                    (previous) => ({
+                                      ...previous,
+                                      sortOrder:
+                                        event.target.value,
+                                    })
+                                  )
+                                }
+                                className="
+                                  w-full rounded-2xl
+                                  border border-gray-300
+                                  bg-white px-4 py-3
+                                  text-gray-900 outline-none
+                                  focus:ring-2
+                                  focus:ring-blue-500
+                                  dark:border-slate-600
+                                  dark:bg-slate-900
+                                  dark:text-white
+                                "
+                              >
+                                <option value="newest">
+                                  Newest First
+                                </option>
+
+                                <option value="oldest">
+                                  Oldest First
+                                </option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                Maximum Entries
+                              </label>
+
+                              <input
+                                type="number"
+                                min="1"
+                                max="500"
+                                value={
+                                  newLogDisplay.maxEntries
+                                }
+                                onChange={(event) =>
+                                  setNewLogDisplay(
+                                    (previous) => ({
+                                      ...previous,
+                                      maxEntries:
+                                        Math.min(
+                                          500,
+                                          Math.max(
+                                            1,
+                                            Number(
+                                              event.target
+                                                .value
+                                            ) || 1
+                                          )
+                                        ),
+                                    })
+                                  )
+                                }
+                                className="
+                                  w-full rounded-2xl
+                                  border border-gray-300
+                                  bg-white px-4 py-3
+                                  text-gray-900 outline-none
+                                  focus:ring-2
+                                  focus:ring-blue-500
+                                  dark:border-slate-600
+                                  dark:bg-slate-900
+                                  dark:text-white
+                                "
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {[
+                              {
+                                key: "showTimestamp",
+                                label: "Show Timestamp",
+                              },
+                              {
+                                key: "showSource",
+                                label: "Show Source",
+                              },
+                              {
+                                key: "showLevel",
+                                label: "Show Level",
+                              },
+                              {
+                                key: "showSearch",
+                                label: "Show Search",
+                              },
+                              {
+                                key: "compact",
+                                label: "Compact Rows",
+                              },
+                            ].map((option) => (
+                              <label
+                                key={option.key}
+                                className="
+                                  flex items-center
+                                  justify-between gap-3
+                                  rounded-2xl border
+                                  border-gray-200 bg-white
+                                  p-4
+                                  dark:border-slate-700
+                                  dark:bg-slate-900
+                                "
+                              >
+                                <span className="text-sm font-medium text-gray-800 dark:text-white">
+                                  {option.label}
+                                </span>
+
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(
+                                    newLogDisplay[
+                                      option.key
+                                    ]
+                                  )}
+                                  onChange={(event) =>
+                                    setNewLogDisplay(
+                                      (previous) => ({
+                                        ...previous,
+                                        [option.key]:
+                                          event.target
+                                            .checked,
+                                      })
+                                    )
+                                  }
+                                  className="h-5 w-5 accent-blue-600"
+                                />
+                              </label>
+                            ))}
+                          </div>
+
+                          <div className="mt-5">
+                            <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                              Visible Log Levels
+                            </label>
+
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                              {[
+                                "info",
+                                "success",
+                                "warning",
+                                "error",
+                              ].map((level) => {
+                                const selected =
+                                  (
+                                    newLogDisplay.levelFilter ||
+                                    []
+                                  ).includes(level);
+
+                                return (
+                                  <button
+                                    key={level}
+                                    type="button"
+                                    onClick={() =>
+                                      setNewLogDisplay(
+                                        (previous) => {
+                                          const levels =
+                                            previous.levelFilter ||
+                                            [];
+
+                                          return {
+                                            ...previous,
+                                            levelFilter:
+                                              levels.includes(
+                                                level
+                                              )
+                                                ? levels.filter(
+                                                    (
+                                                      item
+                                                    ) =>
+                                                      item !==
+                                                      level
+                                                  )
+                                                : [
+                                                    ...levels,
+                                                    level,
+                                                  ],
+                                          };
+                                        }
+                                      )
+                                    }
+                                    className={`
+                                      rounded-2xl border
+                                      px-3 py-3
+                                      text-sm font-bold
+                                      capitalize transition
+
+                                      ${
+                                        selected
+                                          ? "border-blue-600 bg-blue-600 text-white"
+                                          : "border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                      }
+                                    `}
+                                  >
+                                    {level}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div
+                            className="
+                              mt-5 rounded-2xl
+                              border border-blue-100
+                              bg-blue-50 p-4
+                              text-xs leading-relaxed
+                              text-blue-700
+                              dark:border-blue-900/60
+                              dark:bg-blue-950/30
+                              dark:text-blue-200
+                            "
+                          >
+                            The template stores only the Logs widget display settings. Replace the preview entries with logs from your backend or live dashboard data.
+                          </div>
+                        </div>
+                      )}
+
+
                       {newType === "bignumber" && (
                         <div
                           className="
-                            bg-gray-50 dark:bg-slate-950
-                            border border-gray-200 dark:border-slate-700
-                            rounded-3xl
+                            rounded-3xl border
+                            border-gray-200 bg-gray-50
                             p-5
+                            dark:border-slate-700
+                            dark:bg-slate-950
                           "
                         >
                           <div className="mb-5">
-                            <h3 className="font-bold dark:text-white">
-                              Big Number Display
+                            <h3 className="font-bold text-gray-900 dark:text-white">
+                              Stat Display
                             </h3>
 
                             <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                              Choose how the value, unit, label and trend should appear.
+                              Display a numeric KPI or convert incoming values into readable status text.
                             </p>
                           </div>
 
+                          {/* DISPLAY MODE */}
                           <div>
-                            <label className="mb-2 block text-sm font-semibold dark:text-white">
-                              Display Style
+                            <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                              Display Mode
                             </label>
 
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                               {[
                                 {
-                                  value: "modern",
-                                  label: "Modern",
-                                  description: "Large KPI with optional trend",
+                                  value: "number",
+                                  label: "Number",
+                                  description:
+                                    "Show a numeric value, unit, and optional trend.",
                                 },
                                 {
-                                  value: "compact",
-                                  label: "Compact",
-                                  description: "Smaller layout for 1×1 cards",
-                                },
-                                {
-                                  value: "company",
-                                  label: "Simple",
-                                  description: "Clean value and unit display",
+                                  value: "valueMapping",
+                                  label: "Value Mapping",
+                                  description:
+                                    "Convert raw values such as 0, 1, and 2 into status text.",
                                 },
                               ].map((option) => {
                                 const selected =
-                                  newBigNumberDisplay.style === option.value;
+                                  newBigNumberDisplay.mode ===
+                                  option.value;
 
                                 return (
                                   <button
                                     key={option.value}
                                     type="button"
                                     onClick={() =>
-                                      setNewBigNumberDisplay((previous) => ({
-                                        ...previous,
-                                        style: option.value,
-                                      }))
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          mode: option.value,
+
+                                          ...(option.value ===
+                                          "valueMapping"
+                                            ? {
+                                                showTrend: false,
+                                                showUnit: false,
+                                              }
+                                            : {}),
+                                        })
+                                      )
                                     }
                                     className={`
-                                      rounded-2xl border p-4 text-left transition-all
+                                      rounded-2xl border
+                                      p-4 text-left
+                                      transition-all
                                       ${
                                         selected
                                           ? "border-emerald-600 bg-emerald-600 text-white shadow"
@@ -4682,223 +5397,866 @@ export default function TemplateDesigner({
                             </div>
                           </div>
 
-                          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            {[
-                              { key: "showLabel", label: "Show Label" },
-                              { key: "showUnit", label: "Show Unit" },
-                              { key: "showTrend", label: "Show Trend" },
-                            ].map((option) => (
-                              <label
-                                key={option.key}
+                          {/* COMMON STAT SETTINGS */}
+                          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                Alignment
+                              </label>
+
+                              <select
+                                value={
+                                  newBigNumberDisplay.alignment
+                                }
+                                onChange={(event) =>
+                                  setNewBigNumberDisplay(
+                                    (previous) => ({
+                                      ...previous,
+                                      alignment:
+                                        event.target.value,
+                                    })
+                                  )
+                                }
                                 className="
-                                  flex items-center justify-between gap-3
-                                  rounded-2xl border border-gray-200
-                                  bg-white p-4
-                                  dark:border-slate-700 dark:bg-slate-900
+                                  w-full rounded-2xl
+                                  border border-gray-300
+                                  bg-white px-4 py-3
+                                  text-gray-900 outline-none
+                                  focus:ring-2
+                                  focus:ring-emerald-500
+                                  dark:border-slate-600
+                                  dark:bg-slate-900
+                                  dark:text-white
                                 "
                               >
-                                <span className="text-sm font-medium dark:text-white">
-                                  {option.label}
+                                <option value="left">
+                                  Left
+                                </option>
+                                <option value="center">
+                                  Center
+                                </option>
+                                <option value="right">
+                                  Right
+                                </option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                Value Size
+                              </label>
+
+                              <select
+                                value={
+                                  newBigNumberDisplay.valueSize
+                                }
+                                onChange={(event) =>
+                                  setNewBigNumberDisplay(
+                                    (previous) => ({
+                                      ...previous,
+                                      valueSize:
+                                        event.target.value,
+                                    })
+                                  )
+                                }
+                                className="
+                                  w-full rounded-2xl
+                                  border border-gray-300
+                                  bg-white px-4 py-3
+                                  text-gray-900 outline-none
+                                  focus:ring-2
+                                  focus:ring-emerald-500
+                                  dark:border-slate-600
+                                  dark:bg-slate-900
+                                  dark:text-white
+                                "
+                              >
+                                <option value="small">
+                                  Small
+                                </option>
+                                <option value="medium">
+                                  Medium
+                                </option>
+                                <option value="large">
+                                  Large
+                                </option>
+                                <option value="xlarge">
+                                  Extra Large
+                                </option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <label
+                            className="
+                              mt-5 flex items-center
+                              justify-between gap-3
+                              rounded-2xl border
+                              border-gray-200 bg-white
+                              p-4
+                              dark:border-slate-700
+                              dark:bg-slate-900
+                            "
+                          >
+                            <span className="text-sm font-medium text-gray-800 dark:text-white">
+                              Show Label
+                            </span>
+
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                newBigNumberDisplay.showLabel
+                              )}
+                              onChange={(event) =>
+                                setNewBigNumberDisplay(
+                                  (previous) => ({
+                                    ...previous,
+                                    showLabel:
+                                      event.target.checked,
+                                  })
+                                )
+                              }
+                              className="h-5 w-5 accent-emerald-600"
+                            />
+                          </label>
+
+                          {/* NUMBER MODE */}
+                          {newBigNumberDisplay.mode ===
+                            "number" && (
+                            <div className="mt-5 space-y-5">
+                              <div>
+                                <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                  Display Style
+                                </label>
+
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                  {[
+                                    {
+                                      value: "modern",
+                                      label: "Modern",
+                                      description:
+                                        "Large KPI with optional trend",
+                                    },
+                                    {
+                                      value: "compact",
+                                      label: "Compact",
+                                      description:
+                                        "Smaller layout for 1×1 cards",
+                                    },
+                                    {
+                                      value: "company",
+                                      label: "Simple",
+                                      description:
+                                        "Clean value and unit display",
+                                    },
+                                  ].map((option) => {
+                                    const selected =
+                                      newBigNumberDisplay.style ===
+                                      option.value;
+
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() =>
+                                          setNewBigNumberDisplay(
+                                            (previous) => ({
+                                              ...previous,
+                                              style:
+                                                option.value,
+                                            })
+                                          )
+                                        }
+                                        className={`
+                                          rounded-2xl border
+                                          p-4 text-left
+                                          transition-all
+                                          ${
+                                            selected
+                                              ? "border-emerald-600 bg-emerald-600 text-white shadow"
+                                              : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
+                                          }
+                                        `}
+                                      >
+                                        <div className="text-sm font-bold">
+                                          {option.label}
+                                        </div>
+
+                                        <div
+                                          className={`
+                                            mt-1 text-[11px]
+                                            ${
+                                              selected
+                                                ? "text-emerald-50"
+                                                : "text-gray-400 dark:text-slate-400"
+                                            }
+                                          `}
+                                        >
+                                          {option.description}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                {[
+                                  {
+                                    key: "showUnit",
+                                    label: "Show Unit",
+                                  },
+                                  {
+                                    key: "showTrend",
+                                    label: "Show Trend",
+                                  },
+                                ].map((option) => (
+                                  <label
+                                    key={option.key}
+                                    className="
+                                      flex items-center
+                                      justify-between gap-3
+                                      rounded-2xl border
+                                      border-gray-200 bg-white
+                                      p-4
+                                      dark:border-slate-700
+                                      dark:bg-slate-900
+                                    "
+                                  >
+                                    <span className="text-sm font-medium text-gray-800 dark:text-white">
+                                      {option.label}
+                                    </span>
+
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(
+                                        newBigNumberDisplay[
+                                          option.key
+                                        ]
+                                      )}
+                                      onChange={(event) =>
+                                        setNewBigNumberDisplay(
+                                          (previous) => ({
+                                            ...previous,
+                                            [option.key]:
+                                              event.target
+                                                .checked,
+                                          })
+                                        )
+                                      }
+                                      className="h-5 w-5 accent-emerald-600"
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Decimal Places
+                                  </label>
+
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="6"
+                                    value={
+                                      newBigNumberDisplay.decimals
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          decimals: Math.min(
+                                            6,
+                                            Math.max(
+                                              0,
+                                              Number(
+                                                event.target
+                                                  .value
+                                              ) || 0
+                                            )
+                                          ),
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl
+                                      border border-gray-300
+                                      bg-white px-4 py-3
+                                      text-gray-900 outline-none
+                                      focus:ring-2
+                                      focus:ring-emerald-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Unit Override
+                                  </label>
+
+                                  <input
+                                    type="text"
+                                    placeholder="Example: psi"
+                                    value={
+                                      newBigNumberDisplay.unit
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          unit: event.target
+                                            .value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl
+                                      border border-gray-300
+                                      bg-white px-4 py-3
+                                      text-gray-900 outline-none
+                                      focus:ring-2
+                                      focus:ring-emerald-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Number Color
+                                  </label>
+
+                                  <select
+                                    value={
+                                      newBigNumberDisplay.valueColor
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          valueColor:
+                                            event.target
+                                              .value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl
+                                      border border-gray-300
+                                      bg-white px-4 py-3
+                                      text-gray-900 outline-none
+                                      focus:ring-2
+                                      focus:ring-emerald-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  >
+                                    <option value="default">
+                                      Default
+                                    </option>
+                                    <option value="green">
+                                      Green
+                                    </option>
+                                    <option value="blue">
+                                      Blue
+                                    </option>
+                                    <option value="amber">
+                                      Amber
+                                    </option>
+                                    <option value="orange">
+                                      Orange
+                                    </option>
+                                    <option value="red">
+                                      Red
+                                    </option>
+                                    <option value="purple">
+                                      Purple
+                                    </option>
+                                    <option value="gray">
+                                      Gray
+                                    </option>
+                                  </select>
+                                </div>
+
+                                {newBigNumberDisplay.showTrend && (
+                                  <div>
+                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                      Stable Threshold
+                                    </label>
+
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.1"
+                                      value={
+                                        newBigNumberDisplay.trendThreshold
+                                      }
+                                      onChange={(event) =>
+                                        setNewBigNumberDisplay(
+                                          (previous) => ({
+                                            ...previous,
+                                            trendThreshold:
+                                              Math.max(
+                                                0,
+                                                Number(
+                                                  event.target
+                                                    .value
+                                                ) || 0
+                                              ),
+                                          })
+                                        )
+                                      }
+                                      className="
+                                        w-full rounded-2xl
+                                        border border-gray-300
+                                        bg-white px-4 py-3
+                                        text-gray-900 outline-none
+                                        focus:ring-2
+                                        focus:ring-emerald-500
+                                        dark:border-slate-600
+                                        dark:bg-slate-900
+                                        dark:text-white
+                                      "
+                                    />
+
+                                    <p className="mt-2 text-xs text-gray-400 dark:text-slate-400">
+                                      Changes smaller than this value are considered stable.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* VALUE MAPPING MODE */}
+                          {newBigNumberDisplay.mode ===
+                            "valueMapping" && (
+                            <div className="mt-5 space-y-4">
+                              <div>
+                                <h4 className="text-sm font-bold text-gray-900 dark:text-white">
+                                  Value Mappings
+                                </h4>
+
+                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                  Convert incoming values into readable operating states.
+                                </p>
+                              </div>
+
+                              <div className="space-y-3">
+                                {(
+                                  newBigNumberDisplay.mappings ||
+                                  []
+                                ).map(
+                                  (mapping, index) => (
+                                    <div
+                                      key={`${index}-${mapping.value}`}
+                                      className="
+                                        grid min-w-0
+                                        grid-cols-[minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(90px,1fr)_36px]
+                                        gap-1.5 rounded-2xl
+                                        border border-gray-200
+                                        bg-white p-2.5
+                                        dark:border-slate-700
+                                        dark:bg-slate-900
+                                      "
+                                    >
+                                      <input
+                                        type="text"
+                                        value={
+                                          mapping.value ??
+                                          ""
+                                        }
+                                        placeholder="Value"
+                                        onChange={(
+                                          event
+                                        ) =>
+                                          setNewBigNumberDisplay(
+                                            (previous) => ({
+                                              ...previous,
+
+                                              mappings: (
+                                                previous.mappings ||
+                                                []
+                                              ).map(
+                                                (
+                                                  item,
+                                                  currentIndex
+                                                ) =>
+                                                  currentIndex ===
+                                                  index
+                                                    ? {
+                                                        ...item,
+                                                        value:
+                                                          event
+                                                            .target
+                                                            .value,
+                                                      }
+                                                    : item
+                                              ),
+                                            })
+                                          )
+                                        }
+                                        className="
+                                          min-w-0 rounded-xl border
+                                          border-gray-300
+                                          bg-white px-3 py-2
+                                          text-sm text-gray-900
+                                          outline-none
+                                          focus:ring-2
+                                          focus:ring-emerald-500
+                                          dark:border-slate-600
+                                          dark:bg-slate-950
+                                          dark:text-white
+                                        "
+                                      />
+
+                                      <input
+                                        type="text"
+                                        value={
+                                          mapping.text ||
+                                          ""
+                                        }
+                                        placeholder="Display text"
+                                        onChange={(
+                                          event
+                                        ) =>
+                                          setNewBigNumberDisplay(
+                                            (previous) => ({
+                                              ...previous,
+
+                                              mappings: (
+                                                previous.mappings ||
+                                                []
+                                              ).map(
+                                                (
+                                                  item,
+                                                  currentIndex
+                                                ) =>
+                                                  currentIndex ===
+                                                  index
+                                                    ? {
+                                                        ...item,
+                                                        text: event
+                                                          .target
+                                                          .value,
+                                                      }
+                                                    : item
+                                              ),
+                                            })
+                                          )
+                                        }
+                                        className="
+                                          min-w-0 rounded-xl border
+                                          border-gray-300
+                                          bg-white px-3 py-2
+                                          text-sm text-gray-900
+                                          outline-none
+                                          focus:ring-2
+                                          focus:ring-emerald-500
+                                          dark:border-slate-600
+                                          dark:bg-slate-950
+                                          dark:text-white
+                                        "
+                                      />
+
+                                      <select
+                                        value={
+                                          mapping.color ||
+                                          "default"
+                                        }
+                                        onChange={(
+                                          event
+                                        ) =>
+                                          setNewBigNumberDisplay(
+                                            (previous) => ({
+                                              ...previous,
+
+                                              mappings: (
+                                                previous.mappings ||
+                                                []
+                                              ).map(
+                                                (
+                                                  item,
+                                                  currentIndex
+                                                ) =>
+                                                  currentIndex ===
+                                                  index
+                                                    ? {
+                                                        ...item,
+                                                        color:
+                                                          event
+                                                            .target
+                                                            .value,
+                                                      }
+                                                    : item
+                                              ),
+                                            })
+                                          )
+                                        }
+                                        className="
+                                          min-w-0 rounded-xl border
+                                          border-gray-300
+                                          bg-white px-3 py-2
+                                          text-sm text-gray-900
+                                          outline-none
+                                          focus:ring-2
+                                          focus:ring-emerald-500
+                                          dark:border-slate-600
+                                          dark:bg-slate-950
+                                          dark:text-white
+                                        "
+                                      >
+                                        <option value="default">
+                                          Default
+                                        </option>
+                                        <option value="green">
+                                          Green
+                                        </option>
+                                        <option value="blue">
+                                          Blue
+                                        </option>
+                                        <option value="amber">
+                                          Amber
+                                        </option>
+                                        <option value="orange">
+                                          Orange
+                                        </option>
+                                        <option value="red">
+                                          Red
+                                        </option>
+                                        <option value="purple">
+                                          Purple
+                                        </option>
+                                        <option value="gray">
+                                          Gray
+                                        </option>
+                                      </select>
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setNewBigNumberDisplay(
+                                            (previous) => ({
+                                              ...previous,
+
+                                              mappings: (
+                                                previous.mappings ||
+                                                []
+                                              ).filter(
+                                                (
+                                                  _,
+                                                  currentIndex
+                                                ) =>
+                                                  currentIndex !==
+                                                  index
+                                              ),
+                                            })
+                                          )
+                                        }
+                                        className="
+                                          flex h-10 w-9 shrink-0
+                                          items-center justify-center
+                                          self-center justify-self-end
+                                          rounded-xl text-red-500
+                                          transition
+                                          hover:bg-red-50
+                                          dark:hover:bg-red-500/10
+                                        "
+                                        aria-label={`Remove mapping ${
+                                          index + 1
+                                        }`}
+                                      >
+                                        <Trash2
+                                          size={16}
+                                        />
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setNewBigNumberDisplay(
+                                    (previous) => ({
+                                      ...previous,
+
+                                      mappings: [
+                                        ...(previous.mappings ||
+                                          []),
+
+                                        {
+                                          value: "",
+                                          text: "",
+                                          color:
+                                            "default",
+                                        },
+                                      ],
+                                    })
+                                  )
+                                }
+                                className="
+                                  inline-flex items-center
+                                  gap-2 rounded-xl
+                                  border border-emerald-300
+                                  px-4 py-2.5
+                                  text-sm font-bold
+                                  text-emerald-700
+                                  transition
+                                  hover:bg-emerald-50
+                                  dark:border-emerald-800
+                                  dark:text-emerald-300
+                                  dark:hover:bg-emerald-500/10
+                                "
+                              >
+                                <Plus size={15} />
+                                Add Mapping
+                              </button>
+
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Fallback Text
+                                  </label>
+
+                                  <input
+                                    type="text"
+                                    value={
+                                      newBigNumberDisplay.fallbackText ||
+                                      ""
+                                    }
+                                    placeholder="Use raw value when empty"
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          fallbackText:
+                                            event.target
+                                              .value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl
+                                      border border-gray-300
+                                      bg-white px-4 py-3
+                                      text-gray-900 outline-none
+                                      focus:ring-2
+                                      focus:ring-emerald-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Fallback Color
+                                  </label>
+
+                                  <select
+                                    value={
+                                      newBigNumberDisplay.fallbackColor ||
+                                      "default"
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          fallbackColor:
+                                            event.target
+                                              .value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl
+                                      border border-gray-300
+                                      bg-white px-4 py-3
+                                      text-gray-900 outline-none
+                                      focus:ring-2
+                                      focus:ring-emerald-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  >
+                                    <option value="default">
+                                      Default
+                                    </option>
+                                    <option value="green">
+                                      Green
+                                    </option>
+                                    <option value="blue">
+                                      Blue
+                                    </option>
+                                    <option value="amber">
+                                      Amber
+                                    </option>
+                                    <option value="orange">
+                                      Orange
+                                    </option>
+                                    <option value="red">
+                                      Red
+                                    </option>
+                                    <option value="purple">
+                                      Purple
+                                    </option>
+                                    <option value="gray">
+                                      Gray
+                                    </option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <label
+                                className="
+                                  flex items-center
+                                  justify-between gap-3
+                                  rounded-2xl border
+                                  border-gray-200 bg-white
+                                  p-4
+                                  dark:border-slate-700
+                                  dark:bg-slate-900
+                                "
+                              >
+                                <span className="text-sm font-medium text-gray-800 dark:text-white">
+                                  Show Raw Value
                                 </span>
 
                                 <input
                                   type="checkbox"
                                   checked={Boolean(
-                                    newBigNumberDisplay[option.key]
+                                    newBigNumberDisplay.showRawValue
                                   )}
                                   onChange={(event) =>
-                                    setNewBigNumberDisplay((previous) => ({
-                                      ...previous,
-                                      [option.key]: event.target.checked,
-                                    }))
+                                    setNewBigNumberDisplay(
+                                      (previous) => ({
+                                        ...previous,
+                                        showRawValue:
+                                          event.target
+                                            .checked,
+                                      })
+                                    )
                                   }
                                   className="h-5 w-5 accent-emerald-600"
                                 />
                               </label>
-                            ))}
-                          </div>
-
-                          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                Decimal Places
-                              </label>
-
-                              <input
-                                type="number"
-                                min="0"
-                                max="6"
-                                value={newBigNumberDisplay.decimals}
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay((previous) => ({
-                                    ...previous,
-                                    decimals: Math.min(
-                                      6,
-                                      Math.max(
-                                        0,
-                                        Number(event.target.value) || 0
-                                      )
-                                    ),
-                                  }))
-                                }
-                                className="
-                                  w-full rounded-2xl
-                                  border border-gray-300 dark:border-slate-600
-                                  bg-white dark:bg-slate-900
-                                  px-4 py-3 dark:text-white
-                                  outline-none focus:ring-2 focus:ring-emerald-500
-                                "
-                              />
                             </div>
-
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                Unit Override
-                              </label>
-
-                              <input
-                                type="text"
-                                placeholder="Example: psi"
-                                value={newBigNumberDisplay.unit}
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay((previous) => ({
-                                    ...previous,
-                                    unit: event.target.value,
-                                  }))
-                                }
-                                className="
-                                  w-full rounded-2xl
-                                  border border-gray-300 dark:border-slate-600
-                                  bg-white dark:bg-slate-900
-                                  px-4 py-3 dark:text-white
-                                  outline-none focus:ring-2 focus:ring-emerald-500
-                                "
-                              />
-                            </div>
-
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                Alignment
-                              </label>
-
-                              <select
-                                value={newBigNumberDisplay.alignment}
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay((previous) => ({
-                                    ...previous,
-                                    alignment: event.target.value,
-                                  }))
-                                }
-                                className="
-                                  w-full rounded-2xl
-                                  border border-gray-300 dark:border-slate-600
-                                  bg-white dark:bg-slate-900
-                                  px-4 py-3 dark:text-white
-                                  outline-none focus:ring-2 focus:ring-emerald-500
-                                "
-                              >
-                                <option value="left">Left</option>
-                                <option value="center">Center</option>
-                                <option value="right">Right</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                Number Size
-                              </label>
-
-                              <select
-                                value={newBigNumberDisplay.valueSize}
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay((previous) => ({
-                                    ...previous,
-                                    valueSize: event.target.value,
-                                  }))
-                                }
-                                className="
-                                  w-full rounded-2xl
-                                  border border-gray-300 dark:border-slate-600
-                                  bg-white dark:bg-slate-900
-                                  px-4 py-3 dark:text-white
-                                  outline-none focus:ring-2 focus:ring-emerald-500
-                                "
-                              >
-                                <option value="small">Small</option>
-                                <option value="medium">Medium</option>
-                                <option value="large">Large</option>
-                                <option value="xlarge">Extra Large</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                Number Color
-                              </label>
-
-                              <select
-                                value={newBigNumberDisplay.valueColor}
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay((previous) => ({
-                                    ...previous,
-                                    valueColor: event.target.value,
-                                  }))
-                                }
-                                className="
-                                  w-full rounded-2xl
-                                  border border-gray-300 dark:border-slate-600
-                                  bg-white dark:bg-slate-900
-                                  px-4 py-3 dark:text-white
-                                  outline-none focus:ring-2 focus:ring-emerald-500
-                                "
-                              >
-                                <option value="default">Default</option>
-                                <option value="green">Green</option>
-                                <option value="blue">Blue</option>
-                                <option value="amber">Amber</option>
-                                <option value="red">Red</option>
-                              </select>
-                            </div>
-
-                            {newBigNumberDisplay.showTrend && (
-                              <div>
-                                <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                  Stable Threshold
-                                </label>
-
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.1"
-                                  value={newBigNumberDisplay.trendThreshold}
-                                  onChange={(event) =>
-                                    setNewBigNumberDisplay((previous) => ({
-                                      ...previous,
-                                      trendThreshold: Math.max(
-                                        0,
-                                        Number(event.target.value) || 0
-                                      ),
-                                    }))
-                                  }
-                                  className="
-                                    w-full rounded-2xl
-                                    border border-gray-300 dark:border-slate-600
-                                    bg-white dark:bg-slate-900
-                                    px-4 py-3 dark:text-white
-                                    outline-none focus:ring-2 focus:ring-emerald-500
-                                  "
-                                />
-
-                                <p className="mt-2 text-xs text-gray-400 dark:text-slate-400">
-                                  Changes smaller than this value are considered stable.
-                                </p>
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
                       )}
 
-                      
 
                       {newType === "bar" && (
                         <div
@@ -5148,22 +6506,49 @@ export default function TemplateDesigner({
                     {newType === "image" ? (
                       <div
                         className="
-                          bg-purple-50 dark:bg-purple-900/20
-                          border border-purple-200 dark:border-purple-800
-                          rounded-3xl
-                          p-5
+                          rounded-3xl border p-5
+                          border-purple-200 bg-purple-50
+                          dark:border-purple-500/40
+                          dark:bg-slate-900
                         "
                       >
-                        <h3 className="font-bold mb-2 dark:text-white">
+                        <h3
+                          className="
+                            mb-2 font-bold
+                            text-slate-900 dark:text-white
+                          "
+                        >
                           3. Configure Image Widget
                         </h3>
 
-                        <p className="text-sm text-gray-500 dark:text-slate-300 mb-5">
+                        <p
+                          className="mb-5 text-sm leading-5"
+                          style={{
+                            color: document.documentElement.classList.contains("dark")
+                              ? "#334155"
+                              : "#475569",
+                          }}
+                        >
                           Upload a process diagram first, then open the image editor to place pins and connect live data.
                         </p>
 
-                        <div className="mb-5 rounded-2xl border border-dashed border-purple-300 bg-white/70 p-4 dark:border-purple-700 dark:bg-slate-950/60">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-300">
+                        <div
+                          className="
+                            mb-5 rounded-2xl border
+                            border-dashed border-purple-300
+                            bg-white p-4
+                            dark:border-purple-400/50
+                            dark:bg-slate-950
+                          "
+                        >
+                          <label
+                            className="
+                              block text-xs font-black
+                              uppercase tracking-wider
+                              text-purple-700
+                              dark:text-purple-300
+                            "
+                          >
                             Upload Diagram Image
                           </label>
 
@@ -5175,11 +6560,12 @@ export default function TemplateDesigner({
                               mt-3
                               block w-full
                               rounded-xl
-                              border border-gray-300 dark:border-slate-600
-                              bg-white dark:bg-slate-900
-                              px-3 py-2
-                              text-sm
-                              dark:text-white
+                              border border-gray-300
+                              bg-white px-3 py-2
+                              text-sm text-slate-900
+                              dark:border-slate-600
+                              dark:bg-slate-900
+                              dark:text-slate-100
                               file:mr-4
                               file:rounded-lg
                               file:border-0
@@ -5190,6 +6576,8 @@ export default function TemplateDesigner({
                               file:font-semibold
                               file:text-white
                               hover:file:bg-purple-700
+                              dark:file:bg-purple-500
+                              dark:hover:file:bg-purple-400
                             "
                           />
 
@@ -5218,7 +6606,14 @@ export default function TemplateDesigner({
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-3 text-xs text-gray-500 dark:text-slate-300">
+                            <p
+                              className="mt-3 text-xs"
+                              style={{
+                                color: document.documentElement.classList.contains("dark")
+                                  ? "#94a3b8"
+                                  : "#64748b",
+                              }}
+                            >
                               Supported: PNG, JPG, JPEG, GIF, WebP. Maximum 5MB.
                             </p>
                           )}
@@ -5268,12 +6663,16 @@ export default function TemplateDesigner({
                           }}
                           className="
                             w-full
-                            bg-purple-600 hover:bg-purple-700
-                            text-white
-                            py-4
                             rounded-2xl
-                            font-semibold
+                            bg-purple-600 py-4
+                            font-bold text-white
+                            shadow-lg
+                            shadow-purple-600/20
                             transition-all
+                            hover:bg-purple-700
+                            dark:bg-purple-500
+                            dark:text-white
+                            dark:hover:bg-purple-400
                           "
                         >
                           Open Image Editor
@@ -5372,7 +6771,32 @@ export default function TemplateDesigner({
                           </div>
                         )}
 
-                        {supportsRangeConfiguration(newType) &&
+                        <div className="mt-5 rounded-3xl border border-dashed border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-800 dark:text-white">
+                                Need another data source?
+                              </h4>
+                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
+                                Create a custom dashboard value and map it to an Influx channel.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setShowCustomDataModal(true)}
+                              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                            >
+                              <Plus size={16} />
+                              Add Data Source
+                            </button>
+                          </div>
+                        </div>
+
+                        {supportsRangeConfiguration(
+      newType,
+      newBigNumberDisplay.mode
+    ) &&
                           hasSelectedDataSource && (
                             <div className="mt-5 rounded-3xl border border-gray-200 bg-gray-50 p-5 dark:border-slate-700 dark:bg-slate-950">
                               <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -5481,18 +6905,32 @@ export default function TemplateDesigner({
                           )}
 
                         {newType === "sankey" && (
-                          <div className="mt-5 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-900/10">
+                          <div
+                            className="
+                              mt-5 rounded-3xl border p-5
+                              border-emerald-200 bg-emerald-50
+                              dark:border-emerald-500/40
+                              dark:bg-slate-900
+                            "
+                          >
                             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <h3 className="font-bold text-gray-900 dark:text-white">
+                              <div className="min-w-0">
+                                <h3 className="font-bold text-slate-900 dark:text-white">
                                   Sankey Flow Configuration
                                 </h3>
 
-                                <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                                <p
+                                  className="mt-1 text-sm leading-5"
+                                  style={{
+                                    color: document.documentElement.classList.contains("dark")
+                                      ? "#334155"
+                                      : "#475569",
+                                  }}
+                                >
                                   Open the full-screen editor to configure the source name and output data sources.
                                 </p>
 
-                                <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">
+                                <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                                   Current setup: {getSankeyOutputs().length} output(s)
                                 </p>
                               </div>
@@ -5541,7 +6979,17 @@ export default function TemplateDesigner({
                                   setShowModal(false);
                                   setPage("sankey-editor");
                                 }}
-                                className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-700"
+                                className="
+                                  inline-flex items-center justify-center
+                                  rounded-2xl bg-emerald-600
+                                  px-5 py-3 text-sm font-bold
+                                  text-white shadow-lg
+                                  shadow-emerald-600/20
+                                  transition hover:bg-emerald-700
+                                  dark:bg-emerald-500
+                                  dark:text-slate-950
+                                  dark:hover:bg-emerald-400
+                                "
                               >
                                 Open Sankey Flow Editor
                               </button>
@@ -5549,28 +6997,6 @@ export default function TemplateDesigner({
                           </div>
                         )}
 
-
-                        <div className="mt-5 rounded-3xl border border-dashed border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 p-4">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <h4 className="text-sm font-bold text-gray-800 dark:text-white">
-                                Need another data source?
-                              </h4>
-                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
-                                Create a custom dashboard value and map it to an Influx channel.
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setShowCustomDataModal(true)}
-                              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                            >
-                              <Plus size={16} />
-                              Add Data Source
-                            </button>
-                          </div>
-                        </div>
 
                         {(isMultiDataWidget || newType === "sankey") && (
                           <p className="text-xs text-gray-400 dark:text-slate-400 mt-4">
@@ -5776,251 +7202,784 @@ export default function TemplateDesigner({
 
       {showCustomDataModal && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
-          onClick={() => setShowCustomDataModal(false)}
+          className="
+            fixed inset-0 z-[70]
+            flex items-center justify-center
+            bg-black/65 p-6
+            backdrop-blur-sm
+          "
+          onClick={() =>
+            setShowCustomDataModal(false)
+          }
         >
           <div
-            className="w-[min(720px,96vw)] max-h-[90vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-            onClick={(event) => event.stopPropagation()}
+            className="
+              flex max-h-[92vh]
+              w-[min(980px,96vw)]
+              flex-col overflow-hidden
+              rounded-3xl border
+              border-slate-200 bg-white
+              shadow-2xl
+              dark:border-slate-700
+              dark:bg-slate-900
+            "
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 dark:border-slate-700">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Add Custom Data Source
-                </h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-slate-300">
-                  Define a dashboard value and connect it to an available Influx channel.
-                </p>
+            {/* HEADER */}
+            <div
+              className="
+                flex shrink-0
+                items-center justify-between
+                border-b border-slate-200
+                px-7 py-6
+                dark:border-slate-700
+              "
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="
+                    flex h-11 w-11
+                    shrink-0 items-center
+                    justify-center rounded-2xl
+                    bg-blue-100 text-blue-600
+                    dark:bg-blue-500/15
+                    dark:text-blue-300
+                  "
+                >
+                  <Database size={21} />
+                </div>
+
+                <div>
+                  <h3
+                    className="
+                      text-xl font-bold
+                      text-slate-900
+                      dark:text-white
+                    "
+                  >
+                    Add Custom Data Source
+                  </h3>
+
+                  <p
+                    className="
+                      mt-1 text-sm
+                      text-slate-500
+                      dark:text-slate-300
+                    "
+                  >
+                    Choose a real Influx source, then define how it should appear in the dashboard.
+                  </p>
+                </div>
               </div>
 
               <button
                 type="button"
-                onClick={() => setShowCustomDataModal(false)}
-                className="rounded-xl p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-slate-800 dark:hover:text-white"
+                onClick={() =>
+                  setShowCustomDataModal(false)
+                }
+                className="
+                  rounded-xl p-2
+                  text-slate-400 transition
+                  hover:bg-slate-100
+                  hover:text-slate-700
+                  dark:hover:bg-slate-800
+                  dark:hover:text-white
+                "
                 aria-label="Close custom data source form"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="space-y-5 overflow-y-auto p-6">
-              <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950/70">
-                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                      Influx Source
+            {/* SCROLLABLE BODY */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-7">
+              <div className="space-y-5">
+                {/* SOURCE FORM */}
+                <div
+                  className="
+                    rounded-3xl border
+                    border-slate-200 bg-white
+                    p-5 shadow-sm
+                    dark:border-slate-700
+                    dark:bg-slate-900
+                  "
+                >
+                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h4
+                        className="
+                          text-sm font-black
+                          text-slate-900
+                          dark:text-white
+                        "
+                      >
+                        Influx Source
+                      </h4>
+
+                      <p
+                        className="
+                          mt-1 text-xs
+                          text-slate-500
+                          dark:text-slate-400
+                        "
+                      >
+                        Select a bucket, measurement, device ID, and channel.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={refreshInfluxMetadata}
+                      disabled={influxLoading}
+                      className="
+                        inline-flex items-center
+                        justify-center gap-2
+                        rounded-xl bg-slate-800
+                        px-4 py-2.5
+                        text-xs font-black
+                        text-white transition
+                        hover:bg-slate-700
+                        disabled:cursor-not-allowed
+                        disabled:opacity-60
+                        dark:bg-slate-700
+                        dark:hover:bg-slate-600
+                      "
+                    >
+                      <RefreshCw
+                        size={14}
+                        className={
+                          influxLoading
+                            ? "animate-spin"
+                            : ""
+                        }
+                      />
+                      Refresh metadata
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Bucket
+                      </span>
+
+                      <select
+                        value={influxConfig.bucket}
+                        disabled={
+                          isOrganizationAdmin ||
+                          influxLoading
+                        }
+                        onChange={(event) =>
+                          setInfluxConfig((current) => ({
+                            ...current,
+                            bucket: event.target.value,
+                            measurement: "",
+                            id: "",
+                            tagValue: "",
+                          }))
+                        }
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          font-mono text-sm
+                          text-slate-900 outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          disabled:cursor-not-allowed
+                          disabled:opacity-70
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      >
+                        <option value="">
+                          Select available bucket
+                        </option>
+
+                        {influxBuckets.map((bucket) => (
+                          <option
+                            key={bucket}
+                            value={bucket}
+                          >
+                            {bucket}
+                          </option>
+                        ))}
+
+                        {influxConfig.bucket &&
+                          !influxBuckets.includes(
+                            influxConfig.bucket
+                          ) && (
+                            <option
+                              value={influxConfig.bucket}
+                            >
+                              {influxConfig.bucket}
+                            </option>
+                          )}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Measurement
+                      </span>
+
+                      <select
+                        value={influxConfig.measurement}
+                        disabled={
+                          isOrganizationAdmin ||
+                          influxLoading ||
+                          !influxConfig.bucket
+                        }
+                        onChange={(event) =>
+                          setInfluxConfig((current) => ({
+                            ...current,
+                            measurement:
+                              event.target.value,
+                            id: "",
+                            tagValue: "",
+                          }))
+                        }
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          font-mono text-sm
+                          text-slate-900 outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          disabled:cursor-not-allowed
+                          disabled:opacity-70
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      >
+                        <option value="">
+                          Select available measurement
+                        </option>
+
+                        {influxMeasurements.map(
+                          (measurement) => (
+                            <option
+                              key={measurement}
+                              value={measurement}
+                            >
+                              {measurement}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Device ID
+                      </span>
+
+                      <select
+                        value={
+                          influxConfig.tagValue ||
+                          influxConfig.id
+                        }
+                        disabled={
+                          isOrganizationAdmin ||
+                          influxLoading ||
+                          !influxConfig.measurement
+                        }
+                        onChange={(event) =>
+                          setInfluxConfig((current) => ({
+                            ...current,
+                            id: event.target.value,
+                            tagValue:
+                              event.target.value,
+                          }))
+                        }
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          font-mono text-sm
+                          text-slate-900 outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          disabled:cursor-not-allowed
+                          disabled:opacity-70
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      >
+                        <option value="">
+                          Select available device ID
+                        </option>
+
+                        {influxIds.map((id) => (
+                          <option key={id} value={id}>
+                            {id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Influx Channel
+                      </span>
+
+                      <select
+                        value={customDataDraft.channel}
+                        disabled={
+                          influxLoading ||
+                          !influxConfig.measurement
+                        }
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              channel:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          font-mono text-sm
+                          text-slate-900 outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          disabled:cursor-not-allowed
+                          disabled:opacity-70
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      >
+                        <option value="">
+                          Select available channel
+                        </option>
+
+                        {influxChannels.map(
+                          (channel) => (
+                            <option
+                              key={channel}
+                              value={channel}
+                            >
+                              {channel}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div
+                    className="
+                      mt-5 rounded-2xl
+                      border border-blue-100
+                      bg-blue-50 px-4 py-3
+                      text-xs text-blue-700
+                      dark:border-blue-900/70
+                      dark:bg-blue-950/35
+                      dark:text-blue-200
+                    "
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold">
+                        {influxLoading
+                          ? "Loading available Influx metadata..."
+                          : `${influxBuckets.length} bucket(s) · ${influxMeasurements.length} measurement(s) · ${influxIds.length} device ID(s) · ${influxChannels.length} channel(s)`}
+                      </span>
+
+                      {influxError && (
+                        <span className="font-semibold text-red-500 dark:text-red-300">
+                          {influxError}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* METADATA BROWSER */}
+                <div
+                  className="
+                    rounded-3xl border
+                    border-slate-200 bg-white
+                    p-5 shadow-sm
+                    dark:border-slate-700
+                    dark:bg-slate-900
+                  "
+                >
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <h4
+                        className="
+                          text-sm font-black
+                          text-slate-900
+                          dark:text-white
+                        "
+                      >
+                        Available Influx Sources
+                      </h4>
+
+                      <p
+                        className="
+                          mt-1 text-xs
+                          text-slate-500
+                          dark:text-slate-400
+                        "
+                      >
+                        Browse the metadata detected in InfluxDB. Selecting an item updates the source fields above.
+                      </p>
+                    </div>
+
+                    <Database
+                      size={18}
+                      className="shrink-0 text-blue-500"
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <InfluxMetadataList
+                      title="Buckets"
+                      values={influxBuckets}
+                      activeValue={
+                        influxConfig.bucket
+                      }
+                      emptyText="No buckets found"
+                      onSelect={(value) =>
+                        setInfluxConfig(
+                          (current) => ({
+                            ...current,
+                            bucket: value,
+                            measurement: "",
+                            id: "",
+                            tagValue: "",
+                          })
+                        )
+                      }
+                    />
+
+                    <InfluxMetadataList
+                      title="Measurements"
+                      values={influxMeasurements}
+                      activeValue={
+                        influxConfig.measurement
+                      }
+                      emptyText={
+                        influxConfig.bucket
+                          ? "No measurements found"
+                          : "Select a bucket first"
+                      }
+                      onSelect={(value) =>
+                        setInfluxConfig(
+                          (current) => ({
+                            ...current,
+                            measurement: value,
+                            id: "",
+                            tagValue: "",
+                          })
+                        )
+                      }
+                    />
+
+                    <InfluxMetadataList
+                      title="Device IDs"
+                      values={influxIds}
+                      activeValue={
+                        influxConfig.tagValue ||
+                        influxConfig.id
+                      }
+                      emptyText={
+                        influxConfig.measurement
+                          ? "No device IDs found"
+                          : "Select a measurement first"
+                      }
+                      onSelect={(value) =>
+                        setInfluxConfig(
+                          (current) => ({
+                            ...current,
+                            id: value,
+                            tagValue: value,
+                          })
+                        )
+                      }
+                    />
+
+                    <InfluxMetadataList
+                      title="Channels"
+                      values={influxChannels}
+                      activeValue={
+                        customDataDraft.channel
+                      }
+                      emptyText={
+                        influxConfig.measurement
+                          ? "No channels found"
+                          : "Select a measurement first"
+                      }
+                      onSelect={(value) =>
+                        setCustomDataDraft(
+                          (current) => ({
+                            ...current,
+                            channel: value,
+                          })
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* DASHBOARD SETTINGS */}
+                <div
+                  className="
+                    rounded-3xl border
+                    border-slate-200 bg-white
+                    p-5 shadow-sm
+                    dark:border-slate-700
+                    dark:bg-slate-900
+                  "
+                >
+                  <div className="mb-4">
+                    <h4
+                      className="
+                        text-sm font-black
+                        text-slate-900
+                        dark:text-white
+                      "
+                    >
+                      Dashboard Data Source
                     </h4>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
-                      Select the bucket, measurement and device before choosing the channel.
+
+                    <p
+                      className="
+                        mt-1 text-xs
+                        text-slate-500
+                        dark:text-slate-400
+                      "
+                    >
+                      Give the selected Influx channel a readable dashboard name and optional unit.
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={refreshInfluxMetadata}
-                    disabled={influxLoading}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCw
-                      size={15}
-                      className={influxLoading ? "animate-spin" : ""}
-                    />
-                    Reload
-                  </button>
-                </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          uppercase tracking-wider
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Dashboard display name
+                      </span>
 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                      Bucket
+                      <input
+                        type="text"
+                        value={customDataDraft.label}
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              label:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="e.g. Sterilizer Door Pressure"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          text-sm text-slate-900
+                          outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      />
                     </label>
-                    <input
-                      type="text"
-                      value={influxConfig.bucket}
-                      disabled={isOrganizationAdmin}
-                      onChange={(event) =>
-                        setInfluxConfig((current) => ({
-                          ...current,
-                          bucket: event.target.value,
-                          measurement: "",
-                          id: "",
-                          tagValue: "",
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-70 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
-                    />
-                  </div>
 
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                      Measurement
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          uppercase tracking-wider
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Dashboard key
+                      </span>
+
+                      <input
+                        type="text"
+                        value={customDataDraft.key}
+                        list="dashboard-key-options"
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              key: event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Auto generated if empty"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          text-sm text-slate-900
+                          outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      />
+
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Example: doorPressure, sterilizerTemp, oilFlowrate.
+                      </p>
                     </label>
-                    <select
-                      value={influxConfig.measurement}
-                      disabled={isOrganizationAdmin || influxLoading || !influxConfig.bucket}
-                      onChange={(event) =>
-                        setInfluxConfig((current) => ({
-                          ...current,
-                          measurement: event.target.value,
-                          id: "",
-                          tagValue: "",
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-70 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          uppercase tracking-wider
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Unit
+                      </span>
+
+                      <input
+                        type="text"
+                        value={customDataDraft.unit}
+                        list="unit-options"
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              unit:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Optional, e.g. bar / °C / %"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-4 py-3
+                          text-sm text-slate-900
+                          outline-none
+                          focus:ring-2
+                          focus:ring-blue-500
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      />
+                    </label>
+
+                    <div
+                      className="
+                        rounded-2xl border
+                        border-emerald-100
+                        bg-emerald-50 p-4
+                        text-sm text-emerald-800
+                        dark:border-emerald-900/60
+                        dark:bg-emerald-950/30
+                        dark:text-emerald-200
+                      "
                     >
-                      <option value="">Select measurement</option>
-                      {influxMeasurements.map((measurement) => (
-                        <option key={measurement} value={measurement}>
-                          {measurement}
-                        </option>
-                      ))}
-                    </select>
+                      After saving, this source appears in widget selection and template channel mapping.
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                      Device ID
-                    </label>
-                    <select
-                      value={influxConfig.id}
-                      disabled={isOrganizationAdmin || influxLoading || !influxConfig.measurement}
-                      onChange={(event) =>
-                        setInfluxConfig((current) => ({
-                          ...current,
-                          id: event.target.value,
-                          tagValue: event.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-70 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                <datalist id="dashboard-key-options">
+                  {allDataOptions.map((option) => (
+                    <option
+                      key={option.key}
+                      value={option.key}
                     >
-                      <option value="">Select available ID</option>
-                      {influxIds.map((id) => (
-                        <option key={id} value={id}>
-                          {id}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                      {option.label}
+                    </option>
+                  ))}
+                </datalist>
 
-                <p className="mt-3 text-xs text-gray-400 dark:text-slate-400">
-                  {influxMeasurements.length} measurement(s) · {influxIds.length} device ID(s) · {influxChannels.length} channel(s) found
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
-                    Dashboard display name
-                  </label>
-                  <input
-                    type="text"
-                    value={customDataDraft.label}
-                    onChange={(event) =>
-                      setCustomDataDraft((current) => ({
-                        ...current,
-                        label: event.target.value,
-                      }))
-                    }
-                    placeholder="e.g. Sterilizer Door Pressure"
-                    className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
-                    Dashboard key
-                  </label>
-                  <input
-                    type="text"
-                    value={customDataDraft.key}
-                    list="dashboard-key-options"
-                    onChange={(event) =>
-                      setCustomDataDraft((current) => ({
-                        ...current,
-                        key: event.target.value,
-                      }))
-                    }
-                    placeholder="Auto generated if empty"
-                    className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
-                  />
-                  <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-400">
-                    Example: doorPressure, sterilizerTemp, oilFlowrate.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
-                    Influx channel
-                  </label>
-                  <input
-                    type="text"
-                    value={customDataDraft.channel}
-                    list="custom-influx-channel-options"
-                    onChange={(event) =>
-                      setCustomDataDraft((current) => ({
-                        ...current,
-                        channel: event.target.value,
-                      }))
-                    }
-                    placeholder="Select or type channel, e.g. ch14"
-                    className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
-                  />
-                  <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-400">
-                    Uses the same channel list from Data Mapping.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
-                    Unit
-                  </label>
-                  <input
-                    type="text"
-                    value={customDataDraft.unit}
-                    list="unit-options"
-                    onChange={(event) =>
-                      setCustomDataDraft((current) => ({
-                        ...current,
-                        unit: event.target.value,
-                      }))
-                    }
-                    placeholder="Optional, e.g. bar / °C / %"
-                    className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <datalist id="dashboard-key-options">
-                {allDataOptions.map((option) => (
-                  <option key={option.key} value={option.key}>
-                    {option.label}
-                  </option>
-                ))}
-              </datalist>
-
-              <datalist id="custom-influx-channel-options">
-                {influxChannels.map((channel) => (
-                  <option key={channel} value={channel} />
-                ))}
-              </datalist>
-
-              <datalist id="unit-options">
-                {commonUnitOptions.map((unit) => (
-                  <option key={unit || "none"} value={unit} />
-                ))}
-              </datalist>
-
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
-                After saving, this data source will appear in widget selection and in the template channel mapping.
+                <datalist id="unit-options">
+                  {commonUnitOptions.map((unit) => (
+                    <option
+                      key={unit || "none"}
+                      value={unit}
+                    />
+                  ))}
+                </datalist>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5 dark:border-slate-700">
+            {/* FOOTER */}
+            <div
+              className="
+                flex shrink-0
+                items-center justify-end gap-3
+                border-t border-slate-200
+                bg-slate-50/70 px-7 py-5
+                dark:border-slate-700
+                dark:bg-slate-950/40
+              "
+            >
               <button
                 type="button"
-                onClick={() => setShowCustomDataModal(false)}
-                className="rounded-2xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:border-slate-600 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
+                onClick={() =>
+                  setShowCustomDataModal(false)
+                }
+                className="
+                  rounded-2xl border
+                  border-slate-300 bg-white
+                  px-5 py-3 text-sm
+                  font-semibold text-slate-700
+                  transition hover:bg-slate-100
+                  dark:border-slate-600
+                  dark:bg-slate-800
+                  dark:text-white
+                  dark:hover:bg-slate-700
+                "
               >
                 Cancel
               </button>
@@ -6028,8 +7987,16 @@ export default function TemplateDesigner({
               <button
                 type="button"
                 onClick={addCustomDataSource}
-                className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                className="
+                  inline-flex items-center gap-2
+                  rounded-2xl bg-blue-600
+                  px-5 py-3 text-sm
+                  font-semibold text-white
+                  shadow-lg shadow-blue-600/20
+                  transition hover:bg-blue-700
+                "
               >
+                <Plus size={17} />
                 Add and Select Data Source
               </button>
             </div>

@@ -918,6 +918,145 @@ export default function OrganizationManagement({ dark = false }) {
           .dark .organization-management-page .text-red-500 {
             color: #f87171 !important;
           }
+
+          /* Three administration action panels only */
+          .organization-management-page .organization-action-panel {
+            background:
+              linear-gradient(
+                135deg,
+                rgba(207, 250, 254, 0.98),
+                rgba(224, 242, 254, 0.96)
+              );
+            border-color: #cbd5e1;
+          }
+
+          .organization-management-page .new-user-action-panel {
+            background:
+              linear-gradient(
+                135deg,
+                rgba(209, 250, 229, 0.98),
+                rgba(204, 251, 241, 0.96)
+              );
+            border-color: #cbd5e1;
+          }
+
+          .organization-management-page .assignment-action-panel {
+            background:
+              linear-gradient(
+                135deg,
+                rgba(237, 233, 254, 0.98),
+                rgba(243, 232, 255, 0.96)
+              );
+            border-color: #cbd5e1;
+          }
+
+          .dark .organization-management-page .organization-action-panel {
+            background:
+              linear-gradient(
+                135deg,
+                rgba(8, 47, 73, 0.96),
+                rgba(15, 23, 42, 0.98)
+              ) !important;
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page .new-user-action-panel {
+            background:
+              linear-gradient(
+                135deg,
+                rgba(6, 78, 59, 0.94),
+                rgba(15, 23, 42, 0.98)
+              ) !important;
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page .assignment-action-panel {
+            background:
+              linear-gradient(
+                135deg,
+                rgba(76, 29, 149, 0.9),
+                rgba(15, 23, 42, 0.98)
+              ) !important;
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page .organization-action-panel,
+          .dark .organization-management-page .new-user-action-panel,
+          .dark .organization-management-page .assignment-action-panel {
+            box-shadow:
+              inset 0 1px 0 rgba(255, 255, 255, 0.05),
+              0 18px 36px rgba(2, 6, 23, 0.28);
+          }
+
+          .organization-management-page .password-guidance {
+            background-color: rgba(255, 255, 255, 0.82);
+            border-color: #a7f3d0;
+            color: #475569;
+          }
+
+          .dark .organization-management-page .password-guidance {
+            background-color: rgba(2, 6, 23, 0.58) !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+          }
+
+          /* Match Device Management border system across this page */
+          .organization-management-page .org-surface {
+            border-color: #e2e8f0;
+          }
+
+          .dark .organization-management-page .org-surface {
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page .administration-tabs-shell {
+            background-color: rgba(15, 23, 42, 0.96) !important;
+            border-color: #475569 !important;
+          }
+
+          .dark .organization-management-page .administration-tabs-shell button {
+            color: #cbd5e1 !important;
+          }
+
+          .dark .organization-management-page .administration-tabs-shell button:hover {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+          }
+
+          .dark .organization-management-page .administration-tabs-shell button.bg-cyan-600,
+          .dark .organization-management-page .administration-tabs-shell button.bg-emerald-600,
+          .dark .organization-management-page .administration-tabs-shell button.bg-purple-600 {
+            color: #ffffff !important;
+          }
+
+          .dark .organization-management-page .administration-tabs-shell button:disabled {
+            color: #64748b !important;
+            opacity: 1 !important;
+          }
+
+          .dark .organization-management-page .summary-card,
+          .dark .organization-management-page .table-card,
+          .dark .organization-management-page .user-list-card,
+          .dark .organization-management-page .administration-card {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+          }
+
+          .dark .organization-management-page .summary-card,
+          .dark .organization-management-page .table-card,
+          .dark .organization-management-page .user-list-card,
+          .dark .organization-management-page .administration-card,
+          .dark .organization-management-page .organization-action-panel,
+          .dark .organization-management-page .new-user-action-panel,
+          .dark .organization-management-page .assignment-action-panel {
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3) !important;
+          }
+
+          .dark .organization-management-page .assignment-step-card,
+          .dark .organization-management-page .assignment-preview-card {
+            background-color: #0b1220 !important;
+            border-color: #334155 !important;
+          }
         `}</style>
       {/* HEADER */}
       <div
@@ -977,8 +1116,9 @@ export default function OrganizationManagement({ dark = false }) {
       >
         <div
           className="
-            bg-white dark:bg-gray-800
-            border border-gray-200 dark:border-gray-700
+            summary-card org-surface
+            bg-white
+            border
             rounded-3xl
             p-6
             shadow-lg
@@ -1011,8 +1151,9 @@ export default function OrganizationManagement({ dark = false }) {
 
         <div
           className="
-            bg-white dark:bg-gray-800
-            border border-gray-200 dark:border-gray-700
+            summary-card org-surface
+            bg-white
+            border
             rounded-3xl
             p-6
             shadow-lg
@@ -1045,8 +1186,9 @@ export default function OrganizationManagement({ dark = false }) {
 
         <div
           className="
-            bg-white dark:bg-gray-800
-            border border-gray-200 dark:border-gray-700
+            summary-card org-surface
+            bg-white
+            border
             rounded-3xl
             p-6
             shadow-lg
@@ -1079,8 +1221,9 @@ export default function OrganizationManagement({ dark = false }) {
 
         <div
           className="
-            bg-white dark:bg-gray-800
-            border border-gray-200 dark:border-gray-700
+            summary-card org-surface
+            bg-white
+            border
             rounded-3xl
             p-6
             shadow-lg
@@ -1115,8 +1258,9 @@ export default function OrganizationManagement({ dark = false }) {
       {/* ADMINISTRATION ACTIONS */}
       <div
         className="
-          bg-white dark:bg-gray-800
-          border border-gray-200 dark:border-gray-700
+          administration-card org-surface
+          bg-white
+          border
           rounded-3xl
           shadow-lg
           mb-8
@@ -1166,16 +1310,15 @@ export default function OrganizationManagement({ dark = false }) {
             {/* ACTION TABS */}
             <div
               className="
+                administration-tabs-shell
+                org-surface
                 flex flex-col
                 sm:flex-row
                 gap-2
                 w-full xl:w-auto
                 rounded-3xl
-                bg-white/70
-                dark:bg-gray-900/60
                 p-2
-                border border-white/70
-                dark:border-gray-700
+                border
               "
             >
               {isSuperadmin && (
@@ -1194,7 +1337,7 @@ export default function OrganizationManagement({ dark = false }) {
                     ${
                       activeAction === "organization"
                         ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/20"
-                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }
                   `}
                 >
@@ -1218,7 +1361,7 @@ export default function OrganizationManagement({ dark = false }) {
                   ${
                     activeAction === "user"
                       ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
-                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                      : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                   }
                 `}
               >
@@ -1242,7 +1385,7 @@ export default function OrganizationManagement({ dark = false }) {
                     ${
                       activeAction === "assignment"
                         ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
-                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }
                   `}
                 >
@@ -1261,11 +1404,9 @@ export default function OrganizationManagement({ dark = false }) {
             activeAction === "organization" && (
             <div
               className="
+                organization-action-panel
                 rounded-3xl
-                border border-cyan-100
-                dark:border-cyan-900/60
-                bg-cyan-50/60
-                dark:bg-cyan-900/10
+                border
                 p-5
               "
             >
@@ -1380,11 +1521,9 @@ export default function OrganizationManagement({ dark = false }) {
           {activeAction === "user" && (
             <div
               className="
+                new-user-action-panel
                 rounded-3xl
-                border border-emerald-100
-                dark:border-emerald-900/60
-                bg-emerald-50/60
-                dark:bg-emerald-900/10
+                border
                 p-5
               "
             >
@@ -1589,18 +1728,14 @@ export default function OrganizationManagement({ dark = false }) {
 
               <div
                 className="
+                  password-guidance
                   mt-4
                   rounded-2xl
                   border
-                  border-emerald-100
-                  bg-white/70
                   px-4 py-3
                   text-xs
                   font-medium
-                  text-gray-500
-                  dark:border-emerald-500/30
-                  dark:bg-emerald-950/35
-                  dark:text-emerald-100
+                  leading-relaxed
                 "
               >
                 Password must be at least 6 characters. Superadmin accounts should still be created manually in the database for safety.
@@ -1612,11 +1747,9 @@ export default function OrganizationManagement({ dark = false }) {
           {isSuperadmin && activeAction === "assignment" && (
             <div
               className="
+                assignment-action-panel
                 rounded-3xl
-                border border-purple-100
-                dark:border-purple-900/60
-                bg-purple-50/60
-                dark:bg-purple-900/10
+                border
                 p-5
               "
             >
@@ -1680,9 +1813,10 @@ export default function OrganizationManagement({ dark = false }) {
                 {/* USER */}
                 <div
                   className="
+                    assignment-step-card org-surface
                     rounded-3xl
-                    border border-gray-200 dark:border-gray-700
-                    bg-white dark:bg-gray-900
+                    border
+                    bg-white
                     p-5
                   "
                 >
@@ -1749,9 +1883,10 @@ export default function OrganizationManagement({ dark = false }) {
                 {/* ROLE */}
                 <div
                   className="
+                    assignment-step-card org-surface
                     rounded-3xl
-                    border border-gray-200 dark:border-gray-700
-                    bg-white dark:bg-gray-900
+                    border
+                    bg-white
                     p-5
                   "
                 >
@@ -1817,9 +1952,10 @@ export default function OrganizationManagement({ dark = false }) {
                 {/* ORGANIZATION */}
                 <div
                   className="
+                    assignment-step-card org-surface
                     rounded-3xl
-                    border border-gray-200 dark:border-gray-700
-                    bg-white dark:bg-gray-900
+                    border
+                    bg-white
                     p-5
                   "
                 >
@@ -1902,12 +2038,11 @@ export default function OrganizationManagement({ dark = false }) {
               {selectedUserId && (
                 <div
                   className="
+                    assignment-preview-card org-surface
                     mb-6
                     rounded-3xl
-                    border border-purple-200
-                    dark:border-purple-800
+                    border
                     bg-white
-                    dark:bg-gray-900/70
                     p-5
                   "
                 >
@@ -2093,8 +2228,9 @@ export default function OrganizationManagement({ dark = false }) {
       {/* ORGANIZATION TABLE CARD */}
       <div
         className={`
-          bg-white dark:bg-gray-800
-          border border-gray-200 dark:border-gray-700
+          table-card org-surface
+          bg-white
+          border
           rounded-3xl
           shadow-lg
           overflow-hidden
@@ -2543,8 +2679,9 @@ export default function OrganizationManagement({ dark = false }) {
       {/* SELECTED ORGANIZATION USER LIST */}
       <div
         className="
-          bg-white dark:bg-gray-800
-          border border-gray-200 dark:border-gray-700
+          user-list-card org-surface
+          bg-white
+          border
           rounded-3xl
           shadow-lg
           overflow-hidden
