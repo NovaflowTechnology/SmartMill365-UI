@@ -1,4 +1,3 @@
-import { dataRanges } from "../data/dataRanges";
 
 const DEFAULT_RANGE_CONFIG = {
   min: 0,
@@ -25,9 +24,10 @@ export default function LinearGaugeWidget({
   dataKey = "",
   rangeConfig,
 }) {
+  // Runtime range/unit/threshold values come only from the
+  // configuration saved with this widget in Template Designer.
   const config = {
     ...DEFAULT_RANGE_CONFIG,
-    ...(dataRanges[dataKey] || {}),
     ...(rangeConfig || {}),
   };
 

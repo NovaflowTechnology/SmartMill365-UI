@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import boilerImg from "../assets/Boiler.png";
-import { dataOptions } from "../data/dataOptions";
 
 const clamp = (value, min, max) =>
   Math.min(Math.max(value, min), max);
@@ -27,10 +26,11 @@ export default function ImageWidgetConfigurator({
 
   const safePins = Array.isArray(pins) ? pins : [];
 
-  const allDataOptions = [
-    ...dataOptions,
-    ...(Array.isArray(customDataOptions) ? customDataOptions : []),
-  ];
+  // Field choices come from Template Designer / Influx metadata.
+  const allDataOptions =
+    Array.isArray(customDataOptions)
+      ? customDataOptions
+      : [];
 
   const imageSrc =
     image?.croppedSrc ||
@@ -357,11 +357,24 @@ export default function ImageWidgetConfigurator({
 
                   <select
                     value={pin?.dataKey || ""}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const dataKey = event.target.value;
+                      const selectedOption =
+                        allDataOptions.find(
+                          (option) => option.key === dataKey
+                        );
+
                       updatePin(index, {
-                        dataKey: event.target.value,
-                      })
-                    }
+                        dataKey,
+                        label:
+                          selectedOption?.label ||
+                          dataKey,
+                        rangeConfig:
+                          selectedOption?.rangeConfig ||
+                          pin?.rangeConfig ||
+                          undefined,
+                      });
+                    }}
                     className="
                       mt-3 w-full rounded-lg
                       border border-gray-300 dark:border-gray-600

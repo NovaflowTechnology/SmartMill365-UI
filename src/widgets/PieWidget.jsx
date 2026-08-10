@@ -13,7 +13,6 @@ import {
   useState,
 } from "react";
 
-import { dataRanges } from "../data/dataRanges";
 
 const PIE_COLORS = [
   "#10b981",
@@ -120,6 +119,9 @@ export default function PieWidget({
       ? [item.dataKey]
       : [];
 
+  const rangeConfig =
+    item.rangeConfig || null;
+
   const rangeConfigs =
     item.rangeConfigs || {};
 
@@ -127,9 +129,13 @@ export default function PieWidget({
     item.dataLabels || {};
 
   const getConfigForKey = (key) => ({
+    min: 0,
+    max: 100,
     unit: "",
-    ...(dataRanges[key] || {}),
-    ...(rangeConfigs[key] || {}),
+    warning: 80,
+    danger: 90,
+    ...(rangeConfig || {}),
+    ...(rangeConfigs?.[key] || {}),
   });
 
   const chartData = selectedKeys

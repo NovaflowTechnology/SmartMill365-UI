@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useId } from "react";
-import { dataRanges } from "../data/dataRanges";
 
 const DEFAULT_RANGE_CONFIG = {
   min: 0,
@@ -26,16 +25,10 @@ export default function GaugeWidget({
   dataKey = "",
   rangeConfig,
 }) {
-  /*
-   * CONFIGURATION PRIORITY:
-   *
-   * 1. Default range
-   * 2. dataRanges.js preset
-   * 3. Custom range saved in TemplateDesigner
-   */
+  // Runtime range/unit/threshold values come only from the
+  // configuration saved with this widget in Template Designer.
   const config = {
     ...DEFAULT_RANGE_CONFIG,
-    ...(dataRanges[dataKey] || {}),
     ...(rangeConfig || {}),
   };
 

@@ -4,7 +4,6 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import mysql from "mysql2";
 import { InfluxDB } from "@influxdata/influxdb-client";
-import { WebSocketServer } from "ws";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -14,7 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 5000;
+const PORT = Number(process.env.PORT) || 5000;
 const SECRET = process.env.JWT_SECRET;
 
 // =====================================
@@ -155,8 +154,17 @@ const toNumericValue = (value) => {
 const liveFetchMonitor = new Map();
 
 const parseRelativeHistoryWindow = (value) => {
-  const requested = String(value || "-15m");
-  const match = requested.match(/^-(\d+)(m|h|d|w|mo|y)$/);
+  let requested = String(value || "15m").trim();
+
+  // Template Designer stores values such as "15m" while older
+  // dashboard code may still send "-15m". Accept both formats.
+  if (!requested.startsWith("-")) {
+    requested = `-${requested}`;
+  }
+
+  const match = requested.match(
+    /^-(\d+)(m|h|d|w|mo|y)$/
+  );
 
   if (!match) {
     return null;
@@ -199,7 +207,8 @@ const parseRelativeHistoryWindow = (value) => {
     requested,
     start,
     end,
-    durationMs: end.getTime() - start.getTime(),
+    durationMs:
+      end.getTime() - start.getTime(),
   };
 };
 
@@ -1805,6 +1814,22 @@ const influxDB = new InfluxDB({
 const org = process.env.INFLUX_ORG;
 const bucket = process.env.INFLUX_BUCKET;
 
+const missingInfluxSettings = [
+  ["INFLUX_URL", process.env.INFLUX_URL],
+  ["INFLUX_TOKEN", process.env.INFLUX_TOKEN],
+  ["INFLUX_ORG", org],
+  ["INFLUX_BUCKET", bucket],
+]
+  .filter(([, value]) => !String(value || "").trim())
+  .map(([key]) => key);
+
+if (missingInfluxSettings.length > 0) {
+  console.warn(
+    "⚠️ Missing InfluxDB environment settings:",
+    missingInfluxSettings.join(", ")
+  );
+}
+
 // =====================================
 // GET ALL INFLUX BUCKETS (SUPERADMIN)
 //
@@ -1871,21 +1896,6 @@ app.get(
   }
 );
 
-// Used only by old legacy WebSocket polling.
-const fieldMap = {
-  ch1: "steamPressure",
-  ch2: "steamFlowrate",
-  ch3: "steamOutletTemp",
-  ch4: "inletDraft",
-  ch5: "outletDraft",
-  ch6: "furnaceDraft",
-  ch8: "waterInletTemp",
-  ch9: "waterFlowrate",
-  ch10: "waterDrumLevel",
-  ch11: "vgPressure",
-  ch12: "vgInletTemp",
-  ch13: "vgOutletTemp",
-};
 
 // =====================================
 // ORGANIZATION INFLUX DEVICE ROUTES
@@ -2205,7 +2215,7 @@ app.get(
 // =====================================
 // GET IDS FOR ONE MEASUREMENT
 //
-// GET /influx/ids?bucket=Mill&measurement=PSTR
+// GET /influx/ids?bucket=SmartMill365&measurement=PSTR_bar
 // Optional: &tagKey=id
 // =====================================
 app.get(
@@ -2216,7 +2226,7 @@ app.get(
       req.query.bucket || bucket;
 
     const measurement =
-      req.query.measurement || "PBLR";
+      String(req.query.measurement || "").trim();
 
     const tagKey =
       req.query.tagKey || "id";
@@ -2283,7 +2293,7 @@ app.get(
 // =====================================
 // GET FIELD KEYS / CHANNELS
 //
-// GET /influx/channels?bucket=Mill&measurement=PSTR
+// GET /influx/channels?bucket=SmartMill365&measurement=PSTR_bar
 // =====================================
 app.get(
   "/influx/channels",
@@ -2293,7 +2303,7 @@ app.get(
       req.query.bucket || bucket;
 
     const measurement =
-      req.query.measurement || "PBLR";
+      String(req.query.measurement || "").trim();
 
     const tagKey =
       req.query.tagKey || "id";
@@ -2386,6 +2396,10 @@ app.get(
         measurement,
         tagKey,
         tagValue: tagValue || null,
+
+        // `fields` is the preferred SmartMill 365 terminology.
+        // `channels` is kept for existing frontend compatibility.
+        fields: channels,
         channels,
       });
     } catch (err) {
@@ -2407,19 +2421,328 @@ app.get(
 //
 // POST /template-live-data
 //
-// Supports:
+// Legacy format (still supported):
 // {
-//   influx: { bucket, measurement, id }
-//   channelMap: { steamPressure: "ch1" }
-//   historyWindow: "-7d"
+//   influx: {
+//     bucket: "SmartMill365",
+//     measurement: "PBLR",
+//     tagKey: "id",
+//     tagValue: "SAMYSK_POM_250048"
+//   },
+//   channelMap: {
+//     steam_pressure: "steam_pressure",
+//     steamFlow: "steamFlow"
+//   },
+//   historyWindow: "15m"
 // }
 //
-// Or an exact calendar range:
+// New multi-measurement format:
+// {
+//   dataSources: {
+//     sterilizerPressure: {
+//       bucket: "SmartMill365",
+//       measurement: "PSTR_bar",
+//       tagKey: "id",
+//       tagValue: "SAMYSK_POM_250036",
+//       field: "stp1"
+//     },
+//     sterilizerMode: {
+//       bucket: "SmartMill365",
+//       measurement: "PSTR_aom_status",
+//       tagKey: "id",
+//       tagValue: "SAMYSK_POM_250036",
+//       field: "stp1"
+//     }
+//   },
+//   historyWindow: "15m"
+// }
+//
+// Exact calendar range is also supported:
 // {
 //   startTime: "2026-06-01T00:00:00.000Z",
 //   endTime: "2026-06-22T23:59:59.999Z"
 // }
 // =====================================
+
+const getAggregateEvery = (durationMs) => {
+  if (durationMs <= 6 * 60 * 60 * 1000) {
+    return "1m";
+  }
+
+  if (durationMs <= 2 * 24 * 60 * 60 * 1000) {
+    return "5m";
+  }
+
+  if (durationMs <= 7 * 24 * 60 * 60 * 1000) {
+    return "30m";
+  }
+
+  if (durationMs <= 30 * 24 * 60 * 60 * 1000) {
+    return "2h";
+  }
+
+  if (durationMs <= 90 * 24 * 60 * 60 * 1000) {
+    return "6h";
+  }
+
+  if (durationMs <= 365 * 24 * 60 * 60 * 1000) {
+    return "1d";
+  }
+
+  return "7d";
+};
+
+const normalizeTemplateDataSources = ({
+  influx,
+  channelMap,
+  dataSources,
+}) => {
+  const normalized = {};
+
+  // Preferred format: each dashboard key owns its complete Influx source.
+  if (
+    dataSources &&
+    typeof dataSources === "object" &&
+    !Array.isArray(dataSources)
+  ) {
+    Object.entries(dataSources).forEach(
+      ([dataKey, source]) => {
+        if (
+          !dataKey ||
+          !source ||
+          typeof source !== "object"
+        ) {
+          return;
+        }
+
+        const selectedBucket =
+          source.bucket ||
+          influx?.bucket ||
+          bucket ||
+          "";
+
+        const measurement =
+          source.measurement || "";
+
+        const tagKey =
+          source.tagKey ||
+          influx?.tagKey ||
+          "id";
+
+        const tagValue =
+          source.tagValue ||
+          source.id ||
+          influx?.tagValue ||
+          influx?.id ||
+          "";
+
+        const field =
+          source.field ||
+          source.channel ||
+          "";
+
+        if (
+          selectedBucket &&
+          measurement &&
+          tagKey &&
+          tagValue &&
+          field
+        ) {
+          normalized[dataKey] = {
+            bucket: selectedBucket,
+            measurement,
+            tagKey,
+            tagValue,
+            field,
+          };
+        }
+      }
+    );
+  }
+
+  if (Object.keys(normalized).length > 0) {
+    return normalized;
+  }
+
+  // Backward compatibility for existing templates:
+  // one Influx source + a dashboard-key-to-field map.
+  const selectedBucket =
+    influx?.bucket || bucket || "";
+
+  const measurement =
+    String(
+      influx?.measurement || ""
+    ).trim();
+
+  const tagKey =
+    influx?.tagKey || "id";
+
+  const tagValue =
+    influx?.tagValue ||
+    influx?.id ||
+    "";
+
+  if (
+    !channelMap ||
+    typeof channelMap !== "object" ||
+    Array.isArray(channelMap)
+  ) {
+    return normalized;
+  }
+
+  Object.entries(channelMap).forEach(
+    ([dataKey, field]) => {
+      if (
+        dataKey &&
+        typeof field === "string" &&
+        field.trim() &&
+        selectedBucket &&
+        measurement &&
+        tagKey &&
+        tagValue
+      ) {
+        normalized[dataKey] = {
+          bucket: selectedBucket,
+          measurement,
+          tagKey,
+          tagValue,
+          field: field.trim(),
+        };
+      }
+    }
+  );
+
+  return normalized;
+};
+
+const groupTemplateDataSources = (dataSources) => {
+  const groups = new Map();
+
+  Object.entries(dataSources).forEach(
+    ([dataKey, source]) => {
+      const groupKey = [
+        source.bucket,
+        source.measurement,
+        source.tagKey,
+        source.tagValue,
+      ].join("|");
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          groupKey,
+          bucket: source.bucket,
+          measurement: source.measurement,
+          tagKey: source.tagKey,
+          tagValue: source.tagValue,
+          mappings: [],
+        });
+      }
+
+      groups.get(groupKey).mappings.push({
+        dataKey,
+        field: source.field,
+      });
+    }
+  );
+
+  return [...groups.values()];
+};
+
+const validateTemplateSourceGroup = (group) => {
+  if (!group.bucket) {
+    return "Influx bucket is required";
+  }
+
+  if (!group.measurement) {
+    return "Influx measurement is required";
+  }
+
+  if (!group.tagValue) {
+    return "Influx device ID is required";
+  }
+
+  if (!isValidFluxColumnName(group.tagKey)) {
+    return "Invalid Influx tag key";
+  }
+
+  if (!group.mappings.length) {
+    return "At least one Influx field is required";
+  }
+
+  return null;
+};
+
+const fetchTemplateSourceGroup = async ({
+  queryApi,
+  group,
+  historyRangeFlux,
+  aggregateEvery,
+}) => {
+  const uniqueFields = [
+    ...new Set(
+      group.mappings
+        .map((mapping) => mapping.field)
+        .filter(Boolean)
+    ),
+  ];
+
+  const fieldFilter = uniqueFields
+    .map(
+      (field) =>
+        `r["_field"] == "${escapeFluxString(field)}"`
+    )
+    .join(" or ");
+
+  const baseFilter = `
+    |> filter(fn: (r) =>
+      r._measurement == "${escapeFluxString(group.measurement)}"
+    )
+    |> filter(fn: (r) =>
+      r["${escapeFluxString(group.tagKey)}"] == "${escapeFluxString(group.tagValue)}"
+    )
+    |> filter(fn: (r) => ${fieldFilter})
+  `;
+
+  const liveFluxQuery = `
+    from(bucket: "${escapeFluxString(group.bucket)}")
+      |> range(start: -24h)
+      ${baseFilter}
+      |> group(columns: ["_field"])
+      |> last()
+      |> keep(columns: ["_time", "_field", "_value"])
+      |> sort(columns: ["_time"], desc: true)
+  `;
+
+  const historyFluxQuery = `
+    from(bucket: "${escapeFluxString(group.bucket)}")
+      ${historyRangeFlux}
+      ${baseFilter}
+      |> aggregateWindow(
+        every: ${aggregateEvery},
+        fn: last,
+        createEmpty: false
+      )
+      |> pivot(
+        rowKey: ["_time"],
+        columnKey: ["_field"],
+        valueColumn: "_value"
+      )
+      |> sort(columns: ["_time"])
+  `;
+
+  const [liveRows, historyRows] =
+    await Promise.all([
+      queryApi.collectRows(liveFluxQuery),
+      queryApi.collectRows(historyFluxQuery),
+    ]);
+
+  return {
+    group,
+    liveRows,
+    historyRows,
+  };
+};
+
 app.post(
   "/template-live-data",
   auth(),
@@ -2427,55 +2750,76 @@ app.post(
     const {
       influx,
       channelMap,
-      historyWindow = "-15m",
+      dataSources,
+      historyWindow = "15m",
       startTime,
       endTime,
       items = [],
     } = req.body;
 
-    const selectedBucket = influx?.bucket || bucket;
-    const measurement = influx?.measurement || "PBLR";
-    const tagKey = influx?.tagKey || "id";
-    const tagValue = influx?.tagValue || influx?.id;
+    const normalizedSources =
+      normalizeTemplateDataSources({
+        influx,
+        channelMap,
+        dataSources,
+      });
 
-    if (!selectedBucket) {
+    const groups =
+      groupTemplateDataSources(
+        normalizedSources
+      );
+
+    if (!groups.length) {
       return res.status(400).json({
-        error: "Influx bucket is required",
+        error:
+          "No valid Influx data sources were provided",
       });
     }
 
-    if (!measurement) {
-      return res.status(400).json({
-        error: "Influx measurement is required",
-      });
-    }
+    for (const group of groups) {
+      const validationError =
+        validateTemplateSourceGroup(group);
 
-    if (!tagValue) {
-      return res.status(400).json({
-        error: "Influx device ID is required",
-      });
-    }
-
-    if (!isValidFluxColumnName(tagKey)) {
-      return res.status(400).json({
-        error: "Invalid Influx tag key",
-      });
-    }
-
-    try {
-      const allowed = await canAccessInfluxDevice({
-        user: req.user,
-        bucketName: selectedBucket,
-        measurementName: measurement,
-        tagKey,
-        tagValue,
-      });
-
-      if (!allowed) {
-        return res.status(403).json({
-          error:
-            "You do not have permission to access this Influx device",
+      if (validationError) {
+        return res.status(400).json({
+          error: validationError,
+          source: {
+            bucket: group.bucket,
+            measurement:
+              group.measurement,
+            tagKey: group.tagKey,
+            tagValue: group.tagValue,
+          },
         });
+      }
+    }
+
+    // Verify the signed-in user can access every requested device source.
+    try {
+      for (const group of groups) {
+        const allowed =
+          await canAccessInfluxDevice({
+            user: req.user,
+            bucketName: group.bucket,
+            measurementName:
+              group.measurement,
+            tagKey: group.tagKey,
+            tagValue: group.tagValue,
+          });
+
+        if (!allowed) {
+          return res.status(403).json({
+            error:
+              "You do not have permission to access one or more Influx devices",
+            source: {
+              bucket: group.bucket,
+              measurement:
+                group.measurement,
+              tagKey: group.tagKey,
+              tagValue: group.tagValue,
+            },
+          });
+        }
       }
     } catch (err) {
       console.error(
@@ -2484,74 +2828,46 @@ app.post(
       );
 
       return res.status(500).json({
-        error: "Failed to verify Influx device access",
+        error:
+          "Failed to verify Influx device access",
       });
     }
 
-    if (
-      !channelMap ||
-      typeof channelMap !== "object" ||
-      Array.isArray(channelMap)
-    ) {
-      return res.status(400).json({
-        error: "A valid channelMap object is required",
-      });
-    }
+    let historyRangeFlux;
+    let rangeDurationMs;
+    let rangeDescription;
 
-    const validMappings = Object.entries(channelMap).filter(
-      ([dataKey, channel]) =>
-        dataKey &&
-        channel &&
-        typeof channel === "string"
-    );
+    if (startTime && endTime) {
+      const parsedStart =
+        new Date(startTime);
 
-    if (!validMappings.length) {
-      return res.status(400).json({
-        error: "At least one channel mapping is required",
-      });
-    }
-
-    const hasStartTime = startTime !== undefined && startTime !== null && startTime !== "";
-    const hasEndTime = endTime !== undefined && endTime !== null && endTime !== "";
-
-    if (hasStartTime !== hasEndTime) {
-      return res.status(400).json({
-        error: "Both startTime and endTime are required for a calendar range",
-      });
-    }
-
-    let historyRangeFlux = "";
-    let rangeDurationMs = 15 * 60 * 1000;
-    let rangeDescription = "-15m";
-
-    if (hasStartTime && hasEndTime) {
-      const parsedStart = new Date(startTime);
-      const parsedEnd = new Date(endTime);
+      const parsedEnd =
+        new Date(endTime);
 
       if (
-        Number.isNaN(parsedStart.getTime()) ||
-        Number.isNaN(parsedEnd.getTime())
+        Number.isNaN(
+          parsedStart.getTime()
+        ) ||
+        Number.isNaN(
+          parsedEnd.getTime()
+        ) ||
+        parsedEnd <= parsedStart
       ) {
         return res.status(400).json({
-          error: "startTime and endTime must be valid date-time values",
+          error:
+            "Invalid startTime/endTime range",
         });
       }
 
-      if (parsedStart >= parsedEnd) {
-        return res.status(400).json({
-          error: "startTime must be earlier than endTime",
-        });
-      }
+      const safeStart =
+        escapeFluxString(
+          parsedStart.toISOString()
+        );
 
-      const now = Date.now();
-      if (parsedEnd.getTime() > now + 60 * 1000) {
-        return res.status(400).json({
-          error: "endTime cannot be in the future",
-        });
-      }
-
-      const safeStart = escapeFluxString(parsedStart.toISOString());
-      const safeEnd = escapeFluxString(parsedEnd.toISOString());
+      const safeEnd =
+        escapeFluxString(
+          parsedEnd.toISOString()
+        );
 
       historyRangeFlux = `
         |> range(
@@ -2560,23 +2876,40 @@ app.post(
         )
       `;
 
-      rangeDurationMs = parsedEnd.getTime() - parsedStart.getTime();
-      rangeDescription = `${parsedStart.toISOString()} to ${parsedEnd.toISOString()}`;
+      rangeDurationMs =
+        parsedEnd.getTime() -
+        parsedStart.getTime();
+
+      rangeDescription =
+        `${parsedStart.toISOString()} to ${parsedEnd.toISOString()}`;
     } else {
       const parsedRelativeRange =
-        parseRelativeHistoryWindow(historyWindow) ||
-        parseRelativeHistoryWindow("-15m");
+        parseRelativeHistoryWindow(
+          historyWindow
+        ) ||
+        parseRelativeHistoryWindow(
+          "15m"
+        );
 
-      const safeStart = escapeFluxString(
-        parsedRelativeRange.start.toISOString()
-      );
+      const safeStart =
+        escapeFluxString(
+          parsedRelativeRange
+            .start
+            .toISOString()
+        );
 
-      const safeEnd = escapeFluxString(
-        parsedRelativeRange.end.toISOString()
-      );
+      const safeEnd =
+        escapeFluxString(
+          parsedRelativeRange
+            .end
+            .toISOString()
+        );
 
-      rangeDurationMs = parsedRelativeRange.durationMs;
-      rangeDescription = parsedRelativeRange.requested;
+      rangeDurationMs =
+        parsedRelativeRange.durationMs;
+
+      rangeDescription =
+        parsedRelativeRange.requested;
 
       historyRangeFlux = `
         |> range(
@@ -2586,291 +2919,430 @@ app.post(
       `;
     }
 
-    // Keep long periods responsive and avoid returning unnecessary raw points.
     const aggregateEvery =
-      rangeDurationMs <= 6 * 60 * 60 * 1000
-        ? "1m"
-        : rangeDurationMs <= 2 * 24 * 60 * 60 * 1000
-        ? "5m"
-        : rangeDurationMs <= 7 * 24 * 60 * 60 * 1000
-        ? "30m"
-        : rangeDurationMs <= 30 * 24 * 60 * 60 * 1000
-        ? "2h"
-        : rangeDurationMs <= 90 * 24 * 60 * 60 * 1000
-        ? "6h"
-        : rangeDurationMs <= 365 * 24 * 60 * 60 * 1000
-        ? "1d"
-        : "7d";
-
-    const channelFilter = validMappings
-      .map(
-        ([, channel]) =>
-          `r["_field"] == "${escapeFluxString(channel)}"`
-      )
-      .join(" or ");
-
-    const toDashboardData = (row = {}) => {
-      const result = {};
-
-      validMappings.forEach(([dataKey, channel]) => {
-        result[dataKey] = toNumericValue(row[channel]);
-      });
-
-      return result;
-    };
+      getAggregateEvery(
+        rangeDurationMs
+      );
 
     try {
-      const queryApi = influxDB.getQueryApi(org);
+      const queryApi =
+        influxDB.getQueryApi(org);
 
-      const baseFilter = `
-        |> filter(fn: (r) =>
-          r._measurement == "${escapeFluxString(measurement)}"
-        )
-        |> filter(fn: (r) =>
-          r["${escapeFluxString(tagKey)}"] == "${escapeFluxString(tagValue)}"
-        )
-        |> filter(fn: (r) => ${channelFilter})
-      `;
-
-      // Get the newest record for EACH mapped field.
-      // A 24-hour range lets the dashboard distinguish stale data (critical)
-      // from a device that has no recent InfluxDB records at all (offline).
-      // Grouping by field avoids losing values when channels are written
-      // at slightly different timestamps.
-      const liveFluxQuery = `
-        from(bucket: "${escapeFluxString(selectedBucket)}")
-          |> range(start: -24h)
-          ${baseFilter}
-          |> group(columns: ["_field"])
-          |> last()
-          |> keep(columns: ["_time", "_field", "_value"])
-          |> sort(columns: ["_time"], desc: true)
-      `;
-
-      const historyFluxQuery = `
-        from(bucket: "${escapeFluxString(selectedBucket)}")
-          ${historyRangeFlux}
-          ${baseFilter}
-          |> aggregateWindow(
-            every: ${aggregateEvery},
-            fn: last,
-            createEmpty: false
+      const groupResults =
+        await Promise.all(
+          groups.map((group) =>
+            fetchTemplateSourceGroup({
+              queryApi,
+              group,
+              historyRangeFlux,
+              aggregateEvery,
+            })
           )
-          |> pivot(
-            rowKey: ["_time"],
-            columnKey: ["_field"],
-            valueColumn: "_value"
-          )
-          |> sort(columns: ["_time"])
-      `;
+        );
 
-      const [liveRows, historyRows] = await Promise.all([
-        queryApi.collectRows(liveFluxQuery),
-        queryApi.collectRows(historyFluxQuery),
-      ]);
-
-      const sankeyValues = await fetchSankeyRuntimeValues({
-        queryApi,
-        user: req.user,
-        items,
-      });
-
-      const latestByField = new Map();
-
-      liveRows.forEach((row) => {
-        const field = row?._field;
-        const timestamp = new Date(row?._time).getTime();
-
-        if (!field || !Number.isFinite(timestamp)) {
-          return;
-        }
-
-        const existing = latestByField.get(field);
-
-        if (!existing || timestamp > existing.timestamp) {
-          latestByField.set(field, {
-            timestamp,
-            value: row?._value,
-          });
-        }
-      });
+      const sankeyValues =
+        await fetchSankeyRuntimeValues({
+          queryApi,
+          user: req.user,
+          items,
+        });
 
       const data = {};
       const fieldTimestamps = {};
       const missingFields = [];
+      const returnedFields = [];
+      const allLiveTimestamps = [];
 
-      validMappings.forEach(([dataKey, channel]) => {
-        const latest = latestByField.get(channel);
+      // History rows from separate measurements are merged by timestamp.
+      const historyByTimestamp =
+        new Map();
 
-        if (!latest) {
-          data[dataKey] = 0;
-          missingFields.push(dataKey);
-          return;
+      groupResults.forEach(
+        ({
+          group,
+          liveRows,
+          historyRows,
+        }) => {
+          const latestByField =
+            new Map();
+
+          liveRows.forEach((row) => {
+            const field =
+              row?._field;
+
+            const timestamp =
+              new Date(
+                row?._time
+              ).getTime();
+
+            if (
+              !field ||
+              !Number.isFinite(
+                timestamp
+              )
+            ) {
+              return;
+            }
+
+            const existing =
+              latestByField.get(field);
+
+            if (
+              !existing ||
+              timestamp >
+                existing.timestamp
+            ) {
+              latestByField.set(
+                field,
+                {
+                  timestamp,
+                  value: row?._value,
+                }
+              );
+            }
+          });
+
+          group.mappings.forEach(
+            ({ dataKey, field }) => {
+              const latest =
+                latestByField.get(
+                  field
+                );
+
+              if (!latest) {
+                data[dataKey] = 0;
+                missingFields.push(
+                  dataKey
+                );
+                return;
+              }
+
+              data[dataKey] =
+                toNumericValue(
+                  latest.value
+                );
+
+              fieldTimestamps[
+                dataKey
+              ] = new Date(
+                latest.timestamp
+              ).toISOString();
+
+              returnedFields.push(
+                dataKey
+              );
+
+              allLiveTimestamps.push(
+                latest.timestamp
+              );
+            }
+          );
+
+          historyRows.forEach(
+            (row) => {
+              const timestamp =
+                new Date(
+                  row?._time
+                ).getTime();
+
+              if (
+                !Number.isFinite(
+                  timestamp
+                )
+              ) {
+                return;
+              }
+
+              const existing =
+                historyByTimestamp.get(
+                  timestamp
+                ) || {
+                  timestamp,
+                  time:
+                    new Date(
+                      timestamp
+                    ).toLocaleTimeString(),
+                  date:
+                    new Date(
+                      timestamp
+                    ).toLocaleDateString(),
+                };
+
+              group.mappings.forEach(
+                ({
+                  dataKey,
+                  field,
+                }) => {
+                  if (
+                    row[field] !==
+                    undefined
+                  ) {
+                    existing[
+                      dataKey
+                    ] =
+                      toNumericValue(
+                        row[field]
+                      );
+                  }
+                }
+              );
+
+              historyByTimestamp.set(
+                timestamp,
+                existing
+              );
+            }
+          );
         }
-
-        data[dataKey] = toNumericValue(latest.value);
-        fieldTimestamps[dataKey] = new Date(
-          latest.timestamp
-        ).toISOString();
-      });
-
-      const liveTimestamps = Array.from(latestByField.values())
-        .map((entry) => entry.timestamp)
-        .filter(Number.isFinite);
-
-      const liveTimestamp = liveTimestamps.length
-        ? Math.max(...liveTimestamps)
-        : null;
-
-      const oldestLiveTimestamp = liveTimestamps.length
-        ? Math.min(...liveTimestamps)
-        : null;
-
-      const history = historyRows
-        .map((row) => {
-          const timestamp = new Date(row._time).getTime();
-
-          return {
-            timestamp,
-            time: new Date(timestamp).toLocaleTimeString(),
-            date: new Date(timestamp).toLocaleDateString(),
-            ...toDashboardData(row),
-          };
-        })
-        .filter((row) => Number.isFinite(row.timestamp));
-
-      const monitorKey = [
-        selectedBucket,
-        measurement,
-        tagKey,
-        tagValue,
-      ].join("|");
-
-      const previousMonitor = liveFetchMonitor.get(monitorKey);
-      const nowMs = Date.now();
-      const liveAgeMs = liveTimestamp
-        ? nowMs - liveTimestamp
-        : null;
-
-      const sourceAdvanced = Boolean(
-        liveTimestamp &&
-          (!previousMonitor ||
-            liveTimestamp > previousMonitor.lastTimestamp)
       );
 
-      const sameTimestampPolls = liveTimestamp
-        ? sourceAdvanced
-          ? 0
-          : (previousMonitor?.sameTimestampPolls || 0) + 1
-        : 0;
+      const history = [
+        ...historyByTimestamp.values(),
+      ].sort(
+        (a, b) =>
+          a.timestamp - b.timestamp
+      );
 
-      liveFetchMonitor.set(monitorKey, {
-        lastTimestamp: liveTimestamp,
-        sameTimestampPolls,
-        lastCheckedAt: nowMs,
-      });
+      const liveTimestamp =
+        allLiveTimestamps.length
+          ? Math.max(
+              ...allLiveTimestamps
+            )
+          : null;
 
-      const returnedFields = validMappings
-        .filter(([, channel]) => latestByField.has(channel))
-        .map(([dataKey]) => dataKey);
+      const oldestLiveTimestamp =
+        allLiveTimestamps.length
+          ? Math.min(
+              ...allLiveTimestamps
+            )
+          : null;
+
+      const monitorKey = groups
+        .map(
+          (group) =>
+            group.groupKey
+        )
+        .sort()
+        .join("||");
+
+      const previousMonitor =
+        liveFetchMonitor.get(
+          monitorKey
+        );
+
+      const nowMs = Date.now();
+
+      const liveAgeMs =
+        liveTimestamp
+          ? nowMs - liveTimestamp
+          : null;
+
+      const sourceAdvanced =
+        Boolean(
+          liveTimestamp &&
+            (!previousMonitor ||
+              liveTimestamp >
+                previousMonitor
+                  .lastTimestamp)
+        );
+
+      const sameTimestampPolls =
+        liveTimestamp
+          ? sourceAdvanced
+            ? 0
+            : (
+                previousMonitor
+                  ?.sameTimestampPolls ||
+                0
+              ) + 1
+          : 0;
+
+      liveFetchMonitor.set(
+        monitorKey,
+        {
+          lastTimestamp:
+            liveTimestamp,
+          sameTimestampPolls,
+          lastCheckedAt: nowMs,
+        }
+      );
 
       const ageSeconds =
         liveAgeMs === null
           ? null
-          : Math.max(0, Math.round(liveAgeMs / 1000));
+          : Math.max(
+              0,
+              Math.round(
+                liveAgeMs / 1000
+              )
+            );
 
       let status = "online";
-      let statusMessage = "Live data is updating normally.";
+      let statusMessage =
+        "Live data is updating normally.";
 
       if (!liveTimestamp) {
         status = "offline";
         statusMessage =
           "No InfluxDB readings were found in the last 24 hours.";
-      } else if (ageSeconds > 60) {
+      } else if (
+        ageSeconds > 60
+      ) {
         status = "critical";
         statusMessage =
           "Data has not been updated for more than 60 seconds.";
-      } else if (ageSeconds > 30) {
+      } else if (
+        ageSeconds > 30
+      ) {
         status = "warning";
-        statusMessage = "Data may be delayed.";
-      } else if (missingFields.length > 0) {
+        statusMessage =
+          "Data may be delayed.";
+      } else if (
+        missingFields.length > 0
+      ) {
         status = "warning";
-        statusMessage = "Some mapped sensor fields are missing.";
+        statusMessage =
+          "Some configured sensor fields are missing.";
       }
 
       const liveStatus = {
         status,
         message: statusMessage,
-        sourceTimestamp: liveTimestamp
-          ? new Date(liveTimestamp).toISOString()
-          : null,
-        oldestFieldTimestamp: oldestLiveTimestamp
-          ? new Date(oldestLiveTimestamp).toISOString()
-          : null,
+
+        sourceTimestamp:
+          liveTimestamp
+            ? new Date(
+                liveTimestamp
+              ).toISOString()
+            : null,
+
+        oldestFieldTimestamp:
+          oldestLiveTimestamp
+            ? new Date(
+                oldestLiveTimestamp
+              ).toISOString()
+            : null,
+
         ageSeconds,
+
         isFresh:
-          liveAgeMs !== null && liveAgeMs <= 30 * 1000,
+          liveAgeMs !== null &&
+          liveAgeMs <= 30 * 1000,
+
         sourceAdvanced,
         sameTimestampPolls,
+
         returnedFields,
-        returnedFieldCount: returnedFields.length,
-        expectedFieldCount: validMappings.length,
+        returnedFieldCount:
+          returnedFields.length,
+
+        expectedFieldCount:
+          Object.keys(
+            normalizedSources
+          ).length,
+
         missingFields,
         fieldTimestamps,
-        historyNewest: history.at(-1)
-          ? new Date(history.at(-1).timestamp).toISOString()
-          : null,
+
+        historyNewest:
+          history.at(-1)
+            ? new Date(
+                history.at(-1)
+                  .timestamp
+              ).toISOString()
+            : null,
       };
 
-      console.log("📊 Influx fetch status:", {
-        measurement,
-        tagValue,
-        requestedRange: rangeDescription,
-        aggregateEvery,
-        status: liveStatus.status,
-        message: liveStatus.message,
-        liveTimestamp: liveStatus.sourceTimestamp,
-        liveAgeSeconds: liveStatus.ageSeconds,
-        liveIsFresh: liveStatus.isFresh,
-        sourceAdvanced: liveStatus.sourceAdvanced,
-        sameTimestampPolls: liveStatus.sameTimestampPolls,
-        returnedFields: `${liveStatus.returnedFieldCount}/${liveStatus.expectedFieldCount}`,
-        missingFields: liveStatus.missingFields,
-        historyCount: history.length,
-        sankeyItems: Object.keys(sankeyValues || {}).length,
-        oldest: history[0]
-          ? new Date(history[0].timestamp).toISOString()
-          : "No data",
-        newest: liveStatus.historyNewest || "No data",
-      });
+      console.log(
+        "📊 SmartMill Influx fetch:",
+        {
+          sourceGroups:
+            groups.length,
+          requestedRange:
+            rangeDescription,
+          aggregateEvery,
+          status:
+            liveStatus.status,
+          liveTimestamp:
+            liveStatus
+              .sourceTimestamp,
+          liveAgeSeconds:
+            liveStatus.ageSeconds,
+          returnedFields:
+            `${liveStatus.returnedFieldCount}/${liveStatus.expectedFieldCount}`,
+          missingFields:
+            liveStatus
+              .missingFields,
+          historyCount:
+            history.length,
+          sankeyItems:
+            Object.keys(
+              sankeyValues || {}
+            ).length,
+        }
+      );
 
       return res.json({
-        timestamp: liveTimestamp
-          ? new Date(liveTimestamp).toISOString()
-          : null,
+        timestamp:
+          liveTimestamp
+            ? new Date(
+                liveTimestamp
+              ).toISOString()
+            : null,
+
         liveStatus,
-        influx: {
-          bucket: selectedBucket,
-          measurement,
-          tagKey,
-          tagValue,
-        },
+
+        // New source-aware response.
+        dataSources:
+          normalizedSources,
+
+        // Kept for older Dashboard code that expects one top-level
+        // Influx source. It is populated only when all data comes
+        // from one group.
+        influx:
+          groups.length === 1
+            ? {
+                bucket:
+                  groups[0].bucket,
+                measurement:
+                  groups[0]
+                    .measurement,
+                tagKey:
+                  groups[0].tagKey,
+                tagValue:
+                  groups[0].tagValue,
+              }
+            : null,
+
         range: {
-          requested: rangeDescription,
+          requested:
+            rangeDescription,
           aggregateEvery,
         },
+
         data,
         history,
         sankeyValues,
-        message: liveTimestamp
-          ? undefined
-          : "No recent data found for this Influx device",
+
+        message:
+          liveTimestamp
+            ? undefined
+            : "No recent data found for the configured Influx source(s)",
       });
     } catch (err) {
-      console.error("❌ Template live data error:", err);
+      console.error(
+        "❌ Template live data error:",
+        err
+      );
 
       return res.status(500).json({
-        error: "Failed to fetch template live data",
+        error:
+          "Failed to fetch template live data",
+        detail:
+          process.env.NODE_ENV ===
+          "development"
+            ? err.message
+            : undefined,
       });
     }
   }
@@ -2879,109 +3351,14 @@ app.post(
 // =====================================
 // SERVER
 // =====================================
-const server = app.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(
     `✅ Server running on http://localhost:${PORT}`
   );
-});
 
-// =====================================
-// LEGACY WEBSOCKET
-// Dashboard now uses /template-live-data.
-// =====================================
-const wss = new WebSocketServer({
-  server,
-});
-
-wss.on("connection", (ws, req) => {
-  const token = new URL(
-    req.url,
-    "http://localhost"
-  ).searchParams.get("token");
-
-  if (!token) {
-    console.log("❌ WS rejected");
-    ws.close();
-    return;
-  }
-
-  try {
-    const decoded = jwt.verify(token, SECRET);
-
-    ws.user = decoded;
-
+  if (missingInfluxSettings.length === 0) {
     console.log(
-      `🔌 ${decoded.role} connected`
+      `✅ InfluxDB configured: ${process.env.INFLUX_URL} | org=${org} | bucket=${bucket}`
     );
-  } catch {
-    console.log("❌ WS invalid token");
-    ws.close();
   }
 });
-
-// Legacy PBLR stream only.
-async function fetchInfluxData() {
-  try {
-    const queryApi =
-      influxDB.getQueryApi(org);
-
-    const fluxQuery = `
-      from(bucket: "${escapeFluxString(bucket)}")
-        |> range(start: -1m)
-        |> filter(fn: (r) =>
-          r._measurement == "PBLR"
-        )
-        |> last()
-        |> pivot(
-          rowKey: ["_time"],
-          columnKey: ["_field"],
-          valueColumn: "_value"
-        )
-    `;
-
-    const rows =
-      await queryApi.collectRows(fluxQuery);
-
-    if (!rows.length) {
-      return {};
-    }
-
-    const row = rows[0];
-    const result = {};
-
-    Object.entries(fieldMap).forEach(
-      ([channel, key]) => {
-        result[key] = toNumericValue(
-          row[channel]
-        );
-      }
-    );
-
-    return result;
-  } catch (err) {
-    console.error(
-      "❌ Legacy Influx Error:",
-      err
-    );
-
-    return {};
-  }
-}
-
-setInterval(async () => {
-  try {
-    const data = await fetchInfluxData();
-    const payload = JSON.stringify(data);
-
-    wss.clients.forEach((client) => {
-      if (client.readyState === 1) {
-        client.send(payload);
-      }
-    });
-  } catch (err) {
-    console.error(
-      "❌ WebSocket stream error:",
-      err
-    );
-  }
-}, 2000);

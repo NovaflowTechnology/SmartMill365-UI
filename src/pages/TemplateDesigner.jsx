@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { widgetLibrary } from "../data/widgetLibrary";
-import { dataOptions } from "../data/dataOptions";
-import { dataRanges } from "../data/dataRanges";
 import WidgetRenderer from "../components/WidgetRenderer";
 import { defaultSankeyConfig } from "../widgets/SankeyWidget";
 
@@ -204,27 +202,14 @@ const supportsRangeConfiguration = (
 };
 
 const defaultInfluxConfig = {
-  bucket: "Mill",
-  measurement: "PBLR",
+  bucket: "",
+  measurement: "",
   tagKey: "id",
   id: "",
   tagValue: "",
 };
 
-const defaultChannelMap = {
-  steamPressure: "ch1",
-  steamFlowrate: "ch2",
-  steamOutletTemp: "ch3",
-  inletDraft: "ch4",
-  outletDraft: "ch5",
-  furnaceDraft: "ch6",
-  waterInletTemp: "ch8",
-  waterFlowrate: "ch9",
-  waterDrumLevel: "ch10",
-  vgPressure: "ch11",
-  vgInletTemp: "ch12",
-  vgOutletTemp: "ch13",
-};
+const defaultChannelMap = {};
 
 // SAMPLE DATA FOR BUILDER PREVIEW
 const previewData = {
@@ -320,6 +305,31 @@ const getUniqueDataKey = (baseKey, options) => {
   }
 
   return uniqueKey;
+};
+
+const formatInfluxFieldLabel = (field = "") =>
+  String(field)
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) =>
+      character.toUpperCase()
+    );
+
+const deduplicateDataOptions = (options = []) => {
+  const seen = new Set();
+
+  return options.filter((option) => {
+    const key = String(option?.key || "").trim();
+
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 };
 
 const InfluxMetadataList = ({
@@ -670,10 +680,32 @@ export default function TemplateDesigner({
     }
   }, [isEditingTemplate, selectedTemplate?.id]);
 
-  const allDataOptions = [
-    ...dataOptions,
+  const influxFieldOptions = influxChannels.map(
+    (field) => ({
+      key: field,
+      label: formatInfluxFieldLabel(field),
+      channel: field,
+      unit: "",
+      isInfluxField: true,
+      source: {
+        bucket: influxConfig.bucket,
+        measurement: influxConfig.measurement,
+        tagKey: influxConfig.tagKey || "id",
+        tagValue:
+          influxConfig.tagValue ||
+          influxConfig.id ||
+          "",
+        field,
+      },
+    })
+  );
+
+  // Influx metadata is now the source of truth.
+  // Custom data sources remain available as optional aliases.
+  const allDataOptions = deduplicateDataOptions([
     ...customDataOptions,
-  ];
+    ...influxFieldOptions,
+  ]);
 
   const allWidgetOptions = [
     ...widgetLibrary.map((widget) => ({
@@ -691,36 +723,34 @@ export default function TemplateDesigner({
     })),
   ];
 
-  const previewValues = customDataOptions.reduce(
+  const previewValues = allDataOptions.reduce(
     (values, option, index) => ({
       ...values,
-      [option.key]: Number.isFinite(Number(values[option.key]))
-        ? Number(values[option.key])
-        : 10 + index * 5,
+      [option.key]:
+        values[option.key] !== undefined
+          ? values[option.key]
+          : 10 + index * 5,
     }),
     { ...previewData }
   );
 
   const getAvailableDataOptionsForType = (type) => {
-    const widget = widgetLibrary.find(
-      (widgetItem) => widgetItem.type === type
-    );
-
-    if (!widget?.supportedData?.length) {
+    if (
+      ["image", "status", "sankey", "logs"].includes(type)
+    ) {
       return [];
     }
 
-    return allDataOptions.filter(
-      (option) =>
-        option.isCustom ||
-        widget.supportedData.includes(option.key)
-    );
+    return allDataOptions;
   };
 
   const availableDataOptions = getAvailableDataOptionsForType(newType);
 
   const getDataSourceLabel = (key) =>
-    allDataOptions.find((option) => option.key === key)?.label ||
+    allDataOptions.find(
+      (option) => option.key === key
+    )?.label ||
+    formatInfluxFieldLabel(key) ||
     key;
 
   const getFallbackWidgetLabel = (type, dataKey) => {
@@ -758,8 +788,8 @@ export default function TemplateDesigner({
             `Sterilizer ${index + 1}`,
           dataKey: link.dataKey || "",
           dataSource: {
-            bucket: influxConfig.bucket || "Mill",
-            measurement: influxConfig.measurement || "PBLR",
+            bucket: influxConfig.bucket || "",
+            measurement: influxConfig.measurement || "",
             tagKey: influxConfig.tagKey || "id",
             tagValue: influxConfig.tagValue || influxConfig.id || "",
             id: influxConfig.id || "",
@@ -1012,10 +1042,8 @@ export default function TemplateDesigner({
     }
 
     if (supportsRangeConfiguration(type) && !isEdit) {
-      const firstDataKey = getAvailableDataOptionsForType(type)[0]?.key || "";
       setNewRangeConfig({
         ...defaultRangeConfig,
-        ...(dataRanges[firstDataKey] || {}),
       });
     }
   };
@@ -1569,6 +1597,34 @@ export default function TemplateDesigner({
     }));
   };
 
+  // Direct Influx fields map to themselves automatically.
+  useEffect(() => {
+    if (!newDataKey) {
+      return;
+    }
+
+    const selectedOption = allDataOptions.find(
+      (option) => option.key === newDataKey
+    );
+
+    if (
+      selectedOption?.isInfluxField &&
+      selectedOption.channel
+    ) {
+      setChannelMap((previous) => ({
+        ...previous,
+        [newDataKey]: selectedOption.channel,
+      }));
+    }
+  }, [
+    newDataKey,
+    influxConfig.bucket,
+    influxConfig.measurement,
+    influxConfig.id,
+    influxConfig.tagValue,
+    JSON.stringify(influxChannels),
+  ]);
+
   // LOAD DEFAULT DATAKEY WHEN TYPE CHANGES
   useEffect(() => {
     const availableOptions = getAvailableDataOptionsForType(newType);
@@ -1592,6 +1648,31 @@ export default function TemplateDesigner({
     }
   }, [newType]);
 
+  useEffect(() => {
+    if (!isMultiDataWidget || !newDataKeys.length) {
+      return;
+    }
+
+    setChannelMap((previous) => {
+      const next = { ...previous };
+
+      newDataKeys.forEach((key) => {
+        const option = allDataOptions.find(
+          (candidate) => candidate.key === key
+        );
+
+        if (option?.isInfluxField && option.channel) {
+          next[key] = option.channel;
+        }
+      });
+
+      return next;
+    });
+  }, [
+    JSON.stringify(newDataKeys),
+    JSON.stringify(influxChannels),
+  ]);
+
   // LOAD A RANGE PRESET WHEN THE USER CHANGES THE DATA SOURCE.
   useEffect(() => {
     if (!newDataKey || !supportsRangeConfiguration(
@@ -1605,7 +1686,6 @@ export default function TemplateDesigner({
 
     setNewRangeConfig({
       ...defaultRangeConfig,
-      ...(dataRanges[newDataKey] || {}),
     });
   }, [newDataKey, newType, selectedItem]);
 
@@ -1790,7 +1870,6 @@ export default function TemplateDesigner({
 
     setNewRangeConfig({
       ...defaultRangeConfig,
-      ...(dataRanges[selectedItem.dataKey] || {}),
       ...(selectedItem.rangeConfig || {}),
     });
 
@@ -3513,7 +3592,7 @@ export default function TemplateDesigner({
                   </h2>
 
                   <p className="text-xs text-gray-500 dark:text-slate-300 mt-1">
-                    Configure the device ID and map dashboard values to Influx channels.
+                    Choose the Influx device. Available fields are loaded directly from the selected measurement.
                   </p>
                 </div>
               </div>
@@ -6842,7 +6921,7 @@ export default function TemplateDesigner({
                                 Need another data source?
                               </h4>
                               <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
-                                Create a custom dashboard value and map it to an Influx channel.
+                                Create an optional friendly dashboard alias for an available Influx field.
                               </p>
                             </div>
 
@@ -6870,33 +6949,11 @@ export default function TemplateDesigner({
                                   </h3>
 
                                   <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                    Configure the unit and operating limits for the selected data source.
+                                    Configure the unit, range, and thresholds for this widget. These values are stored in the template.
                                   </p>
                                 </div>
 
-                                {newDataKey && dataRanges[newDataKey] && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setNewRangeConfig({
-                                        ...defaultRangeConfig,
-                                        ...dataRanges[newDataKey],
-                                      })
-                                    }
-                                    className="
-                                      shrink-0 rounded-xl
-                                      border border-gray-300 dark:border-slate-600
-                                      bg-white dark:bg-slate-900
-                                      px-3 py-2
-                                      text-xs font-semibold
-                                      text-gray-700 dark:text-white
-                                      transition
-                                      hover:bg-gray-100 dark:hover:bg-slate-800
-                                    "
-                                  >
-                                    Reset to preset
-                                  </button>
-                                )}
+
                               </div>
 
                               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -6963,7 +7020,7 @@ export default function TemplateDesigner({
                               </div>
 
                               <div className="mt-4 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                                These settings are saved with this widget and override the default values from dataRanges.js.
+                                These settings are saved directly with this widget and are used by the dashboard at runtime.
                               </div>
                             </div>
                           )}

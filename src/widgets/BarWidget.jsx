@@ -9,14 +9,15 @@ import {
   YAxis,
 } from "recharts";
 
-import { dataRanges } from "../data/dataRanges";
-import { dataOptions } from "../data/dataOptions";
 
 export default function BarWidget({
   data = {},
   dataKeys = [],
   label = "Bar Chart",
   orientation = "vertical",
+  rangeConfig = null,
+  rangeConfigs = {},
+  dataLabels = {},
 }) {
   const colors = [
     "#3b82f6",
@@ -34,15 +35,32 @@ export default function BarWidget({
       ? dataKeys
       : Object.keys(data).slice(0, 3);
 
+  const getConfigForKey = (key) => ({
+    min: 0,
+    max: 100,
+    unit: "",
+    warning: 80,
+    danger: 90,
+    ...(rangeConfig || {}),
+    ...(rangeConfigs?.[key] || {}),
+  });
+
+  const getReadableLabel = (key) =>
+    String(key || "Value")
+      .replace(/_/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+
   const chartData = selectedKeys.map((key, index) => {
-    const option =
-      dataOptions.find((d) => d.key === key);
+    const config = getConfigForKey(key);
 
     return {
-      name: option?.label || key,
+      name: dataLabels?.[key] || getReadableLabel(key),
       key,
       value: Number(data[key] ?? 0),
-      unit: dataRanges[key]?.unit || "",
+      unit: String(config.unit || "").trim(),
       color: colors[index % colors.length],
     };
   });

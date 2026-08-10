@@ -10,7 +10,6 @@ import {
 } from "recharts";
 
 import { useMemo, useId } from "react";
-import { dataRanges } from "../data/dataRanges";
 
 const normaliseTimestamp = (value) => {
   if (typeof value === "number") return value;
@@ -75,6 +74,9 @@ export default function AreaWidget({
   lines = [],
   label = "Area Trend",
   historyWindow = "15m",
+  rangeConfig = null,
+  rangeConfigs = {},
+  dataLabels = {},
 }) {
   const widgetId = useId().replace(/:/g, "");
 
@@ -88,20 +90,40 @@ export default function AreaWidget({
       .sort((a, b) => a.timestamp - b.timestamp);
   }, [data]);
 
-  const mins = lines.map(
-    (line) => dataRanges[line.key]?.min ?? 0
+  const getRangeForKey = (key) => {
+    const config = {
+      min: 0,
+      max: 100,
+      unit: "",
+      ...(rangeConfig || {}),
+      ...(rangeConfigs?.[key] || {}),
+    };
+
+    const min = Number(config.min);
+    const max = Number(config.max);
+
+    return {
+      ...config,
+      min: Number.isFinite(min) ? min : 0,
+      max:
+        Number.isFinite(max) &&
+        max > (Number.isFinite(min) ? min : 0)
+          ? max
+          : (Number.isFinite(min) ? min : 0) + 1,
+      unit: String(config.unit || "").trim(),
+    };
+  };
+
+  const ranges = lines.map((line) =>
+    getRangeForKey(line.key)
   );
 
-  const maxs = lines.map(
-    (line) => dataRanges[line.key]?.max ?? 100
-  );
-
-  const globalMin = mins.length
-    ? Math.min(...mins)
+  const globalMin = ranges.length
+    ? Math.min(...ranges.map((range) => range.min))
     : 0;
 
-  const globalMax = maxs.length
-    ? Math.max(...maxs)
+  const globalMax = ranges.length
+    ? Math.max(...ranges.map((range) => range.max))
     : 100;
 
   const firstTimestamp = chartData[0]?.timestamp;
@@ -186,14 +208,14 @@ export default function AreaWidget({
                   new Date(timestamp).toLocaleString()
                 }
                 formatter={(value, name) => {
-                  const unit = dataRanges[name]?.unit || "";
+                  const unit = getRangeForKey(name).unit || "";
                   const numericValue = Number(value);
 
                   return [
                     Number.isFinite(numericValue)
                       ? `${numericValue.toFixed(1)} ${unit}`
                       : value,
-                    dataRanges[name]?.label || name,
+                    dataLabels?.[name] || name,
                   ];
                 }}
                 contentStyle={{
@@ -213,7 +235,7 @@ export default function AreaWidget({
                   type="monotone"
                   dataKey={line.key}
                   name={
-                    dataRanges[line.key]?.label ||
+                    dataLabels?.[line.key] ||
                     line.key
                   }
                   stroke={line.color}

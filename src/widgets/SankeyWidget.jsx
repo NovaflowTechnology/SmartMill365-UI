@@ -7,20 +7,20 @@ import {
 import { useId } from "react";
 
 export const defaultSankeyConfig = {
-  sourceName: "Boiler A",
-  unit: "psi",
+  sourceName: "Source",
+  unit: "",
   outputs: [
     {
       id: "output-1",
       name: "Sterilizer 1",
       dataKey: "",
       dataSource: {
-        bucket: "Mill",
-        measurement: "PBLR",
+        bucket: "",
+        measurement: "",
         tagKey: "id",
         tagValue: "",
         id: "",
-        channel: "ch2",
+        channel: "",
       },
     },
     {
@@ -28,12 +28,12 @@ export const defaultSankeyConfig = {
       name: "Sterilizer 2",
       dataKey: "",
       dataSource: {
-        bucket: "Mill",
-        measurement: "PBLR",
+        bucket: "",
+        measurement: "",
         tagKey: "id",
         tagValue: "",
         id: "",
-        channel: "ch2",
+        channel: "",
       },
     },
     {
@@ -41,12 +41,12 @@ export const defaultSankeyConfig = {
       name: "Sterilizer 3",
       dataKey: "",
       dataSource: {
-        bucket: "Mill",
-        measurement: "PBLR",
+        bucket: "",
+        measurement: "",
         tagKey: "id",
         tagValue: "",
         id: "",
-        channel: "ch2",
+        channel: "",
       },
     },
   ],
@@ -136,8 +136,8 @@ export const normalizeSankeyConfig = (config = defaultSankeyConfig) => {
         name: link.label || `Output ${index + 1}`,
         dataKey: link.dataKey || "",
         dataSource: {
-          bucket: "Mill",
-          measurement: "PBLR",
+          bucket: "",
+          measurement: "",
           tagKey: "id",
           tagValue: "",
           id: "",

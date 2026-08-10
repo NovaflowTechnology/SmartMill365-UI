@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef } from "react";
-import { dataRanges } from "../data/dataRanges";
 
 const DEFAULT_DISPLAY = {
   mode: "number",
@@ -132,11 +131,14 @@ export default function BigNumberWidget({
       : DEFAULT_DISPLAY.mappings,
   };
 
+  // Runtime range/unit values come only from the configuration
+  // saved with this widget in Template Designer.
   const config = {
-    ...(dataRanges[dataKey] ||
-      dataRanges[label] ||
-      {}),
-
+    min: 0,
+    max: 100,
+    unit: "",
+    warning: 80,
+    danger: 90,
     ...(rangeConfig || {}),
   };
 

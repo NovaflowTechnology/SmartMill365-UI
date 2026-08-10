@@ -1,6 +1,4 @@
 import boilerImg from "../assets/Boiler.png";
-import { dataOptions } from "../data/dataOptions";
-import { dataRanges } from "../data/dataRanges";
 
 export default function ImageWidget({
   valueMap = {},
@@ -10,10 +8,11 @@ export default function ImageWidget({
 }) {
   const safePins = Array.isArray(pins) ? pins : [];
 
-  const allDataOptions = [
-    ...dataOptions,
-    ...(Array.isArray(customDataOptions) ? customDataOptions : []),
-  ];
+  // Available field metadata is supplied by Template Designer.
+  const allDataOptions =
+    Array.isArray(customDataOptions)
+      ? customDataOptions
+      : [];
 
   const imageSrc =
     image?.croppedSrc ||
@@ -93,11 +92,20 @@ export default function ImageWidget({
           (option) => option.key === pin.dataKey
         );
 
+        // Each pin may carry its own saved rangeConfig. If it does not,
+        // use any rangeConfig stored with the supplied field metadata.
         const config = {
-          ...(dataRanges?.[pin.dataKey] || {}),
+          min: 0,
+          max: 100,
+          unit: "",
+          warning: 80,
+          danger: 90,
+          ...(dataOption?.rangeConfig || {}),
+          ...(pin?.rangeConfig || {}),
           unit:
+            pin?.rangeConfig?.unit ||
+            dataOption?.rangeConfig?.unit ||
             dataOption?.unit ||
-            dataRanges?.[pin.dataKey]?.unit ||
             "",
         };
 

@@ -10,7 +10,6 @@ import {
 } from "recharts";
 
 import { useMemo } from "react";
-import { dataRanges } from "../data/dataRanges";
 
 const DEFAULT_RANGE = {
   min: 0,
@@ -111,7 +110,9 @@ export default function LineWidget({
    *   },
    * }
    */
+  rangeConfig = null,
   rangeConfigs = {},
+  dataLabels = {},
 }) {
   const chartData = useMemo(() => {
     return [...data]
@@ -130,17 +131,14 @@ export default function LineWidget({
       );
   }, [data]);
 
-  /*
-   * Priority:
-   * default range
-   * → dataRanges.js preset
-   * → widget-specific series override
-   */
+  // Template Designer is the only source of runtime range values.
+  // `rangeConfig` supports the current single-range template format.
+  // `rangeConfigs[key]` is supported for future per-series settings.
   const getRangeForKey = (key) => {
     const mergedRange = {
       ...DEFAULT_RANGE,
-      ...(dataRanges[key] || {}),
-      ...(rangeConfigs[key] || {}),
+      ...(rangeConfig || {}),
+      ...(rangeConfigs?.[key] || {}),
     };
 
     const min = toFiniteNumber(
@@ -350,8 +348,7 @@ export default function LineWidget({
                       ? `${formattedValue} ${range.unit}`
                       : formattedValue,
 
-                    dataRanges[dataKey]
-                      ?.label ||
+                    dataLabels?.[dataKey] ||
                       dataKey,
                   ];
                 }}
@@ -378,8 +375,7 @@ export default function LineWidget({
                     );
 
                   const displayName =
-                    dataRanges[line.key]
-                      ?.label ||
+                    dataLabels?.[line.key] ||
                     line.label ||
                     line.key;
 
