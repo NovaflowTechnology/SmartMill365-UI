@@ -112,6 +112,12 @@ const defaultBigNumberDisplay = {
 
   fallbackText: "",
   fallbackColor: "default",
+
+  // Combined Stat + Machine Status mode.
+  statusDataKey: "",
+  statusLabel: "Machine Status",
+  statusSource: "mapping",
+  showProgress: true,
 };
 
 const defaultRangeConfig = {
@@ -137,6 +143,25 @@ const defaultLogDisplay = {
     "error",
   ],
 };
+
+const defaultChartDisplay = {
+  showGrid: true,
+  showLegend: true,
+  showTooltip: true,
+  showXAxis: true,
+  showYAxis: true,
+  showDots: false,
+  xAxisFormat: "auto",
+  xAxisTickGap: 30,
+  yAxisMode: "range",
+  yAxisMin: "",
+  yAxisMax: "",
+  yAxisTickCount: 5,
+  strokeWidth: 2.5,
+  curveType: "monotone",
+};
+
+const defaultHistoryWindow = "15m";
 
 const previewLogs = [
   {
@@ -505,6 +530,18 @@ export default function TemplateDesigner({
   ] = useState({
     ...defaultLogDisplay,
   });
+
+  const [
+    newChartDisplay,
+    setNewChartDisplay,
+  ] = useState({
+    ...defaultChartDisplay,
+  });
+
+  const [
+    newHistoryWindow,
+    setNewHistoryWindow,
+  ] = useState(defaultHistoryWindow);
 
   const [customDataOptions, setCustomDataOptions] = useState([]);
 
@@ -1039,6 +1076,18 @@ export default function TemplateDesigner({
           ...defaultLogDisplay.levelFilter,
         ],
       });
+    }
+
+    if (
+      ["line", "area", "bar"].includes(type) &&
+      !isEdit
+    ) {
+      setNewChartDisplay({
+        ...defaultChartDisplay,
+      });
+      setNewHistoryWindow(
+        defaultHistoryWindow
+      );
     }
 
     if (supportsRangeConfiguration(type) && !isEdit) {
@@ -1889,6 +1938,16 @@ export default function TemplateDesigner({
           ],
     });
 
+    setNewChartDisplay({
+      ...defaultChartDisplay,
+      ...(selectedItem.chartDisplay || {}),
+    });
+
+    setNewHistoryWindow(
+      selectedItem.historyWindow ||
+        defaultHistoryWindow
+    );
+
     setImageDraftPins(
       selectedItem.type === "image" && Array.isArray(selectedItem.pins)
         ? selectedItem.pins
@@ -2724,6 +2783,18 @@ export default function TemplateDesigner({
           ? newOrientation
           : undefined,
 
+      chartDisplay:
+        ["line", "area", "bar"].includes(
+          newType
+        )
+          ? { ...newChartDisplay }
+          : undefined,
+
+      historyWindow:
+        ["line", "area"].includes(newType)
+          ? newHistoryWindow
+          : undefined,
+
       x: activeCell.col,
       y: activeCell.row,
 
@@ -2746,10 +2817,7 @@ export default function TemplateDesigner({
             }
           : undefined,
 
-      logs:
-        newType === "logs"
-          ? previewLogs
-          : undefined,
+      logs: undefined,
 
       rangeConfig: supportsRangeConfiguration(
       newType,
@@ -2914,6 +2982,20 @@ export default function TemplateDesigner({
                 ? newOrientation
                 : undefined,
 
+            chartDisplay:
+              ["line", "area", "bar"].includes(
+                newType
+              )
+                ? { ...newChartDisplay }
+                : undefined,
+
+            historyWindow:
+              ["line", "area"].includes(
+                newType
+              )
+                ? newHistoryWindow
+                : undefined,
+
             w: newW,
             h: newH,
 
@@ -2935,8 +3017,7 @@ export default function TemplateDesigner({
 
             logs:
               newType === "logs"
-                ? selectedItem.logs ||
-                  previewLogs
+                ? selectedItem.logs
                 : selectedItem.logs,
 
             rangeConfig: supportsRangeConfiguration(
@@ -3160,6 +3241,18 @@ export default function TemplateDesigner({
             ? newOrientation
             : undefined,
 
+        chartDisplay:
+          ["line", "area", "bar"].includes(
+            newType
+          )
+            ? { ...newChartDisplay }
+            : undefined,
+
+        historyWindow:
+          ["line", "area"].includes(newType)
+            ? newHistoryWindow
+            : undefined,
+
         w: newW,
         h: newH,
 
@@ -3179,10 +3272,7 @@ export default function TemplateDesigner({
               }
             : undefined,
 
-        logs:
-          newType === "logs"
-            ? previewLogs
-            : undefined,
+        logs: undefined,
 
         rangeConfig: supportsRangeConfiguration(
       newType,
@@ -3473,7 +3563,7 @@ export default function TemplateDesigner({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
                   Rows
@@ -4817,6 +4907,20 @@ export default function TemplateDesigner({
                                 ? newOrientation
                                 : undefined,
 
+                            chartDisplay:
+                              ["line", "area", "bar"].includes(
+                                newType
+                              )
+                                ? { ...newChartDisplay }
+                                : undefined,
+
+                            historyWindow:
+                              ["line", "area"].includes(
+                                newType
+                              )
+                                ? newHistoryWindow
+                                : undefined,
+
                             w: newW,
                             h: newH,
 
@@ -5482,6 +5586,12 @@ export default function TemplateDesigner({
                                   description:
                                     "Convert raw values such as 0, 1, and 2 into status text.",
                                 },
+                                {
+                                  value: "combined",
+                                  label: "Stat + Status",
+                                  description:
+                                    "Show a live numeric KPI together with machine operating status.",
+                                },
                               ].map((option) => {
                                 const selected =
                                   newBigNumberDisplay.mode ===
@@ -5979,9 +6089,193 @@ export default function TemplateDesigner({
                             </div>
                           )}
 
-                          {/* VALUE MAPPING MODE */}
                           {newBigNumberDisplay.mode ===
-                            "valueMapping" && (
+                            "combined" && (
+                            <div
+                              className="
+                                mt-5 rounded-2xl border
+                                border-cyan-200 bg-cyan-50/60
+                                p-4
+                                dark:border-cyan-500/25
+                                dark:bg-cyan-500/[0.05]
+                              "
+                            >
+                              <div className="mb-4">
+                                <h4 className="text-sm font-bold text-gray-900 dark:text-white">
+                                  Machine Status
+                                </h4>
+                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                  Combine the primary numeric stat with a status field or derive status from warning/danger thresholds.
+                                </p>
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Status Source
+                                  </label>
+                                  <select
+                                    value={
+                                      newBigNumberDisplay.statusSource ||
+                                      "mapping"
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          statusSource:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 text-gray-900
+                                      outline-none focus:ring-2
+                                      focus:ring-cyan-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  >
+                                    <option value="mapping">
+                                      Value Mapping
+                                    </option>
+                                    <option value="threshold">
+                                      Warning / Danger Threshold
+                                    </option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Status Data Field
+                                  </label>
+                                  <select
+                                    value={
+                                      newBigNumberDisplay.statusDataKey ||
+                                      ""
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          statusDataKey:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    disabled={
+                                      newBigNumberDisplay.statusSource ===
+                                      "threshold"
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 text-gray-900
+                                      outline-none focus:ring-2
+                                      focus:ring-cyan-500
+                                      disabled:cursor-not-allowed
+                                      disabled:opacity-50
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  >
+                                    <option value="">
+                                      Use primary value
+                                    </option>
+                                    {allDataOptions.map(
+                                      (option) => (
+                                        <option
+                                          key={
+                                            option.key
+                                          }
+                                          value={
+                                            option.key
+                                          }
+                                        >
+                                          {
+                                            option.label
+                                          }
+                                        </option>
+                                      )
+                                    )}
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Status Label
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={
+                                      newBigNumberDisplay.statusLabel ||
+                                      ""
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          statusLabel:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    placeholder="Machine Status"
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 text-gray-900
+                                      outline-none focus:ring-2
+                                      focus:ring-cyan-500
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                      dark:text-white
+                                    "
+                                  />
+                                </div>
+
+                                <label
+                                  className="
+                                    flex items-center gap-3
+                                    rounded-2xl border
+                                    border-gray-200 bg-white
+                                    px-4 py-3
+                                    dark:border-slate-700
+                                    dark:bg-slate-900
+                                  "
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      newBigNumberDisplay.showProgress !==
+                                      false
+                                    }
+                                    onChange={(event) =>
+                                      setNewBigNumberDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          showProgress:
+                                            event.target.checked,
+                                        })
+                                      )
+                                    }
+                                  />
+                                  <span className="text-sm font-semibold text-gray-700 dark:text-white">
+                                    Show range progress
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* VALUE MAPPING MODE */}
+                          {["valueMapping", "combined"].includes(
+                            newBigNumberDisplay.mode
+                          ) && (
                             <div className="mt-5 space-y-4">
                               <div>
                                 <h4 className="text-sm font-bold text-gray-900 dark:text-white">
@@ -6935,6 +7229,351 @@ export default function TemplateDesigner({
                             </button>
                           </div>
                         </div>
+
+                        {["line", "area", "bar"].includes(
+                          newType
+                        ) && (
+                          <div
+                            className="
+                              mt-5 rounded-3xl border
+                              border-cyan-200/80
+                              bg-gradient-to-br
+                              from-cyan-50/70 via-white
+                              to-blue-50/60 p-5
+                              dark:border-cyan-500/20
+                              dark:from-cyan-950/20
+                              dark:via-slate-950
+                              dark:to-blue-950/20
+                            "
+                          >
+                            <div className="mb-5">
+                              <h3 className="font-bold text-gray-900 dark:text-white">
+                                Chart Display
+                              </h3>
+                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                Configure axes, grid, time labels and chart density. The chart automatically simplifies itself when the widget becomes small.
+                              </p>
+                            </div>
+
+                            {["line", "area"].includes(
+                              newType
+                            ) && (
+                              <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Time Window
+                                  </label>
+                                  <select
+                                    value={
+                                      newHistoryWindow
+                                    }
+                                    onChange={(event) =>
+                                      setNewHistoryWindow(
+                                        event.target.value
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  >
+                                    <option value="5m">5 minutes</option>
+                                    <option value="15m">15 minutes</option>
+                                    <option value="1h">1 hour</option>
+                                    <option value="6h">6 hours</option>
+                                    <option value="24h">24 hours</option>
+                                    <option value="2d">2 days</option>
+                                    <option value="7d">7 days</option>
+                                    <option value="30d">30 days</option>
+                                    <option value="90d">90 days</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    X-axis Time Format
+                                  </label>
+                                  <select
+                                    value={
+                                      newChartDisplay.xAxisFormat
+                                    }
+                                    onChange={(event) =>
+                                      setNewChartDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          xAxisFormat:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  >
+                                    <option value="auto">Auto</option>
+                                    <option value="time">Time only</option>
+                                    <option value="date">Date only</option>
+                                    <option value="datetime">Date + time</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                              {[
+                                ["showGrid", "Grid"],
+                                ["showLegend", "Legend"],
+                                ["showTooltip", "Tooltip"],
+                                ["showXAxis", "X-axis"],
+                                ["showYAxis", "Y-axis"],
+                                ...(newType !== "bar"
+                                  ? [["showDots", "Data points"]]
+                                  : []),
+                              ].map(
+                                ([key, label]) => (
+                                  <label
+                                    key={key}
+                                    className="
+                                      flex items-center gap-2
+                                      rounded-2xl border
+                                      border-gray-200 bg-white
+                                      px-3 py-2.5
+                                      dark:border-slate-700
+                                      dark:bg-slate-900
+                                    "
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={
+                                        newChartDisplay[
+                                          key
+                                        ] !== false
+                                      }
+                                      onChange={(event) =>
+                                        setNewChartDisplay(
+                                          (previous) => ({
+                                            ...previous,
+                                            [key]:
+                                              event.target.checked,
+                                          })
+                                        )
+                                      }
+                                    />
+                                    <span className="text-xs font-semibold text-gray-700 dark:text-white">
+                                      {label}
+                                    </span>
+                                  </label>
+                                )
+                              )}
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                  Y-axis Range
+                                </label>
+                                <select
+                                  value={
+                                    newChartDisplay.yAxisMode
+                                  }
+                                  onChange={(event) =>
+                                    setNewChartDisplay(
+                                      (previous) => ({
+                                        ...previous,
+                                        yAxisMode:
+                                          event.target.value,
+                                      })
+                                    )
+                                  }
+                                  className="
+                                    w-full rounded-2xl border
+                                    border-gray-300 bg-white
+                                    px-4 py-3 dark:text-white
+                                    dark:border-slate-600
+                                    dark:bg-slate-900
+                                  "
+                                >
+                                  <option value="range">
+                                    Use widget range
+                                  </option>
+                                  <option value="auto">
+                                    Auto fit data
+                                  </option>
+                                  <option value="custom">
+                                    Custom axis
+                                  </option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                  Y-axis Tick Count
+                                </label>
+                                <input
+                                  type="number"
+                                  min="2"
+                                  max="12"
+                                  value={
+                                    newChartDisplay.yAxisTickCount
+                                  }
+                                  onChange={(event) =>
+                                    setNewChartDisplay(
+                                      (previous) => ({
+                                        ...previous,
+                                        yAxisTickCount:
+                                          event.target.value,
+                                      })
+                                    )
+                                  }
+                                  className="
+                                    w-full rounded-2xl border
+                                    border-gray-300 bg-white
+                                    px-4 py-3 dark:text-white
+                                    dark:border-slate-600
+                                    dark:bg-slate-900
+                                  "
+                                />
+                              </div>
+                            </div>
+
+                            {newChartDisplay.yAxisMode ===
+                              "custom" && (
+                              <div className="mt-4 grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Axis Minimum
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={
+                                      newChartDisplay.yAxisMin
+                                    }
+                                    onChange={(event) =>
+                                      setNewChartDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          yAxisMin:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Axis Maximum
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={
+                                      newChartDisplay.yAxisMax
+                                    }
+                                    onChange={(event) =>
+                                      setNewChartDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          yAxisMax:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {["line", "area"].includes(
+                              newType
+                            ) && (
+                              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Curve
+                                  </label>
+                                  <select
+                                    value={
+                                      newChartDisplay.curveType
+                                    }
+                                    onChange={(event) =>
+                                      setNewChartDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          curveType:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  >
+                                    <option value="monotone">Smooth</option>
+                                    <option value="linear">Linear</option>
+                                    <option value="stepAfter">Step</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Line Thickness
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="6"
+                                    step="0.5"
+                                    value={
+                                      newChartDisplay.strokeWidth
+                                    }
+                                    onChange={(event) =>
+                                      setNewChartDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          strokeWidth:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-2xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {supportsRangeConfiguration(
       newType,

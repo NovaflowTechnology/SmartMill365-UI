@@ -39,8 +39,8 @@ export default function ImageWidget({
 
   const statusStyles = {
     normal: {
-      pin: "bg-emerald-500",
-      text: "text-emerald-400",
+      pin: "bg-cyan-400",
+      text: "text-cyan-300",
       label: "NORMAL",
     },
     warning: {
@@ -59,7 +59,10 @@ export default function ImageWidget({
     <div
       className="
         relative h-full w-full overflow-hidden rounded-2xl
-        bg-gray-100 dark:bg-gray-900
+        border border-cyan-100/80
+        bg-gradient-to-br from-slate-100 via-white to-cyan-50
+        dark:border-cyan-500/20
+        dark:from-slate-950 dark:via-slate-900 dark:to-cyan-950/20
       "
     >
       <img

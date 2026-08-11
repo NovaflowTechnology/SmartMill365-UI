@@ -53,17 +53,24 @@ export const defaultSankeyConfig = {
 };
 
 const nodeColors = [
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#dc2626",
-  "#7c3aed",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
+  "#22d3ee",
+  "#3b82f6",
+  "#8b5cf6",
+  "#14b8a6",
+  "#6366f1",
+  "#06b6d4",
+  "#a855f7",
+  "#0ea5e9",
 ];
 
 const linkColorPairs = [
+  {
+    start: "#a5f3fc",
+    middle: "#67e8f9",
+    end: "#22d3ee",
+    text: "#0891b2",
+    node: "#06b6d4",
+  },
   {
     start: "#bfdbfe",
     middle: "#93c5fd",
@@ -72,18 +79,11 @@ const linkColorPairs = [
     node: "#2563eb",
   },
   {
-    start: "#a7f3d0",
-    middle: "#6ee7b7",
-    end: "#34d399",
-    text: "#047857",
-    node: "#059669",
-  },
-  {
-    start: "#fde68a",
-    middle: "#fcd34d",
-    end: "#fbbf24",
-    text: "#b45309",
-    node: "#d97706",
+    start: "#ddd6fe",
+    middle: "#c4b5fd",
+    end: "#a78bfa",
+    text: "#6d28d9",
+    node: "#7c3aed",
   },
   {
     start: "#fecaca",

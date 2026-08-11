@@ -208,9 +208,14 @@ export default function LogsWidget({
         flex h-full w-full
         min-h-0 flex-col
         overflow-hidden
-        rounded-2xl
-        bg-white
-        dark:bg-slate-900
+        rounded-2xl border
+        border-cyan-100/80
+        bg-gradient-to-br
+        from-slate-50 via-white to-cyan-50/40
+        dark:border-cyan-500/20
+        dark:from-slate-950
+        dark:via-slate-900
+        dark:to-cyan-950/20
       "
     >
       <div
@@ -218,9 +223,11 @@ export default function LogsWidget({
           flex shrink-0
           items-center justify-between
           gap-3 border-b
-          border-slate-200
+          border-cyan-100/80
+          bg-cyan-50/30
           px-4 py-3
-          dark:border-slate-700
+          dark:border-cyan-500/15
+          dark:bg-cyan-500/[0.03]
         "
       >
         <div className="min-w-0">

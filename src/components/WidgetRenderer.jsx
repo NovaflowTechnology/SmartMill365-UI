@@ -11,6 +11,17 @@ import PieWidget from "../widgets/PieWidget";
 import SankeyWidget from "../widgets/SankeyWidget";
 import LogsWidget from "../widgets/LogsWidget";
 
+const TECH_COLORS = [
+  "#22d3ee",
+  "#3b82f6",
+  "#8b5cf6",
+  "#14b8a6",
+  "#f59e0b",
+  "#f43f5e",
+  "#a3e635",
+  "#ec4899",
+];
+
 export default function WidgetRenderer({
   type,
   value,
@@ -23,6 +34,13 @@ export default function WidgetRenderer({
   updateItem = () => {},
   editMode = false,
 }) {
+  const selectedKeys =
+    item?.dataKeys?.length > 0
+      ? item.dataKeys
+      : dataKey
+      ? [dataKey]
+      : [];
+
   switch (type) {
     case "status":
       return (
@@ -32,13 +50,15 @@ export default function WidgetRenderer({
       );
 
     case "logs": {
+      // Runtime data takes priority over any preview data
+      // accidentally stored in an old template.
       const logs =
-        Array.isArray(item?.logs)
-          ? item.logs
-          : Array.isArray(data?.logs)
+        Array.isArray(data?.logs)
           ? data.logs
           : Array.isArray(liveStatus?.logs)
           ? liveStatus.logs
+          : Array.isArray(item?.logs)
+          ? item.logs
           : [];
 
       return (
@@ -75,14 +95,7 @@ export default function WidgetRenderer({
         />
       );
 
-    case "bar": {
-      const selectedKeys =
-        item?.dataKeys?.length > 0
-          ? item.dataKeys
-          : dataKey
-          ? [dataKey]
-          : [];
-
+    case "bar":
       return (
         <BarWidget
           data={data}
@@ -98,18 +111,19 @@ export default function WidgetRenderer({
           rangeConfig={
             item?.rangeConfig
           }
+          rangeConfigs={
+            item?.rangeConfigs
+          }
+          dataLabels={
+            item?.dataLabels
+          }
+          chartDisplay={
+            item?.chartDisplay
+          }
         />
       );
-    }
 
-    case "pie": {
-      const selectedKeys =
-        item?.dataKeys?.length > 0
-          ? item.dataKeys
-          : dataKey
-          ? [dataKey]
-          : [];
-
+    case "pie":
       return (
         <PieWidget
           data={data}
@@ -119,7 +133,6 @@ export default function WidgetRenderer({
           }}
         />
       );
-    }
 
     case "sankey":
       return (
@@ -129,10 +142,20 @@ export default function WidgetRenderer({
         />
       );
 
-    case "bignumber":
+    case "bignumber": {
+      const statusDataKey =
+        item?.bigNumberDisplay
+          ?.statusDataKey || "";
+
+      const statusValue =
+        statusDataKey
+          ? data?.[statusDataKey]
+          : undefined;
+
       return (
         <BigNumberWidget
           value={value}
+          statusValue={statusValue}
           label={item?.label || dataKey}
           dataKey={dataKey}
           display={
@@ -143,24 +166,9 @@ export default function WidgetRenderer({
           }
         />
       );
+    }
 
-    case "area": {
-      const colors = [
-        "#10b981",
-        "#3b82f6",
-        "#ef4444",
-        "#f59e0b",
-        "#8b5cf6",
-        "#06b6d4",
-      ];
-
-      const selectedKeys =
-        item?.dataKeys?.length > 0
-          ? item.dataKeys
-          : dataKey
-          ? [dataKey]
-          : [];
-
+    case "area":
       return (
         <AreaWidget
           data={history}
@@ -169,42 +177,39 @@ export default function WidgetRenderer({
             "Area Trend"
           }
           historyWindow={
+            item?.historyWindow ||
             historyWindow
           }
           rangeConfig={
             item?.rangeConfig
           }
+          rangeConfigs={
+            item?.rangeConfigs
+          }
+          dataLabels={
+            item?.dataLabels
+          }
+          chartDisplay={
+            item?.chartDisplay
+          }
           lines={selectedKeys.map(
             (key, index) => ({
               key,
+              label:
+                item?.dataLabels?.[
+                  key
+                ],
               color:
-                colors[
+                TECH_COLORS[
                   index %
-                    colors.length
+                    TECH_COLORS.length
                 ],
             })
           )}
         />
       );
-    }
 
-    case "line": {
-      const colors = [
-        "#3b82f6",
-        "#ef4444",
-        "#22c55e",
-        "#f59e0b",
-        "#8b5cf6",
-        "#06b6d4",
-      ];
-
-      const selectedKeys =
-        item?.dataKeys?.length > 0
-          ? item.dataKeys
-          : dataKey
-          ? [dataKey]
-          : [];
-
+    case "line":
       return (
         <LineWidget
           data={history}
@@ -213,24 +218,37 @@ export default function WidgetRenderer({
             "Trend"
           }
           historyWindow={
+            item?.historyWindow ||
             historyWindow
           }
           rangeConfig={
             item?.rangeConfig
           }
+          rangeConfigs={
+            item?.rangeConfigs
+          }
+          dataLabels={
+            item?.dataLabels
+          }
+          chartDisplay={
+            item?.chartDisplay
+          }
           lines={selectedKeys.map(
             (key, index) => ({
               key,
+              label:
+                item?.dataLabels?.[
+                  key
+                ],
               color:
-                colors[
+                TECH_COLORS[
                   index %
-                    colors.length
+                    TECH_COLORS.length
                 ],
             })
           )}
         />
       );
-    }
 
     case "image":
       if (editMode) {
@@ -268,7 +286,7 @@ export default function WidgetRenderer({
 
     default:
       return (
-        <div className="text-gray-400">
+        <div className="flex h-full items-center justify-center text-slate-400">
           Unknown Widget
         </div>
       );

@@ -343,10 +343,13 @@ export default function StatusWidget({
         flex h-full w-full
         flex-col overflow-hidden
         rounded-2xl border
-        bg-white
+        bg-gradient-to-br
+        from-slate-50 via-white to-cyan-50/40
         p-4
         transition-all duration-300
-        dark:bg-slate-900
+        dark:from-slate-950
+        dark:via-slate-900
+        dark:to-cyan-950/20
         ${style.border}
         ${style.glow}
       `}
