@@ -7,70 +7,67 @@ import {
 import { useId } from "react";
 
 export const defaultSankeyConfig = {
-  sourceName: "Source",
-  unit: "",
+  sourceName: "Boiler A",
+  sourceColor: "#2563eb",
+  unit: "psi",
   outputs: [
     {
       id: "output-1",
       name: "Sterilizer 1",
+      color: "#06b6d4",
       dataKey: "",
       dataSource: {
-        bucket: "",
-        measurement: "",
+        bucket: "Mill",
+        measurement: "PBLR",
         tagKey: "id",
         tagValue: "",
         id: "",
-        channel: "",
+        channel: "ch2",
       },
     },
     {
       id: "output-2",
       name: "Sterilizer 2",
+      color: "#10b981",
       dataKey: "",
       dataSource: {
-        bucket: "",
-        measurement: "",
+        bucket: "Mill",
+        measurement: "PBLR",
         tagKey: "id",
         tagValue: "",
         id: "",
-        channel: "",
+        channel: "ch2",
       },
     },
     {
       id: "output-3",
       name: "Sterilizer 3",
+      color: "#f59e0b",
       dataKey: "",
       dataSource: {
-        bucket: "",
-        measurement: "",
+        bucket: "Mill",
+        measurement: "PBLR",
         tagKey: "id",
         tagValue: "",
         id: "",
-        channel: "",
+        channel: "ch2",
       },
     },
   ],
 };
 
 const nodeColors = [
-  "#22d3ee",
-  "#3b82f6",
-  "#8b5cf6",
-  "#14b8a6",
-  "#6366f1",
-  "#06b6d4",
-  "#a855f7",
-  "#0ea5e9",
+  "#2563eb",
+  "#059669",
+  "#d97706",
+  "#dc2626",
+  "#7c3aed",
+  "#0891b2",
+  "#db2777",
+  "#65a30d",
 ];
 
 const linkColorPairs = [
-  {
-    start: "#a5f3fc",
-    middle: "#67e8f9",
-    end: "#22d3ee",
-    text: "#0891b2",
-    node: "#06b6d4",
-  },
   {
     start: "#bfdbfe",
     middle: "#93c5fd",
@@ -79,11 +76,18 @@ const linkColorPairs = [
     node: "#2563eb",
   },
   {
-    start: "#ddd6fe",
-    middle: "#c4b5fd",
-    end: "#a78bfa",
-    text: "#6d28d9",
-    node: "#7c3aed",
+    start: "#a7f3d0",
+    middle: "#6ee7b7",
+    end: "#34d399",
+    text: "#047857",
+    node: "#059669",
+  },
+  {
+    start: "#fde68a",
+    middle: "#fcd34d",
+    end: "#fbbf24",
+    text: "#b45309",
+    node: "#d97706",
   },
   {
     start: "#fecaca",
@@ -122,6 +126,49 @@ const linkColorPairs = [
   },
 ];
 
+const normalizeHexColor = (value, fallback = "#2563eb") => {
+  const text = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(text)
+    ? text
+    : fallback;
+};
+
+const mixHex = (hex, target, amount) => {
+  const source = normalizeHexColor(hex);
+  const destination = normalizeHexColor(target);
+
+  const parse = (value) => ({
+    r: parseInt(value.slice(1, 3), 16),
+    g: parseInt(value.slice(3, 5), 16),
+    b: parseInt(value.slice(5, 7), 16),
+  });
+
+  const a = parse(source);
+  const b = parse(destination);
+
+  const channel = (start, end) =>
+    Math.round(start + (end - start) * amount)
+      .toString(16)
+      .padStart(2, "0");
+
+  return `#${channel(a.r, b.r)}${channel(a.g, b.g)}${channel(a.b, b.b)}`;
+};
+
+const getColorSet = (color, fallbackPair) => {
+  const base = normalizeHexColor(
+    color,
+    fallbackPair?.node || "#2563eb"
+  );
+
+  return {
+    start: mixHex(base, "#ffffff", 0.58),
+    middle: mixHex(base, "#ffffff", 0.28),
+    end: base,
+    text: mixHex(base, "#000000", 0.3),
+    node: mixHex(base, "#000000", 0.08),
+  };
+};
+
 const previewOnlyValues = [44.1, 33, 31.2, 28.5, 22.8, 18.6];
 
 const createId = (prefix) =>
@@ -136,8 +183,8 @@ export const normalizeSankeyConfig = (config = defaultSankeyConfig) => {
         name: link.label || `Output ${index + 1}`,
         dataKey: link.dataKey || "",
         dataSource: {
-          bucket: "",
-          measurement: "",
+          bucket: "Mill",
+          measurement: "PBLR",
           tagKey: "id",
           tagValue: "",
           id: "",
@@ -149,10 +196,20 @@ export const normalizeSankeyConfig = (config = defaultSankeyConfig) => {
 
   return {
     sourceName: config?.sourceName || defaultSankeyConfig.sourceName,
+    sourceColor: normalizeHexColor(
+      config?.sourceColor,
+      defaultSankeyConfig.sourceColor
+    ),
     unit: config?.unit || defaultSankeyConfig.unit,
     outputs: outputs.map((output, index) => ({
       id: output.id || createId("output"),
       name: output.name || `Output ${index + 1}`,
+      color: normalizeHexColor(
+        output.color,
+        linkColorPairs[
+          index % linkColorPairs.length
+        ].node
+      ),
       dataKey: output.dataKey || "",
       dataSource: {
         bucket:
@@ -418,30 +475,25 @@ export default function SankeyWidget({
         Number.isFinite(Number(previewOnlyValue)),
       runtimeTimestamp: runtimeInfo?.timestamp || null,
       runtimeError: runtimeInfo?.error || null,
-      gradientStart:
-        linkColorPairs[
-          index % linkColorPairs.length
-        ].start,
+      ...(() => {
+        const fallbackPair =
+          linkColorPairs[
+            index % linkColorPairs.length
+          ];
 
-      gradientMiddle:
-        linkColorPairs[
-          index % linkColorPairs.length
-        ].middle,
+        const colorSet = getColorSet(
+          output.color,
+          fallbackPair
+        );
 
-      gradientEnd:
-        linkColorPairs[
-          index % linkColorPairs.length
-        ].end,
-
-      labelColor:
-        linkColorPairs[
-          index % linkColorPairs.length
-        ].text,
-
-      nodeColor:
-        linkColorPairs[
-          index % linkColorPairs.length
-        ].node,
+        return {
+          gradientStart: colorSet.start,
+          gradientMiddle: colorSet.middle,
+          gradientEnd: colorSet.end,
+          labelColor: colorSet.text,
+          nodeColor: colorSet.node,
+        };
+      })(),
       displayValue: `${formatNumber(value)} ${config.unit || ""}`,
     };
   });
@@ -464,7 +516,10 @@ export default function SankeyWidget({
   const nodes = [
     {
       name: config.sourceName || "Source",
-      color: nodeColors[0],
+      color: normalizeHexColor(
+        config.sourceColor,
+        nodeColors[0]
+      ),
       isSource: true,
       displayValue:
         totalValue > 0

@@ -8,13 +8,15 @@ import {
   Unlock,
   Image as ImageIcon,
   MapPin,
+  Database,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
   Moon,
   Sun,
 } from "lucide-react";
 
 import boilerImg from "../assets/Boiler.png";
-
-import { dataOptions } from "../data/dataOptions";
 
 const clamp = (value, min, max) =>
   Math.min(Math.max(value, min), max);
@@ -96,14 +98,132 @@ export default function ImageWidgetEditor({
     ? widget.pins
     : [];
 
-  const customDataOptions = Array.isArray(widget?.customDataOptions)
-    ? widget.customDataOptions
-    : [];
+  /*
+   * Data Mapping is completed at Template Designer level first.
+   * Image pins inherit that mapped device and only select from the
+   * fields available for that device.
+   */
+  const templateMapping =
+    widget?.designerSnapshot?.influxConfig || {};
 
-  const allDataOptions = [
-    ...dataOptions,
-    ...customDataOptions,
-  ];
+  const mappedSource = {
+    bucket: String(templateMapping.bucket || ""),
+    measurement: String(templateMapping.measurement || ""),
+    tagKey: String(templateMapping.tagKey || "id"),
+    tagValue: String(
+      templateMapping.tagValue ||
+        templateMapping.id ||
+        ""
+    ),
+  };
+
+  const mappingReady = Boolean(
+    mappedSource.bucket &&
+      mappedSource.measurement &&
+      mappedSource.tagValue
+  );
+
+  const [availableFields, setAvailableFields] = useState([]);
+  const [fieldsLoading, setFieldsLoading] = useState(false);
+  const [fieldsError, setFieldsError] = useState("");
+
+  const formatFieldLabel = (field = "") =>
+    String(field)
+      .replace(/_/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (character) =>
+        character.toUpperCase()
+      );
+
+  const allDataOptions = availableFields.map((field) => ({
+    key: field,
+    label: formatFieldLabel(field),
+    channel: field,
+    source: {
+      ...mappedSource,
+      field,
+    },
+  }));
+
+  const fetchMappedFields = async () => {
+    if (!mappingReady) {
+      setAvailableFields([]);
+      setFieldsError(
+        "Template Data Mapping is incomplete. Return to Template Designer and complete Data Mapping first."
+      );
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    const query = new URLSearchParams({
+      bucket: mappedSource.bucket,
+      measurement: mappedSource.measurement,
+      tagKey: mappedSource.tagKey || "id",
+      tagValue: mappedSource.tagValue,
+    });
+
+    setFieldsLoading(true);
+    setFieldsError("");
+
+    try {
+      const response = await fetch(
+        `http://localhost:5000/influx/channels?${query.toString()}`,
+        {
+          headers: {
+            Authorization: token,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            "Failed to load fields for the mapped device."
+        );
+      }
+
+      const fields = [
+        ...new Set(
+          [
+            ...(Array.isArray(result?.channels)
+              ? result.channels
+              : []),
+            ...(Array.isArray(result?.fields)
+              ? result.fields
+              : []),
+          ]
+            .filter(Boolean)
+            .map(String)
+        ),
+      ].sort();
+
+      setAvailableFields(fields);
+    } catch (error) {
+      console.error(
+        "❌ Image editor mapped field error:",
+        error
+      );
+
+      setAvailableFields([]);
+      setFieldsError(
+        error.message ||
+          "Failed to load fields for the mapped device."
+      );
+    } finally {
+      setFieldsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMappedFields();
+    // Load fields once when the editor opens with the inherited mapping.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const imageSrc =
     widget?.image?.croppedSrc ||
@@ -178,11 +298,13 @@ export default function ImageWidgetEditor({
   const updateWidgetPins = (updatedPins) => {
     setWidget((currentWidget) => ({
       ...currentWidget,
-      image: currentWidget?.image || widget?.image || null,
-      customDataOptions:
-        currentWidget?.customDataOptions ||
-        widget?.customDataOptions ||
-        [],
+      image:
+        currentWidget?.image ||
+        widget?.image ||
+        null,
+      designerSnapshot:
+        currentWidget?.designerSnapshot ||
+        widget?.designerSnapshot,
       pins: updatedPins,
     }));
   };
@@ -202,6 +324,13 @@ export default function ImageWidgetEditor({
       return;
     }
 
+    if (!mappingReady) {
+      setFieldsError(
+        "Complete Template Data Mapping before adding sensor pins."
+      );
+      return;
+    }
+
     const { x, y } = getPositionFromPointer(event);
 
     const updatedPins = [
@@ -211,6 +340,7 @@ export default function ImageWidgetEditor({
         x,
         y,
         dataKey: "",
+        source: null,
         locked: false,
       },
     ];
@@ -253,18 +383,23 @@ export default function ImageWidgetEditor({
   const getPinLabel = (pin, index) =>
     allDataOptions.find(
       (item) => item.key === pin?.dataKey
-    )?.label || `Pin #${index + 1}`;
+    )?.label ||
+    (pin?.dataKey
+      ? formatFieldLabel(pin.dataKey)
+      : `Pin #${index + 1}`);
 
   // RETURN TO THE WIDGET SETTINGS WIZARD
-  // Keep uploaded image and custom data options while returning.
+  // Preserve the Template Designer snapshot so its grid and mappings survive.
   const returnToWidgetSettings = () => {
     setWidget((currentWidget) => ({
       ...currentWidget,
-      image: currentWidget?.image || widget?.image || null,
-      customDataOptions:
-        currentWidget?.customDataOptions ||
-        widget?.customDataOptions ||
-        [],
+      image:
+        currentWidget?.image ||
+        widget?.image ||
+        null,
+      designerSnapshot:
+        currentWidget?.designerSnapshot ||
+        widget?.designerSnapshot,
       pins: Array.isArray(currentWidget?.pins)
         ? currentWidget.pins
         : [],
@@ -449,7 +584,7 @@ export default function ImageWidgetEditor({
                       : "#64748b",
                   }}
                 >
-                  Place and configure live sensor pins on the process diagram.
+                  Place sensor pins and map them to fields from the template's configured device.
                 </p>
               </div>
             </div>
@@ -526,6 +661,7 @@ export default function ImageWidgetEditor({
               <button
                 type="button"
                 onClick={handleSave}
+                disabled={!mappingReady}
                 className="
                   inline-flex h-10
                   items-center gap-2 rounded-xl
@@ -533,6 +669,7 @@ export default function ImageWidgetEditor({
                   text-sm font-black text-white
                   shadow-lg shadow-emerald-600/20
                   transition hover:bg-emerald-700
+                  disabled:cursor-not-allowed disabled:opacity-45
                 "
               >
                 <Save size={15} />
@@ -773,13 +910,122 @@ export default function ImageWidgetEditor({
                       : "#64748b",
                   }}
                 >
-                  Map each pin to a live sensor value and lock its position.
+                  Map each pin to a field from the template's selected device and lock its position.
                 </p>
               </div>
             </div>
           </div>
 
           <div className="space-y-4 p-5">
+            <div
+              className={`
+                rounded-2xl border p-4
+                ${
+                  mappingReady
+                    ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
+                    : "border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10"
+                }
+              `}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Database
+                      size={15}
+                      className={
+                        mappingReady
+                          ? "text-emerald-500"
+                          : "text-amber-500"
+                      }
+                    />
+                    <h3 className="text-sm font-black">
+                      Template Data Mapping
+                    </h3>
+                  </div>
+
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Image pins use fields from this mapped device.
+                  </p>
+                </div>
+
+                {mappingReady ? (
+                  <CheckCircle2
+                    size={17}
+                    className="text-emerald-500"
+                  />
+                ) : (
+                  <AlertCircle
+                    size={17}
+                    className="text-amber-500"
+                  />
+                )}
+              </div>
+
+              {mappingReady ? (
+                <div className="mt-3 space-y-2 text-[11px]">
+                  <div className="rounded-xl bg-white/80 px-3 py-2 dark:bg-slate-950/60">
+                    <span className="font-black uppercase tracking-wider text-slate-400">
+                      Source
+                    </span>
+                    <p className="mt-1 truncate font-mono font-semibold text-slate-700 dark:text-slate-200">
+                      {mappedSource.bucket} / {mappedSource.measurement}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-white/80 px-3 py-2 dark:bg-slate-950/60">
+                    <span className="font-black uppercase tracking-wider text-slate-400">
+                      Device
+                    </span>
+                    <p className="mt-1 truncate font-mono font-semibold text-slate-700 dark:text-slate-200">
+                      {mappedSource.tagKey}={mappedSource.tagValue}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl bg-white/70 p-3 text-xs font-semibold text-amber-700 dark:bg-slate-950/50 dark:text-amber-300">
+                  Mapping is incomplete. Return to Template Designer and complete Data Mapping first.
+                </p>
+              )}
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {fieldsLoading
+                    ? "Loading fields..."
+                    : `${availableFields.length} field(s) available`}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={fetchMappedFields}
+                  disabled={fieldsLoading || !mappingReady}
+                  className="
+                    inline-flex items-center gap-1.5 rounded-lg
+                    bg-slate-800 px-3 py-2
+                    text-[11px] font-black text-white
+                    transition hover:bg-slate-700
+                    disabled:cursor-not-allowed disabled:opacity-45
+                    dark:bg-slate-700 dark:hover:bg-slate-600
+                  "
+                >
+                  <RefreshCw
+                    size={12}
+                    className={
+                      fieldsLoading
+                        ? "animate-spin"
+                        : ""
+                    }
+                  />
+                  Refresh
+                </button>
+              </div>
+
+              {fieldsError && (
+                <p className="mt-2 text-xs font-semibold text-red-500">
+                  {fieldsError}
+                </p>
+              )}
+            </div>
+
             {pins.length === 0 && (
               <div
                 className="
@@ -862,16 +1108,28 @@ export default function ImageWidgetEditor({
                 </div>
 
                 <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Data source
+                  Process field
                 </label>
 
                 <select
                   value={pin.dataKey || ""}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const selectedField =
+                      event.target.value;
+
+                    const selectedOption =
+                      allDataOptions.find(
+                        (item) =>
+                          item.key === selectedField
+                      );
+
                     updatePin(index, {
-                      dataKey: event.target.value,
-                    })
-                  }
+                      dataKey: selectedField,
+                      source:
+                        selectedOption?.source || null,
+                    });
+                  }}
+                  disabled={!mappingReady || fieldsLoading}
                   className="
                     mt-2 w-full rounded-xl
                     border border-slate-300
@@ -886,7 +1144,23 @@ export default function ImageWidgetEditor({
                     dark:text-white
                   "
                 >
-                  <option value="">Select data source</option>
+                  <option value="">
+                    {fieldsLoading
+                      ? "Loading fields..."
+                      : allDataOptions.length
+                      ? "Select process field"
+                      : "No fields available"}
+                  </option>
+
+                  {pin.dataKey &&
+                    !allDataOptions.some(
+                      (option) =>
+                        option.key === pin.dataKey
+                    ) && (
+                      <option value={pin.dataKey}>
+                        {formatFieldLabel(pin.dataKey)}
+                      </option>
+                    )}
 
                   {allDataOptions.map((dataOption) => (
                     <option

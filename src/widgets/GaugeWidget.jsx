@@ -1,24 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
-import {
-  Gauge as GaugeIcon,
-  TrendingDown,
-  TrendingUp,
-  Minus,
-} from "lucide-react";
-import {
-  TECH_SURFACE_CLASS,
-  TECH_HEADER_CLASS,
-  TECH_MUTED_CLASS,
-  TechBackdrop,
-  clamp,
-  toFiniteNumber,
-  useWidgetSize,
-} from "./widgetTech";
+import { useEffect, useId, useRef, useState } from "react";
 
 const DEFAULT_RANGE_CONFIG = {
   min: 0,
@@ -28,335 +8,395 @@ const DEFAULT_RANGE_CONFIG = {
   danger: 90,
 };
 
+const clamp = (value, min, max) =>
+  Math.min(max, Math.max(min, value));
+
+const toNumber = (value, fallback) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
 export default function GaugeWidget({
-  value = 0,
+  value = 50,
   label = "",
   dataKey = "",
   rangeConfig,
 }) {
-  const rootRef = useRef(null);
-  const { tiny, compact, wide } =
-    useWidgetSize(rootRef);
-
   const config = {
     ...DEFAULT_RANGE_CONFIG,
     ...(rangeConfig || {}),
   };
 
-  const min = toFiniteNumber(config.min, 0);
-  const configuredMax =
-    toFiniteNumber(config.max, 100);
-  const max =
-    configuredMax > min
-      ? configuredMax
-      : min + 1;
+  const min = toNumber(config.min, 0);
+  const configuredMax = toNumber(config.max, 100);
+  const max = configuredMax > min ? configuredMax : min + 1;
 
-  const warning =
-    toFiniteNumber(
-      config.warning,
-      min + (max - min) * 0.8
-    );
+  const warning = clamp(
+    toNumber(config.warning, min + (max - min) * 0.8),
+    min,
+    max
+  );
 
-  const danger =
-    toFiniteNumber(
-      config.danger,
-      min + (max - min) * 0.9
-    );
+  const danger = clamp(
+    toNumber(config.danger, min + (max - min) * 0.9),
+    min,
+    max
+  );
 
-  const unit =
-    String(config.unit || "").trim();
+  const unit = String(config.unit || "").trim();
+  const numericValue = toNumber(value, min);
+  const clampedValue = clamp(numericValue, min, max);
 
-  const numericValue =
-    toFiniteNumber(value, min);
-
-  const clampedValue =
-    clamp(numericValue, min, max);
-
-  const [displayValue, setDisplayValue] =
-    useState(clampedValue);
+  const [displayValue, setDisplayValue] = useState(clampedValue);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    let raf;
+
+    const animate = () => {
       setDisplayValue((previous) => {
-        const next =
-          previous +
-          (clampedValue - previous) * 0.14;
+        const diff = clampedValue - previous;
 
-        return Math.abs(clampedValue - next) <
-          0.01
-          ? clampedValue
-          : next;
+        if (Math.abs(diff) < 0.01) {
+          return clampedValue;
+        }
+
+        return previous + diff * 0.16;
       });
-    }, 20);
 
-    return () =>
-      window.clearInterval(interval);
+      raf = requestAnimationFrame(animate);
+    };
+
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
   }, [clampedValue]);
 
-  const previousValueRef =
-    useRef(numericValue);
+  const previousValue = useRef(numericValue);
 
   const trend =
-    numericValue >
-    previousValueRef.current
+    numericValue > previousValue.current
       ? "up"
-      : numericValue <
-        previousValueRef.current
+      : numericValue < previousValue.current
       ? "down"
       : "stable";
 
   useEffect(() => {
-    previousValueRef.current = numericValue;
+    previousValue.current = numericValue;
   }, [numericValue]);
 
-  const percentage =
-    clamp(
-      (displayValue - min) /
-        (max - min),
-      0,
-      1
-    );
+  const percent = clamp(
+    (displayValue - min) / (max - min),
+    0,
+    1
+  );
 
-  const angle =
-    percentage * 180 - 90;
+  const warningPercent = clamp(
+    (warning - min) / (max - min),
+    0,
+    1
+  );
 
-  const generatedId =
-    useId().replace(/:/g, "");
-
-  const gradientId =
-    `gauge-tech-${generatedId}`;
+  const dangerPercent = clamp(
+    (danger - min) / (max - min),
+    0,
+    1
+  );
 
   const status =
     numericValue >= danger
-      ? "critical"
+      ? "danger"
       : numericValue >= warning
       ? "warning"
       : "normal";
 
-  const statusText =
-    status === "critical"
-      ? "Critical"
-      : status === "warning"
-      ? "Warning"
-      : "Normal";
+  const statusMeta = {
+    normal: {
+      label: "Normal",
+      dot: "bg-cyan-400",
+      text: "text-cyan-600 dark:text-cyan-300",
+      needle: "#22d3ee",
+    },
+    warning: {
+      label: "Warning",
+      dot: "bg-amber-400",
+      text: "text-amber-600 dark:text-amber-300",
+      needle: "#f59e0b",
+    },
+    danger: {
+      label: "Critical",
+      dot: "bg-rose-500",
+      text: "text-rose-600 dark:text-rose-300",
+      needle: "#f43f5e",
+    },
+  }[status];
 
-  const statusClass =
-    status === "critical"
-      ? "text-rose-500 dark:text-rose-300"
-      : status === "warning"
-      ? "text-amber-500 dark:text-amber-300"
-      : "text-cyan-600 dark:text-cyan-300";
+  const trendSymbol =
+    trend === "up" ? "↗" : trend === "down" ? "↘" : "→";
 
-  const TrendIcon =
+  const trendClass =
     trend === "up"
-      ? TrendingUp
+      ? "text-emerald-500 dark:text-emerald-300"
       : trend === "down"
-      ? TrendingDown
-      : Minus;
+      ? "text-rose-500 dark:text-rose-300"
+      : "text-slate-400 dark:text-slate-500";
 
-  const svgWidth = tiny
-    ? 150
-    : compact
-    ? 180
-    : wide
-    ? 250
-    : 215;
+  const generatedId = useId().replace(/:/g, "");
+  const activeGradientId = `gaugeActive-${generatedId}`;
+  const glowId = `gaugeGlow-${generatedId}`;
+  const hubGlowId = `hubGlow-${generatedId}`;
+
+  const cx = 160;
+  const cy = 126;
+  const radius = 102;
+  const arcLength = Math.PI * radius;
+
+  const pointForPercent = (p, r = radius) => {
+    const angle = Math.PI * (1 - p);
+    return {
+      x: cx + r * Math.cos(angle),
+      y: cy - r * Math.sin(angle),
+    };
+  };
+
+  const needleAngle = -90 + percent * 180;
+  const activeDash = arcLength * percent;
+
+  const warningPoint = pointForPercent(warningPercent);
+  const dangerPoint = pointForPercent(dangerPercent);
+
+  const formattedValue = Number.isFinite(displayValue)
+    ? displayValue.toFixed(1)
+    : "—";
+
+  const ticks = Array.from({ length: 11 }, (_, index) => {
+    const p = index / 10;
+    const major = index % 5 === 0;
+    const outer = pointForPercent(p, radius + 10);
+    const inner = pointForPercent(p, radius + (major ? 0 : 4));
+
+    return {
+      x1: inner.x,
+      y1: inner.y,
+      x2: outer.x,
+      y2: outer.y,
+      major,
+    };
+  });
 
   return (
     <div
-      ref={rootRef}
-      className={`${TECH_SURFACE_CLASS} ${
-        tiny ? "p-3" : "p-4"
-      }`}
+      className="
+        flex h-full w-full min-h-0 flex-col
+        justify-center overflow-hidden
+        px-2 py-1.5
+      "
     >
-      <TechBackdrop />
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <svg
+          viewBox="0 0 320 190"
+          preserveAspectRatio="xMidYMid meet"
+          className="block h-full w-full max-h-[280px] max-w-[500px]"
+          role="img"
+          aria-label={`${label || dataKey || "Gauge"}: ${formattedValue}${unit ? ` ${unit}` : ""}`}
+        >
+          <defs>
+            <linearGradient
+              id={activeGradientId}
+              x1="58"
+              y1="126"
+              x2="262"
+              y2="126"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="0%" stopColor="#22d3ee" />
+              <stop offset="52%" stopColor="#38bdf8" />
+              <stop offset="100%" stopColor="#6366f1" />
+            </linearGradient>
+
+            <filter
+              id={glowId}
+              x="-45%"
+              y="-45%"
+              width="190%"
+              height="190%"
+            >
+              <feGaussianBlur stdDeviation="3.2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+
+            <filter
+              id={hubGlowId}
+              x="-120%"
+              y="-120%"
+              width="340%"
+              height="340%"
+            >
+              <feGaussianBlur stdDeviation="2.4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Outer technical ticks */}
+          {ticks.map((tick, index) => (
+            <line
+              key={index}
+              x1={tick.x1}
+              y1={tick.y1}
+              x2={tick.x2}
+              y2={tick.y2}
+              stroke="currentColor"
+              strokeWidth={tick.major ? 1.5 : 0.9}
+              className="text-slate-300 dark:text-slate-600"
+              opacity={tick.major ? 0.95 : 0.62}
+            />
+          ))}
+
+          {/* Base arc */}
+          <path
+            d="M 58 126 A 102 102 0 0 1 262 126"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="13"
+            strokeLinecap="round"
+            className="text-slate-200 dark:text-slate-700"
+          />
+
+          {/* Active arc */}
+          <path
+            d="M 58 126 A 102 102 0 0 1 262 126"
+            fill="none"
+            stroke={`url(#${activeGradientId})`}
+            strokeWidth="13"
+            strokeLinecap="round"
+            strokeDasharray={`${activeDash} ${arcLength}`}
+            filter={`url(#${glowId})`}
+          />
+
+          {/* Threshold markers */}
+          <circle
+            cx={warningPoint.x}
+            cy={warningPoint.y}
+            r="3.6"
+            fill="#f59e0b"
+            stroke="rgba(255,255,255,0.85)"
+            strokeWidth="1.2"
+          />
+          <circle
+            cx={dangerPoint.x}
+            cy={dangerPoint.y}
+            r="3.6"
+            fill="#f43f5e"
+            stroke="rgba(255,255,255,0.85)"
+            strokeWidth="1.2"
+          />
+
+          {/* Needle */}
+          <g
+            transform={`rotate(${needleAngle} ${cx} ${cy})`}
+            style={{
+              transition:
+                "transform 420ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+            <line
+              x1={cx}
+              y1={cy - 9}
+              x2={cx}
+              y2="49"
+              stroke={statusMeta.needle}
+              strokeWidth="3.4"
+              strokeLinecap="round"
+            />
+          </g>
+
+          {/* Pivot - no black fill */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r="9"
+            fill="#ecfeff"
+            stroke={statusMeta.needle}
+            strokeWidth="3"
+            className="dark:fill-slate-900"
+            filter={`url(#${hubGlowId})`}
+          />
+          <circle
+            cx={cx}
+            cy={cy}
+            r="3.2"
+            fill={statusMeta.needle}
+          />
+
+          {/* Min / Max */}
+          <text
+            x="55"
+            y="148"
+            textAnchor="start"
+            className="fill-slate-500 text-[9px] font-bold dark:fill-slate-300"
+          >
+            {min}
+          </text>
+
+          <text
+            x="265"
+            y="148"
+            textAnchor="end"
+            className="fill-slate-500 text-[9px] font-bold dark:fill-slate-300"
+          >
+            {max}
+          </text>
+
+          {/* Main value */}
+          <text
+            x={cx}
+            y="168"
+            textAnchor="middle"
+            className="fill-slate-900 text-[28px] font-black tracking-[-0.035em] dark:fill-white"
+          >
+            {formattedValue}
+          </text>
+
+          {unit && (
+            <text
+              x={cx}
+              y="182"
+              textAnchor="middle"
+              className="fill-slate-500 text-[9px] font-bold uppercase tracking-[0.14em] dark:fill-slate-300"
+            >
+              {unit}
+            </text>
+          )}
+        </svg>
+      </div>
 
       <div
         className="
-          relative z-10 flex h-full
-          flex-col
+          mt-0.5 flex items-center justify-between gap-2
+          border-t border-slate-200/80 px-1 pt-1.5
+          text-[9px] font-bold
+          dark:border-slate-700/80
         "
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div
-              className={`${TECH_HEADER_CLASS} truncate`}
-              title={label}
-            >
-              {label || "Gauge"}
-            </div>
-
-            {!tiny && dataKey && (
-              <div
-                className={`mt-1 truncate text-[10px] ${TECH_MUTED_CLASS}`}
-              >
-                {dataKey}
-              </div>
-            )}
-          </div>
-
-          <div
-            className="
-              rounded-xl border
-              border-cyan-200/80
-              bg-cyan-100/60 p-2
-              text-cyan-600
-              dark:border-cyan-500/20
-              dark:bg-cyan-500/10
-              dark:text-cyan-300
-            "
-          >
-            <GaugeIcon size={tiny ? 15 : 17} />
-          </div>
+        <div className={`flex items-center gap-1.5 ${statusMeta.text}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${statusMeta.dot}`} />
+          <span className="uppercase tracking-[0.12em]">
+            {statusMeta.label}
+          </span>
         </div>
 
-        <div className="flex min-h-0 flex-1 items-center justify-center">
-          <div
-            className="relative"
-            style={{
-              width: `${svgWidth}px`,
-              maxWidth: "100%",
-            }}
-          >
-            <svg
-              viewBox="0 0 220 130"
-              className="h-auto w-full overflow-visible"
-            >
-              <defs>
-                <linearGradient
-                  id={gradientId}
-                  x1="0%"
-                  x2="100%"
-                >
-                  <stop
-                    offset="0%"
-                    stopColor="#22d3ee"
-                  />
-                  <stop
-                    offset="58%"
-                    stopColor="#3b82f6"
-                  />
-                  <stop
-                    offset="80%"
-                    stopColor="#f59e0b"
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor="#f43f5e"
-                  />
-                </linearGradient>
-              </defs>
-
-              <path
-                d="M 25 110 A 85 85 0 0 1 195 110"
-                fill="none"
-                stroke="rgba(100,116,139,0.18)"
-                strokeWidth="12"
-                strokeLinecap="round"
-              />
-
-              <path
-                d="M 25 110 A 85 85 0 0 1 195 110"
-                fill="none"
-                stroke={`url(#${gradientId})`}
-                strokeWidth="12"
-                strokeLinecap="round"
-                pathLength="100"
-                strokeDasharray={`${percentage * 100} 100`}
-                className="transition-all duration-500"
-              />
-
-              <g
-                transform={`rotate(${angle} 110 110)`}
-                className="transition-transform duration-300"
-              >
-                <line
-                  x1="110"
-                  y1="110"
-                  x2="110"
-                  y2="43"
-                  stroke="#38bdf8"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                />
-              </g>
-
-              <circle
-                cx="110"
-                cy="110"
-                r="8"
-                fill="#0f172a"
-                stroke="#67e8f9"
-                strokeWidth="3"
-              />
-            </svg>
-
-            <div
-              className="
-                pointer-events-none absolute
-                inset-x-0 bottom-0
-                flex flex-col items-center
-              "
-            >
-              <div
-                className={`
-                  font-semibold tracking-[-0.04em]
-                  text-slate-900 dark:text-white
-                  ${
-                    tiny
-                      ? "text-2xl"
-                      : compact
-                      ? "text-3xl"
-                      : "text-4xl"
-                  }
-                `}
-              >
-                {displayValue.toFixed(1)}
-              </div>
-
-              {unit && (
-                <div
-                  className={`mt-1 text-xs ${TECH_MUTED_CLASS}`}
-                >
-                  {unit}
-                </div>
-              )}
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-slate-500 dark:text-slate-300">
+            {Math.round(percent * 100)}%
+          </span>
+          <span className={`${trendClass} text-xs leading-none`}>
+            {trendSymbol}
+          </span>
         </div>
-
-        {!tiny && (
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span
-                className={`
-                  h-2 w-2 rounded-full
-                  ${
-                    status === "critical"
-                      ? "bg-rose-400"
-                      : status === "warning"
-                      ? "bg-amber-400"
-                      : "bg-cyan-400"
-                  }
-                `}
-              />
-              <span
-                className={`text-xs font-medium ${statusClass}`}
-              >
-                {statusText}
-              </span>
-            </div>
-
-            <div
-              className={`flex items-center gap-1 text-xs ${TECH_MUTED_CLASS}`}
-            >
-              <TrendIcon size={13} />
-              <span>
-                {min}–{max}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

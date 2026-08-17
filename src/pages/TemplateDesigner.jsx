@@ -591,7 +591,7 @@ export default function TemplateDesigner({
   const [
     showInfluxMapping,
     setShowInfluxMapping,
-  ] = useState(false);
+  ] = useState(true);
 
   const [influxConfig, setInfluxConfig] =
     useState(defaultInfluxConfig);
@@ -667,6 +667,58 @@ export default function TemplateDesigner({
   );
 
   const isEdit = !!selectedItem;
+
+  // Preserve the unsaved Template Designer state while temporarily navigating
+  // to a full-screen widget editor (Image / Sankey). Those pages replace this
+  // component, so local React state would otherwise be recreated from defaults
+  // when the user returns.
+  const getDesignerSnapshot = () => ({
+    rows,
+    cols,
+    items,
+    templateName,
+    influxConfig,
+    channelMap,
+    customDataOptions,
+    customWidgetTypes,
+    selectedDeviceId,
+    showInfluxMapping,
+  });
+
+  const restoreDesignerSnapshot = (snapshot, nextItems) => {
+    if (!snapshot) return;
+
+    setRows(Number(snapshot.rows) || 3);
+    setCols(Number(snapshot.cols) || 4);
+    setTemplateName(snapshot.templateName || "");
+    setItems(
+      Array.isArray(nextItems)
+        ? nextItems
+        : Array.isArray(snapshot.items)
+        ? snapshot.items
+        : []
+    );
+    setInfluxConfig({
+      ...defaultInfluxConfig,
+      ...(snapshot.influxConfig || {}),
+    });
+    setChannelMap({
+      ...defaultChannelMap,
+      ...(snapshot.channelMap || {}),
+    });
+    setCustomDataOptions(
+      Array.isArray(snapshot.customDataOptions)
+        ? snapshot.customDataOptions
+        : []
+    );
+    setCustomWidgetTypes(
+      Array.isArray(snapshot.customWidgetTypes)
+        ? snapshot.customWidgetTypes
+        : []
+    );
+    setSelectedDeviceId(String(snapshot.selectedDeviceId || ""));
+    setShowInfluxMapping(Boolean(snapshot.showInfluxMapping));
+  };
 
   useEffect(() => {
     if (!isEditingTemplate || !selectedTemplate) return;
@@ -772,9 +824,11 @@ export default function TemplateDesigner({
   );
 
   const getAvailableDataOptionsForType = (type) => {
-    if (
-      ["image", "status", "sankey", "logs"].includes(type)
-    ) {
+    // These widgets do not ask the user to select a direct field:
+    // - Data Status derives connection / field-health information from the mapped device.
+    // - Logs uses its own log configuration.
+    // - Image and Sankey use their dedicated editors.
+    if (["image", "sankey", "logs", "status"].includes(type)) {
       return [];
     }
 
@@ -782,6 +836,43 @@ export default function TemplateDesigner({
   };
 
   const availableDataOptions = getAvailableDataOptionsForType(newType);
+
+  // Data Mapping is a template-level prerequisite. Widget configuration is
+  // intentionally locked until a source/device has been selected and its
+  // available fields have finished loading.
+  const isTemplateDataMappingReady =
+    !canConfigureInflux ||
+    Boolean(
+      influxConfig.bucket &&
+        influxConfig.measurement &&
+        (influxConfig.tagValue ||
+          influxConfig.id ||
+          selectedDeviceId) &&
+        influxChannels.length > 0
+    );
+
+  const requireTemplateDataMapping = () => {
+    if (isTemplateDataMappingReady) {
+      return true;
+    }
+
+    setShowInfluxMapping(true);
+    showToast(
+      "error",
+      "Complete Data Mapping first. Select a bucket, measurement and device, then wait for the available fields to load."
+    );
+
+    window.setTimeout(() => {
+      document
+        .getElementById("template-data-mapping")
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+    }, 80);
+
+    return false;
+  };
 
   const getDataSourceLabel = (key) =>
     allDataOptions.find(
@@ -1745,6 +1836,7 @@ export default function TemplateDesigner({
     const {
       resumeWidgetSettings,
       returnPage,
+      designerSnapshot,
       ...returnedWidget
     } = editingImageWidget;
 
@@ -1752,15 +1844,19 @@ export default function TemplateDesigner({
       ? returnedWidget.pins
       : [];
 
-    const alreadyExists = items.some(
+    // TemplateDesigner is mounted again after returning from the full-screen
+    // editor. Use the snapshot's items instead of the freshly initialized [] so
+    // the existing grid and all other widgets are preserved.
+    const baseItems = Array.isArray(designerSnapshot?.items)
+      ? designerSnapshot.items
+      : items;
+
+    const alreadyExists = baseItems.some(
       (item) => item.id === returnedWidget.id
     );
 
-    // For an existing image widget, write the latest pins into the grid item
-    // immediately. This prevents the selected-item effect from restoring old pins.
-    if (alreadyExists) {
-      setItems((previousItems) =>
-        previousItems.map((item) =>
+    const nextItems = alreadyExists
+      ? baseItems.map((item) =>
           item.id === returnedWidget.id
             ? {
                 ...item,
@@ -1769,7 +1865,13 @@ export default function TemplateDesigner({
               }
             : item
         )
-      );
+      : baseItems;
+
+    if (designerSnapshot) {
+      restoreDesignerSnapshot(designerSnapshot, nextItems);
+    } else if (alreadyExists) {
+      // Backward compatibility with editor payloads created before snapshots.
+      setItems(nextItems);
     }
 
     setImageDraftPins(returnedPins);
@@ -1798,7 +1900,7 @@ export default function TemplateDesigner({
     if (typeof setEditingImageWidget === "function") {
       setEditingImageWidget(null);
     }
-  }, [editingImageWidget, items, setEditingImageWidget]);
+  }, [editingImageWidget, setEditingImageWidget]);
 
 
   // RETURN FROM SANKEY FLOW EDITOR
@@ -1808,16 +1910,20 @@ export default function TemplateDesigner({
     const {
       resumeWidgetSettings,
       returnPage,
+      designerSnapshot,
       ...returnedWidget
     } = editingSankeyWidget;
 
-    const alreadyExists = items.some(
+    const baseItems = Array.isArray(designerSnapshot?.items)
+      ? designerSnapshot.items
+      : items;
+
+    const alreadyExists = baseItems.some(
       (item) => item.id === returnedWidget.id
     );
 
-    if (alreadyExists) {
-      setItems((previousItems) =>
-        previousItems.map((item) =>
+    const nextItems = alreadyExists
+      ? baseItems.map((item) =>
           item.id === returnedWidget.id
             ? {
                 ...item,
@@ -1825,7 +1931,12 @@ export default function TemplateDesigner({
               }
             : item
         )
-      );
+      : baseItems;
+
+    if (designerSnapshot) {
+      restoreDesignerSnapshot(designerSnapshot, nextItems);
+    } else if (alreadyExists) {
+      setItems(nextItems);
     }
 
     const returnedConfig =
@@ -1867,7 +1978,7 @@ export default function TemplateDesigner({
     if (typeof setEditingSankeyWidget === "function") {
       setEditingSankeyWidget(null);
     }
-  }, [editingSankeyWidget, items, setEditingSankeyWidget]);
+  }, [editingSankeyWidget, setEditingSankeyWidget]);
 
   // LOAD SELECTED ITEM SETTINGS
   useEffect(() => {
@@ -3289,8 +3400,13 @@ export default function TemplateDesigner({
     : null;
 
   const isDataSourceRequired =
-    newType !== "image" &&
-    availableDataOptions.length > 0;
+    !["image", "sankey", "logs", "status"].includes(newType);
+
+  // Data Status and Logs are fully configured after Appearance.
+  // They still require the template-level Data Mapping to be completed first,
+  // but they do not have a widget-level Data Source step.
+  const skipsWidgetDataSourceStep =
+    ["status", "logs"].includes(newType);
 
   const hasSelectedDataSource =
     newType === "sankey"
@@ -3321,6 +3437,12 @@ export default function TemplateDesigner({
     !hasPositivePreviewValue;
 
   const goToNextWidgetStep = () => {
+    if (!isTemplateDataMappingReady) {
+      setShowModal(false);
+      requireTemplateDataMapping();
+      return;
+    }
+
     if (
       widgetStep === 3 &&
       isDataSourceRequired &&
@@ -3640,13 +3762,16 @@ export default function TemplateDesigner({
         {/* INFLUX DATA MAPPING */}
         {canConfigureInflux && (
           <div
-            className="
+            id="template-data-mapping"
+            className={`
               mt-5 overflow-hidden
               rounded-3xl border
-              border-gray-200 bg-gray-50
-              dark:border-slate-700
-              dark:bg-slate-950/80
-            "
+              ${
+                isTemplateDataMappingReady
+                  ? "border-emerald-200 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-950/10"
+                  : "border-amber-200 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-950/10"
+              }
+            `}
           >
             <button
               type="button"
@@ -3677,12 +3802,30 @@ export default function TemplateDesigner({
                 </div>
 
                 <div>
-                  <h2 className="font-bold dark:text-white">
-                    Data Mapping
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-bold dark:text-white">
+                      Data Mapping
+                    </h2>
+
+                    <span
+                      className={`
+                        rounded-full px-2.5 py-1
+                        text-[10px] font-black uppercase tracking-wider
+                        ${
+                          isTemplateDataMappingReady
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                            : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                        }
+                      `}
+                    >
+                      {isTemplateDataMappingReady
+                        ? "Ready"
+                        : "Required First"}
+                    </span>
+                  </div>
 
                   <p className="text-xs text-gray-500 dark:text-slate-300 mt-1">
-                    Choose the Influx device. Available fields are loaded directly from the selected measurement.
+                    Complete this mapping before adding or editing widgets. Select the Influx source/device and wait for its available fields to load.
                   </p>
                 </div>
               </div>
@@ -4208,6 +4351,10 @@ export default function TemplateDesigner({
                 gridRow: `${r + 1}`,
               }}
               onClick={() => {
+                if (!requireTemplateDataMapping()) {
+                  return;
+                }
+
                 setActiveCell({
                   row: r,
                   col: c,
@@ -4261,11 +4408,23 @@ export default function TemplateDesigner({
                   </>
                 ) : (
                   <>
-                    <Plus className="mx-auto mb-2 text-gray-400 dark:text-slate-400" />
+                    {isTemplateDataMappingReady ? (
+                      <>
+                        <Plus className="mx-auto mb-2 text-gray-400 dark:text-slate-400" />
 
-                    <p className="text-sm text-gray-400 dark:text-slate-400">
-                      Add Widget
-                    </p>
+                        <p className="text-sm text-gray-400 dark:text-slate-400">
+                          Add Widget
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Database className="mx-auto mb-2 text-amber-500 dark:text-amber-300" />
+
+                        <p className="text-sm font-semibold text-amber-600 dark:text-amber-300">
+                          Map Data First
+                        </p>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -4316,6 +4475,10 @@ export default function TemplateDesigner({
               e.stopPropagation();
 
               if (didDrag) return;
+
+              if (!requireTemplateDataMapping()) {
+                return;
+              }
 
               setActiveItemId(item.id);
               setActiveCell(null);
@@ -4996,11 +5159,23 @@ export default function TemplateDesigner({
                 {/* NUMBERED STEP INDICATOR */}
                 <div className="mb-7">
                   <div className="flex items-center justify-between gap-2">
-                    {[
-                      { number: 1, label: "Widget Type" },
-                      { number: 2, label: "Appearance" },
-                      { number: 3, label: "Data Source" },
-                    ].map((step, index) => {
+                    {(skipsWidgetDataSourceStep
+                      ? [
+                          { number: 1, label: "Widget Type" },
+                          { number: 2, label: "Appearance" },
+                        ]
+                      : [
+                          { number: 1, label: "Widget Type" },
+                          { number: 2, label: "Appearance" },
+                          {
+                            number: 3,
+                            label:
+                              newType === "image" || newType === "sankey"
+                                ? "Configuration"
+                                : "Data Source",
+                          },
+                        ]
+                    ).map((step, index) => {
                       const isCurrent = widgetStep === step.number;
                       const isComplete = widgetStep > step.number;
                       const canReturn = step.number < widgetStep;
@@ -6892,7 +7067,17 @@ export default function TemplateDesigner({
                           {newLabel.trim() || getFallbackWidgetLabel(newType, isMultiDataWidget ? newDataKeys[0] || newDataKey : newDataKey)}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          {newW}×{newH} · {newType === "sankey" ? `${getConfiguredSankeyOutputs().length} configured output(s)` : isMultiDataWidget ? `${newDataKeys.length} data source(s)` : newDataKey || "No data source"}
+                          {newW}×{newH} · ${
+                            newType === "sankey"
+                              ? `${getConfiguredSankeyOutputs().length} configured output(s)`
+                              : newType === "status"
+                              ? "Device health / connection status"
+                              : newType === "logs"
+                              ? "System log feed"
+                              : isMultiDataWidget
+                              ? `${newDataKeys.length} data source(s)`
+                              : newDataKey || "No data source"
+                          }
                         </p>
                       </div>
                     </div>
@@ -6918,7 +7103,25 @@ export default function TemplateDesigner({
 
                         <button
                           type="button"
-                          onClick={goToNextWidgetStep}
+                          onClick={() => {
+                            if (skipsWidgetDataSourceStep) {
+                              if (!isTemplateDataMappingReady) {
+                                setShowModal(false);
+                                requireTemplateDataMapping();
+                                return;
+                              }
+
+                              if (isEdit) {
+                                updateWidget();
+                              } else {
+                                addWidget();
+                              }
+
+                              return;
+                            }
+
+                            goToNextWidgetStep();
+                          }}
                           className="
                             flex-1
                             bg-emerald-600 hover:bg-emerald-700
@@ -6930,7 +7133,13 @@ export default function TemplateDesigner({
                             transition-all
                           "
                         >
-                          Next: Data Source
+                          {skipsWidgetDataSourceStep
+                            ? isEdit
+                              ? "Save Changes"
+                              : "Add Widget"
+                            : newType === "image" || newType === "sankey"
+                            ? "Next: Configuration"
+                            : "Next: Data Source"}
                         </button>
                       </div>
 
@@ -6938,7 +7147,7 @@ export default function TemplateDesigner({
                   </>
                 )}
                 {/* STEP 3: DATA / IMAGE CONFIG */}
-                {widgetStep === 3 && (
+                {widgetStep === 3 && !skipsWidgetDataSourceStep && (
                   <>
                     {newType === "image" ? (
                       <div
@@ -7088,6 +7297,7 @@ export default function TemplateDesigner({
                               pins: imageDraftPins,
                               returnPage: designerPage,
                               resumeWidgetSettings: true,
+                              designerSnapshot: getDesignerSnapshot(),
                               label:
                                 newLabel.trim() ||
                                 target.label ||
@@ -7204,7 +7414,7 @@ export default function TemplateDesigner({
                           </div>
                         ) : (
                           <div className="rounded-2xl border border-dashed border-gray-300 dark:border-slate-600 p-5 text-sm text-gray-500 dark:text-slate-300">
-                            This widget does not require a direct data source.
+                            Template Data Mapping is already configured. This widget uses its dedicated configuration flow, so no additional single-field selection is required on this step.
                           </div>
                         )}
 
@@ -7734,6 +7944,8 @@ export default function TemplateDesigner({
                                     sankeyConfig: preparedConfig,
                                     customDataOptions,
                                     returnPage: designerPage,
+                                    resumeWidgetSettings: true,
+                                    designerSnapshot: getDesignerSnapshot(),
                                   });
 
                                   setShowModal(false);
