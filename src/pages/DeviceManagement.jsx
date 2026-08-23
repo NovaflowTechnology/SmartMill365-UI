@@ -1,611 +1,924 @@
-import { useEffect, useMemo, useState } from "react";
 import {
-  AlertCircle,
-  CheckCircle2,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  Check,
   Database,
+  Layers3,
   Plus,
   RefreshCw,
   Search,
   ServerCog,
   Trash2,
   X,
-  ChevronRight,
 } from "lucide-react";
 
-const emptyForm = {
-  org_id: "",
-  bucket_name: "Mill",
-  measurement_name: "PBLR",
-  tag_key: "id",
-  tag_value: "",
-  device_name: "",
+import {
+  getMeasurementGroup,
+} from "../utils/measurementGroups";
+
+const API_BASE_URL =
+  "http://localhost:5000";
+
+const logicalAssignmentKey = ({
+  orgId,
+  bucket,
+  measurementGroup,
+  tagKey,
+  tagValue,
+}) =>
+  [
+    orgId,
+    bucket,
+    measurementGroup,
+    tagKey,
+    tagValue,
+  ]
+    .map((value) =>
+      String(value || "")
+    )
+    .join("::");
+
+const groupAssignmentRows = (
+  rows = []
+) => {
+  const groups =
+    new Map();
+
+  rows.forEach((row) => {
+    const measurementGroup =
+      getMeasurementGroup(
+        row.measurement_name
+      );
+
+    const key =
+      logicalAssignmentKey({
+        orgId: row.org_id,
+        bucket:
+          row.bucket_name,
+        measurementGroup:
+          measurementGroup.key,
+        tagKey:
+          row.tag_key,
+        tagValue:
+          row.tag_value,
+      });
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        org_id:
+          row.org_id,
+        org_name:
+          row.org_name,
+        bucket_name:
+          row.bucket_name,
+        tag_key:
+          row.tag_key,
+        tag_value:
+          row.tag_value,
+        device_type:
+          measurementGroup.key,
+        device_type_label:
+          measurementGroup.label,
+        device_name:
+          row.device_name ||
+          `${measurementGroup.label} · ${row.tag_value}`,
+        measurement_names:
+          [],
+        assignment_ids:
+          [],
+      });
+    }
+
+    const group =
+      groups.get(key);
+
+    if (
+      !group.measurement_names.includes(
+        row.measurement_name
+      )
+    ) {
+      group.measurement_names.push(
+        row.measurement_name
+      );
+    }
+
+    group.assignment_ids.push(
+      row.id
+    );
+  });
+
+  return [
+    ...groups.values(),
+  ].map((group) => ({
+    ...group,
+    measurement_names:
+      [...group.measurement_names].sort(),
+    measurement_count:
+      group.measurement_names.length,
+  }));
 };
 
-const API_BASE_URL = "http://localhost:5000";
-
-const MetadataList = ({
-  title,
-  values = [],
-  activeValue = "",
-  emptyText,
-  onSelect,
+export default function DeviceManagement({
+  setPage,
   dark = false,
-}) => (
-  <div
-    className={`min-w-0 rounded-2xl border p-3 ${
-      dark
-        ? "border-slate-700 bg-slate-950/70"
-        : "border-slate-200 bg-slate-50"
-    }`}
-  >
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <p
-        className={`text-[10px] font-black uppercase tracking-wider ${
-          dark ? "text-slate-300" : "text-slate-500"
-        }`}
-      >
-        {title}
-      </p>
+}) {
+  const role =
+    localStorage.getItem("role");
 
-      <span
-        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-          dark
-            ? "bg-slate-800 text-slate-200"
-            : "bg-white text-slate-600"
-        }`}
-      >
-        {values.length}
-      </span>
-    </div>
+  const isSuperadmin =
+    role === "superadmin";
 
-    <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
-      {values.length === 0 ? (
-        <p
-          className={`rounded-xl px-2 py-3 text-center text-[11px] ${
-            dark ? "text-slate-500" : "text-slate-400"
-          }`}
-        >
-          {emptyText}
-        </p>
-      ) : (
-        values.map((value) => {
-          const selected =
-            String(value) === String(activeValue);
+  const token =
+    localStorage.getItem("token");
 
-          return (
-            <button
-              key={String(value)}
-              type="button"
-              onClick={() => onSelect?.(value)}
-              className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-[11px] font-semibold transition ${
-                selected
-                  ? dark
-                    ? "bg-blue-500/15 text-blue-200 ring-1 ring-blue-500/40"
-                    : "bg-blue-100 text-blue-800 ring-1 ring-blue-200"
-                  : dark
-                  ? "text-slate-300 hover:bg-slate-800"
-                  : "text-slate-600 hover:bg-white"
-              }`}
-            >
-              <span className="truncate font-mono">
-                {value}
-              </span>
+  const [
+    organizations,
+    setOrganizations,
+  ] = useState([]);
 
-              {onSelect && (
-                <ChevronRight
-                  size={13}
-                  className="shrink-0 opacity-60"
-                />
-              )}
-            </button>
-          );
-        })
-      )}
-    </div>
-  </div>
-);
+  const [
+    assignments,
+    setAssignments,
+  ] = useState([]);
 
-export default function DeviceManagement({ setPage, dark = false }) {
-  const role = localStorage.getItem("role");
+  const [
+    availableBuckets,
+    setAvailableBuckets,
+  ] = useState([]);
 
-  const panelClass = dark
-    ? "border-slate-700 bg-slate-900 text-slate-100 shadow-black/30"
-    : "border-gray-200 bg-white text-gray-900";
+  const [
+    logicalDevices,
+    setLogicalDevices,
+  ] = useState([]);
 
-  const inputClass = dark
-    ? "border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
-    : "border-gray-300 bg-white text-gray-900";
+  const [loading, setLoading] =
+    useState(true);
 
-  const mutedPanelClass = dark
-    ? "border-slate-700 bg-slate-950/70"
-    : "border-gray-200 bg-gray-50/80";
-  const [organizations, setOrganizations] = useState([]);
-  const [devices, setDevices] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [search, setSearch] = useState("");
-  const [selectedOrgId, setSelectedOrgId] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [pendingDelete, setPendingDelete] = useState(null);
+  const [
+    discoveryLoading,
+    setDiscoveryLoading,
+  ] = useState(false);
 
-  // Live metadata used while a superadmin registers a device.
-  const [availableBuckets, setAvailableBuckets] = useState([]);
-  const [availableMeasurements, setAvailableMeasurements] = useState([]);
-  const [availableIds, setAvailableIds] = useState([]);
-  const [availableChannels, setAvailableChannels] = useState([]);
-  const [metadataLoading, setMetadataLoading] = useState(false);
-  const [metadataError, setMetadataError] = useState("");
+  const [saving, setSaving] =
+    useState(false);
 
-  const getAuthHeaders = (json = false) => {
-    const token = localStorage.getItem("token");
+  const [
+    showAssignModal,
+    setShowAssignModal,
+  ] = useState(false);
 
-    return {
-      ...(json ? { "Content-Type": "application/json" } : {}),
-      Authorization: token,
-    };
-  };
+  const [
+    selectedOrgId,
+    setSelectedOrgId,
+  ] = useState("");
 
-  const readError = async (response, fallbackMessage) => {
+  const [
+    selectedBucket,
+    setSelectedBucket,
+  ] = useState("");
+
+  const [
+    selectedLogicalKeys,
+    setSelectedLogicalKeys,
+  ] = useState([]);
+
+  const [
+    assignmentOrgFilter,
+    setAssignmentOrgFilter,
+  ] = useState("");
+
+  const [
+    assignmentSearch,
+    setAssignmentSearch,
+  ] = useState("");
+
+  const [
+    discoverySearch,
+    setDiscoverySearch,
+  ] = useState("");
+
+  const [error, setError] =
+    useState("");
+
+  const [notice, setNotice] =
+    useState("");
+
+  const headers = (
+    json = false
+  ) => ({
+    ...(json
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+    Authorization: token,
+  });
+
+  const readPayload = async (
+    response,
+    fallback
+  ) => {
+    let payload = {};
+
     try {
-      const payload = await response.json();
-      return payload?.error || fallbackMessage;
+      payload =
+        await response.json();
     } catch {
-      return fallbackMessage;
+      payload = {};
     }
+
+    if (!response.ok) {
+      throw new Error(
+        payload?.error ||
+          fallback
+      );
+    }
+
+    return payload;
   };
 
-  const loadPageData = async () => {
+  const loadPage = async () => {
+    if (!isSuperadmin) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
-      const [orgResponse, deviceResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/organizations`, {
-          headers: getAuthHeaders(),
-        }),
-        fetch(`${API_BASE_URL}/organization-influx-devices`, {
-          headers: getAuthHeaders(),
-        }),
+      const [
+        orgResponse,
+        assignmentResponse,
+      ] = await Promise.all([
+        fetch(
+          `${API_BASE_URL}/organizations`,
+          {
+            headers:
+              headers(),
+          }
+        ),
+        fetch(
+          `${API_BASE_URL}/organization-influx-devices`,
+          {
+            headers:
+              headers(),
+          }
+        ),
       ]);
 
-      if (!orgResponse.ok) {
-        throw new Error(
-          await readError(orgResponse, "Failed to load organizations."),
-        );
-      }
-
-      if (!deviceResponse.ok) {
-        throw new Error(
-          await readError(deviceResponse, "Failed to load assigned devices."),
-        );
-      }
-
-      const [organizationData, deviceData] = await Promise.all([
-        orgResponse.json(),
-        deviceResponse.json(),
+      const [
+        orgData,
+        assignmentData,
+      ] = await Promise.all([
+        readPayload(
+          orgResponse,
+          "Failed to load organizations"
+        ),
+        readPayload(
+          assignmentResponse,
+          "Failed to load device assignments"
+        ),
       ]);
 
-      setOrganizations(Array.isArray(organizationData) ? organizationData : []);
+      setOrganizations(
+        Array.isArray(orgData)
+          ? orgData
+          : []
+      );
 
-      setDevices(Array.isArray(deviceData) ? deviceData : []);
+      setAssignments(
+        Array.isArray(
+          assignmentData
+        )
+          ? assignmentData
+          : []
+      );
     } catch (requestError) {
-      console.error("❌ Device management load error:", requestError);
-      setError(requestError.message || "Failed to load device assignments.");
+      setError(
+        requestError.message ||
+          "Failed to load Device Management"
+      );
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (role === "superadmin") {
-      loadPageData();
-    } else {
-      setLoading(false);
-    }
-  }, [role]);
+    loadPage();
+  }, [isSuperadmin]);
 
   useEffect(() => {
-    if (!error && !notice) {
-      return undefined;
-    }
+    if (!notice) return;
 
-    const timer = window.setTimeout(() => {
-      setError("");
-      setNotice("");
-    }, error ? 6000 : 3500);
-
-    return () => window.clearTimeout(timer);
-  }, [error, notice]);
-
-  useEffect(() => {
-    if (!showForm) return;
-
-    const loadBuckets = async () => {
-      setMetadataLoading(true);
-      setMetadataError("");
-
-      try {
-        setAvailableBuckets(await fetchInfluxBuckets());
-      } catch (requestError) {
-        console.error("❌ Influx bucket load error:", requestError);
-        setMetadataError(
-          requestError.message || "Failed to load Influx buckets.",
-        );
-      } finally {
-        setMetadataLoading(false);
-      }
-    };
-
-    loadBuckets();
-  }, [showForm]);
-
-  useEffect(() => {
-    if (!showForm || !form.bucket_name.trim()) return;
-
-    const loadMeasurements = async () => {
-      setMetadataLoading(true);
-      setMetadataError("");
-
-      try {
-        setAvailableMeasurements(
-          await fetchInfluxMeasurements(form.bucket_name.trim()),
-        );
-      } catch (requestError) {
-        console.error("❌ Influx measurement load error:", requestError);
-        setMetadataError(
-          requestError.message || "Failed to load Influx measurements.",
-        );
-        setAvailableMeasurements([]);
-      } finally {
-        setMetadataLoading(false);
-      }
-    };
-
-    loadMeasurements();
-  }, [showForm, form.bucket_name]);
-
-  useEffect(() => {
-    if (
-      !showForm ||
-      !form.bucket_name.trim() ||
-      !form.measurement_name.trim() ||
-      !form.tag_key.trim()
-    ) {
-      setAvailableIds([]);
-      setAvailableChannels([]);
-      return;
-    }
-
-    const loadDeviceMetadata = async () => {
-      setMetadataLoading(true);
-      setMetadataError("");
-
-      try {
-        const { ids, channels } = await fetchInfluxDeviceMetadata(
-          form.bucket_name.trim(),
-          form.measurement_name.trim(),
-          form.tag_key.trim(),
-        );
-
-        setAvailableIds(ids);
-        setAvailableChannels(channels);
-      } catch (requestError) {
-        console.error("❌ Influx device metadata load error:", requestError);
-        setMetadataError(
-          requestError.message || "Failed to load Influx device metadata.",
-        );
-        setAvailableIds([]);
-        setAvailableChannels([]);
-      } finally {
-        setMetadataLoading(false);
-      }
-    };
-
-    loadDeviceMetadata();
-  }, [showForm, form.bucket_name, form.measurement_name, form.tag_key]);
-
-  const filteredDevices = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-
-    return devices.filter((device) => {
-      const matchesOrganization =
-        !selectedOrgId || String(device.org_id) === String(selectedOrgId);
-
-      if (!matchesOrganization) return false;
-      if (!keyword) return true;
-
-      return [
-        device.org_name,
-        device.device_name,
-        device.bucket_name,
-        device.measurement_name,
-        device.tag_key,
-        device.tag_value,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword));
-    });
-  }, [devices, search, selectedOrgId]);
-
-  const updateForm = (field, value) => {
-    setForm((current) => {
-      if (field === "bucket_name") {
-        return {
-          ...current,
-          bucket_name: value,
-          measurement_name: "",
-          tag_value: "",
-        };
-      }
-
-      if (field === "measurement_name" || field === "tag_key") {
-        return {
-          ...current,
-          [field]: value,
-          tag_value: "",
-        };
-      }
-
-      return {
-        ...current,
-        [field]: value,
-      };
-    });
-  };
-
-  const fetchInfluxBuckets = async () => {
-    const response = await fetch(`${API_BASE_URL}/influx/buckets`, {
-      headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        await readError(response, "Failed to load Influx buckets."),
+    const timer =
+      window.setTimeout(
+        () =>
+          setNotice(""),
+        3500
       );
-    }
 
-    const payload = await response.json();
-    return Array.isArray(payload?.buckets) ? payload.buckets : [];
-  };
+    return () =>
+      window.clearTimeout(
+        timer
+      );
+  }, [notice]);
 
-  const fetchInfluxMeasurements = async (selectedBucket) => {
-    const response = await fetch(
-      `${API_BASE_URL}/influx/measurements?bucket=${encodeURIComponent(selectedBucket)}`,
-      { headers: getAuthHeaders() },
+  const logicalAssignments =
+    useMemo(
+      () =>
+        groupAssignmentRows(
+          assignments
+        ),
+      [assignments]
     );
 
-    if (!response.ok) {
-      throw new Error(
-        await readError(response, "Failed to load Influx measurements."),
+  const filteredAssignments =
+    useMemo(() => {
+      const query =
+        assignmentSearch
+          .trim()
+          .toLowerCase();
+
+      return logicalAssignments.filter(
+        (item) => {
+          if (
+            assignmentOrgFilter &&
+            String(
+              item.org_id
+            ) !==
+              String(
+                assignmentOrgFilter
+              )
+          ) {
+            return false;
+          }
+
+          if (!query) {
+            return true;
+          }
+
+          return [
+            item.org_name,
+            item.device_name,
+            item.device_type_label,
+            item.tag_value,
+            item.bucket_name,
+            ...item.measurement_names,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(query);
+        }
       );
-    }
-
-    const payload = await response.json();
-    return Array.isArray(payload?.measurements) ? payload.measurements : [];
-  };
-
-  const fetchInfluxDeviceMetadata = async (
-    selectedBucket,
-    selectedMeasurement,
-    selectedTagKey,
-  ) => {
-    const query = new URLSearchParams({
-      bucket: selectedBucket,
-      measurement: selectedMeasurement,
-      tagKey: selectedTagKey || "id",
-    });
-
-    const [idsResponse, channelsResponse] = await Promise.all([
-      fetch(`${API_BASE_URL}/influx/ids?${query.toString()}`, {
-        headers: getAuthHeaders(),
-      }),
-      fetch(`${API_BASE_URL}/influx/channels?${query.toString()}`, {
-        headers: getAuthHeaders(),
-      }),
+    }, [
+      logicalAssignments,
+      assignmentOrgFilter,
+      assignmentSearch,
     ]);
 
-    if (!idsResponse.ok) {
-      throw new Error(
-        await readError(idsResponse, "Failed to load Influx device IDs."),
+  const assignedMeasurementsFor =
+    (logicalDevice) => {
+      if (!selectedOrgId) {
+        return [];
+      }
+
+      const expectedKey =
+        logicalAssignmentKey({
+          orgId:
+            selectedOrgId,
+          bucket:
+            logicalDevice.bucket_name,
+          measurementGroup:
+            logicalDevice.device_type,
+          tagKey:
+            logicalDevice.tag_key,
+          tagValue:
+            logicalDevice.tag_value,
+        });
+
+      return (
+        logicalAssignments.find(
+          (item) =>
+            item.key ===
+            expectedKey
+        )?.measurement_names ||
+        []
       );
-    }
-
-    if (!channelsResponse.ok) {
-      throw new Error(
-        await readError(channelsResponse, "Failed to load Influx channels."),
-      );
-    }
-
-    const [idsPayload, channelsPayload] = await Promise.all([
-      idsResponse.json(),
-      channelsResponse.json(),
-    ]);
-
-    return {
-      ids: Array.isArray(idsPayload?.ids) ? idsPayload.ids : [],
-      channels: Array.isArray(channelsPayload?.channels)
-        ? channelsPayload.channels
-        : [],
     };
-  };
 
-  const refreshInfluxMetadata = async () => {
-    setMetadataLoading(true);
-    setMetadataError("");
+  const getAssignmentProgress =
+    (logicalDevice) => {
+      const assigned =
+        assignedMeasurementsFor(
+          logicalDevice
+        );
 
-    try {
-      const buckets = await fetchInfluxBuckets();
-      setAvailableBuckets(buckets);
+      const total =
+        logicalDevice
+          .measurement_names
+          ?.length || 0;
 
-      const selectedBucket = form.bucket_name.trim();
-      const selectedMeasurement = form.measurement_name.trim();
-      const selectedTagKey = form.tag_key.trim() || "id";
+      const assignedCount =
+        logicalDevice
+          .measurement_names
+          ?.filter(
+            (measurement) =>
+              assigned.includes(
+                measurement
+              )
+          ).length || 0;
 
-      if (!selectedBucket) {
-        setAvailableMeasurements([]);
-        setAvailableIds([]);
-        setAvailableChannels([]);
+      return {
+        assignedCount,
+        total,
+        complete:
+          total > 0 &&
+          assignedCount ===
+            total,
+        partial:
+          assignedCount > 0 &&
+          assignedCount <
+            total,
+      };
+    };
+
+  const fetchBuckets =
+    async () => {
+      const response =
+        await fetch(
+          `${API_BASE_URL}/influx/buckets`,
+          {
+            headers:
+              headers(),
+          }
+        );
+
+      const payload =
+        await readPayload(
+          response,
+          "Failed to load Influx buckets"
+        );
+
+      const buckets =
+        Array.isArray(
+          payload?.buckets
+        )
+          ? payload.buckets
+          : [];
+
+      setAvailableBuckets(
+        buckets
+      );
+
+      return buckets;
+    };
+
+  const discoverLogicalDevices =
+    async (bucketName) => {
+      if (!bucketName) {
+        setLogicalDevices(
+          []
+        );
         return;
       }
 
-      const measurements = await fetchInfluxMeasurements(selectedBucket);
-      setAvailableMeasurements(measurements);
+      setDiscoveryLoading(
+        true
+      );
 
-      if (!selectedMeasurement) {
-        setAvailableIds([]);
-        setAvailableChannels([]);
+      setError("");
+
+      try {
+        const query =
+          new URLSearchParams({
+            bucket:
+              bucketName,
+            tagKey: "id",
+          });
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/influx/logical-devices?${query.toString()}`,
+            {
+              headers:
+                headers(),
+            }
+          );
+
+        const payload =
+          await readPayload(
+            response,
+            "Failed to discover logical devices"
+          );
+
+        setLogicalDevices(
+          Array.isArray(
+            payload?.devices
+          )
+            ? payload.devices
+            : []
+        );
+      } catch (
+        requestError
+      ) {
+        setLogicalDevices(
+          []
+        );
+
+        setError(
+          requestError.message ||
+            "Failed to discover logical devices"
+        );
+      } finally {
+        setDiscoveryLoading(
+          false
+        );
+      }
+    };
+
+  const openAssignModal =
+    async () => {
+      setShowAssignModal(
+        true
+      );
+
+      setSelectedLogicalKeys(
+        []
+      );
+
+      setDiscoverySearch(
+        ""
+      );
+
+      setError("");
+
+      try {
+        const buckets =
+          await fetchBuckets();
+
+        const bucketName =
+          selectedBucket ||
+          buckets[0] ||
+          "";
+
+        setSelectedBucket(
+          bucketName
+        );
+
+        if (bucketName) {
+          await discoverLogicalDevices(
+            bucketName
+          );
+        }
+      } catch (
+        requestError
+      ) {
+        setError(
+          requestError.message ||
+            "Failed to open device assignment"
+        );
+      }
+    };
+
+  const filteredLogicalDevices =
+    useMemo(() => {
+      const query =
+        discoverySearch
+          .trim()
+          .toLowerCase();
+
+      if (!query) {
+        return logicalDevices;
+      }
+
+      return logicalDevices.filter(
+        (device) =>
+          [
+            device
+              .device_type_label,
+            device.tag_value,
+            ...(
+              device
+                .measurement_names ||
+              []
+            ),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(query)
+      );
+    }, [
+      logicalDevices,
+      discoverySearch,
+    ]);
+
+  const groupedDiscovery =
+    useMemo(() => {
+      const map =
+        new Map();
+
+      filteredLogicalDevices.forEach(
+        (device) => {
+          if (
+            !map.has(
+              device.device_type
+            )
+          ) {
+            map.set(
+              device.device_type,
+              {
+                key:
+                  device.device_type,
+                label:
+                  device
+                    .device_type_label,
+                devices: [],
+              }
+            );
+          }
+
+          map
+            .get(
+              device.device_type
+            )
+            .devices.push(
+              device
+            );
+        }
+      );
+
+      return [
+        ...map.values(),
+      ].sort((a, b) =>
+        a.label.localeCompare(
+          b.label
+        )
+      );
+    }, [
+      filteredLogicalDevices,
+    ]);
+
+  const selectableVisibleKeys =
+    filteredLogicalDevices
+      .filter(
+        (device) =>
+          !getAssignmentProgress(
+            device
+          ).complete
+      )
+      .map(
+        (device) =>
+          device.key
+      );
+
+  const allVisibleSelected =
+    selectableVisibleKeys.length >
+      0 &&
+    selectableVisibleKeys.every(
+      (key) =>
+        selectedLogicalKeys.includes(
+          key
+        )
+    );
+
+  const toggleLogicalDevice =
+    (device) => {
+      if (
+        getAssignmentProgress(
+          device
+        ).complete
+      ) {
         return;
       }
 
-      const { ids, channels } = await fetchInfluxDeviceMetadata(
-        selectedBucket,
-        selectedMeasurement,
-        selectedTagKey,
+      setSelectedLogicalKeys(
+        (current) =>
+          current.includes(
+            device.key
+          )
+            ? current.filter(
+                (key) =>
+                  key !==
+                  device.key
+              )
+            : [
+                ...current,
+                device.key,
+              ]
       );
-
-      setAvailableIds(ids);
-      setAvailableChannels(channels);
-    } catch (requestError) {
-      console.error("❌ Device metadata load error:", requestError);
-      setMetadataError(
-        requestError.message || "Failed to load Influx metadata.",
-      );
-      setAvailableMeasurements([]);
-      setAvailableIds([]);
-      setAvailableChannels([]);
-    } finally {
-      setMetadataLoading(false);
-    }
-  };
-
-  const openCreateForm = () => {
-    setError("");
-    setNotice("");
-    setMetadataError("");
-    setAvailableMeasurements([]);
-    setAvailableIds([]);
-    setAvailableChannels([]);
-    setForm({
-      ...emptyForm,
-      org_id: selectedOrgId || "",
-    });
-    setShowForm(true);
-  };
-
-  const closeCreateForm = () => {
-    if (saving) return;
-
-    setShowForm(false);
-    setError("");
-    setForm(emptyForm);
-  };
-
-  const submitDevice = async (event) => {
-    event.preventDefault();
-    setError("");
-    setNotice("");
-
-    const payload = {
-      org_id: Number(form.org_id),
-      bucket_name: form.bucket_name.trim(),
-      measurement_name: form.measurement_name.trim(),
-      tag_key: form.tag_key.trim(),
-      tag_value: form.tag_value.trim(),
-      device_name: form.device_name.trim(),
     };
 
-    if (
-      !payload.org_id ||
-      !payload.bucket_name ||
-      !payload.measurement_name ||
-      !payload.tag_key ||
-      !payload.tag_value
-    ) {
-      setError(
-        "Organization, bucket, measurement, tag key, and tag value are required.",
-      );
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/organization-influx-devices`,
-        {
-          method: "POST",
-          headers: getAuthHeaders(true),
-          body: JSON.stringify(payload),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          await readError(response, "Failed to assign Influx device."),
+  const toggleVisible =
+    () => {
+      if (
+        allVisibleSelected
+      ) {
+        setSelectedLogicalKeys(
+          (current) =>
+            current.filter(
+              (key) =>
+                !selectableVisibleKeys.includes(
+                  key
+                )
+            )
         );
+
+        return;
       }
 
-      setShowForm(false);
-      setForm(emptyForm);
-      setNotice("Device assigned to organization successfully.");
-      await loadPageData();
-    } catch (requestError) {
-      console.error("❌ Create device assignment error:", requestError);
-      setError(requestError.message || "Failed to assign Influx device.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteDevice = async (device) => {
-    setDeletingId(device.id);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/organization-influx-devices/${device.id}`,
-        {
-          method: "DELETE",
-          headers: getAuthHeaders(),
-        },
+      setSelectedLogicalKeys(
+        (current) => [
+          ...new Set([
+            ...current,
+            ...selectableVisibleKeys,
+          ]),
+        ]
       );
+    };
 
-      if (!response.ok) {
-        throw new Error(
-          await readError(response, "Failed to remove device assignment."),
+  const assignSelected =
+    async () => {
+      if (!selectedOrgId) {
+        setError(
+          "Select an organization first."
         );
+        return;
       }
 
-      setDevices((current) =>
-        current.filter((item) => item.id !== device.id),
-      );
-      setPendingDelete(null);
-      setNotice("Device assignment removed.");
-    } catch (requestError) {
-      console.error("❌ Delete device assignment error:", requestError);
-      setError(requestError.message || "Failed to remove device assignment.");
-    } finally {
-      setDeletingId(null);
-    }
-  };
+      const selected =
+        logicalDevices.filter(
+          (device) =>
+            selectedLogicalKeys.includes(
+              device.key
+            )
+        );
 
-  if (role !== "superadmin") {
+      if (!selected.length) {
+        setError(
+          "Select at least one logical device."
+        );
+        return;
+      }
+
+      setSaving(true);
+      setError("");
+
+      try {
+        const response =
+          await fetch(
+            `${API_BASE_URL}/organization-influx-devices/bulk-logical`,
+            {
+              method: "POST",
+              headers:
+                headers(true),
+              body: JSON.stringify({
+                org_id:
+                  selectedOrgId,
+                devices:
+                  selected.map(
+                    (device) => ({
+                      device_type:
+                        device
+                          .device_type,
+                      bucket_name:
+                        device
+                          .bucket_name,
+                      tag_key:
+                        device
+                          .tag_key,
+                      tag_value:
+                        device
+                          .tag_value,
+                      measurement_names:
+                        device
+                          .measurement_names,
+                      device_name:
+                        `${
+                          device
+                            .device_type_label
+                        } · ${
+                          device
+                            .tag_value
+                        }`,
+                    })
+                  ),
+              }),
+            }
+          );
+
+        const payload =
+          await readPayload(
+            response,
+            "Failed to assign logical devices"
+          );
+
+        setNotice(
+          `${
+            payload.assigned ||
+            0
+          } measurement permission(s) added${
+            payload.skipped
+              ? ` · ${payload.skipped} already existed`
+              : ""
+          }.`
+        );
+
+        setSelectedLogicalKeys(
+          []
+        );
+
+        await loadPage();
+
+        setShowAssignModal(
+          false
+        );
+      } catch (
+        requestError
+      ) {
+        setError(
+          requestError.message ||
+            "Failed to assign devices"
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  const removeLogicalAssignment =
+    async (item) => {
+      const confirmed =
+        window.confirm(
+          `Remove ${item.device_type_label} ${item.tag_value} from ${item.org_name}? This removes ${item.assignment_ids.length} measurement permission(s).`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setError("");
+
+      try {
+        const response =
+          await fetch(
+            `${API_BASE_URL}/organization-influx-devices/bulk-remove`,
+            {
+              method: "POST",
+              headers:
+                headers(true),
+              body: JSON.stringify({
+                assignment_ids:
+                  item
+                    .assignment_ids,
+              }),
+            }
+          );
+
+        await readPayload(
+          response,
+          "Failed to remove logical device"
+        );
+
+        setAssignments(
+          (current) =>
+            current.filter(
+              (row) =>
+                !item.assignment_ids.includes(
+                  row.id
+                )
+            )
+        );
+      } catch (
+        requestError
+      ) {
+        setError(
+          requestError.message ||
+            "Failed to remove logical device"
+        );
+      }
+    };
+
+  if (!isSuperadmin) {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-100 p-6 dark:bg-gray-900">
-        <div className="max-w-md rounded-3xl border border-red-200 bg-white p-8 text-center shadow-lg dark:border-red-900 dark:bg-gray-800">
-          <ServerCog className="mx-auto mb-4 text-red-500" size={38} />
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-            Superadmin access required
-          </h1>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Only superadmins can register and assign industrial Influx devices
-            to organizations.
-          </p>
+      <div className="p-3">
+        <div
+          className="
+            rounded-xl border
+            border-amber-200
+            bg-amber-50 p-3
+            text-xs text-amber-800
+          "
+        >
+          Device Management is
+          available to Superadmin.
         </div>
       </div>
     );
@@ -613,739 +926,1084 @@ export default function DeviceManagement({ setPage, dark = false }) {
 
   return (
     <div
-      className={`device-management-page min-h-full w-full overflow-auto p-6 ${
-        dark ? "device-management-dark bg-[#050a1e]" : "bg-transparent"
-      }`}
+      className={`
+        min-h-full w-full
+        overflow-auto p-3
+        ${
+          dark
+            ? "text-slate-100"
+            : "text-slate-900"
+        }
+      `}
     >
-      {dark && (
-        <style>{`
-          .device-management-dark {
-            color: #e2e8f0;
-          }
-
-          .device-management-dark .text-gray-900,
-          .device-management-dark .text-gray-800,
-          .device-management-dark .text-gray-700 {
-            color: #f8fafc !important;
-          }
-
-          .device-management-dark .text-gray-600,
-          .device-management-dark .text-gray-500 {
-            color: #cbd5e1 !important;
-          }
-
-          .device-management-dark .text-gray-400,
-          .device-management-dark .text-gray-300 {
-            color: #94a3b8 !important;
-          }
-
-          .device-management-dark input,
-          .device-management-dark select,
-          .device-management-dark textarea {
-            color: #f8fafc !important;
-            background-color: #020617 !important;
-            border-color: #334155 !important;
-          }
-
-          .device-management-dark input::placeholder {
-            color: #64748b !important;
-          }
-
-          .device-management-dark option {
-            color: #f8fafc !important;
-            background-color: #020617 !important;
-          }
-
-          .device-management-dark thead {
-            color: #bfdbfe !important;
-          }
-
-          .device-management-dark tbody tr {
-            color: #e2e8f0 !important;
-          }
-        `}</style>
-      )}
-      <div className="relative z-10 w-full">
-        <div
-          className={`sticky top-0 z-20 rounded-3xl border p-6 shadow-lg backdrop-blur-xl ${
+      {/* HEADER */}
+      <div
+        className={`
+          mb-3 rounded-xl border
+          px-3 py-2.5 shadow-sm
+          ${
             dark
-              ? "border-slate-700 bg-slate-900/95 shadow-black/30"
-              : "border-gray-200 bg-white/85"
-          }`}
-        >
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
-                  <ServerCog size={22} />
-                </div>
-                <div>
-                  <h1 className={dark ? "text-3xl font-bold text-slate-50" : "text-3xl font-bold text-gray-900"}>
-                    Device Management
-                  </h1>
-                  <p className={dark ? "mt-1 text-sm text-slate-300" : "mt-1 text-sm text-gray-500"}>
-                    Register Influx devices and control which organization can
-                    use them.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={loadPageData}
-                disabled={loading}
-                className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                  dark
-                    ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <RefreshCw
-                  size={17}
-                  className={loading ? "animate-spin" : ""}
-                />
-                Refresh
-              </button>
-
-              <button
-                type="button"
-                onClick={openCreateForm}
-                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-blue-700 hover:-translate-y-0.5"
-              >
-                <Plus size={18} />
-                Assign Device
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-3 md:grid-cols-[1fr_260px]">
-            <div className="relative">
-              <Search
-                size={18}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search organization, device, bucket, measurement, or tag value..."
-                className={`w-full rounded-2xl border py-3 pl-11 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
-              />
-            </div>
-
-            <select
-              value={selectedOrgId}
-              onChange={(event) => setSelectedOrgId(event.target.value)}
-              className={`rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
-            >
-              <option value="">All organizations</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-
+              ? "border-slate-700 bg-slate-900"
+              : "border-slate-200 bg-white"
+          }
+        `}
+      >
         <div
-          className={`relative z-10 mt-6 overflow-hidden rounded-3xl border shadow-lg ${panelClass}`}
+          className="
+            flex flex-col gap-2
+            sm:flex-row
+            sm:items-center
+            sm:justify-between
+          "
         >
           <div
-            className={`flex items-center justify-between border-b px-6 py-5 ${
-              dark ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"
-            }`}
+            className="
+              flex min-w-0
+              items-center gap-2.5
+            "
           >
-            <div>
-              <h2 className={dark ? "font-bold text-slate-50" : "font-bold text-gray-900"}>
-                Organization Device Assignments
-              </h2>
-              <p className={dark ? "mt-1 text-xs text-slate-300" : "mt-1 text-xs text-gray-500"}>
-                {filteredDevices.length} device assignment(s) shown
+            <div
+              className="
+                flex h-8 w-8
+                shrink-0 items-center
+                justify-center
+                rounded-lg
+                bg-emerald-50
+                text-emerald-600
+                dark:bg-emerald-500/10
+                dark:text-emerald-300
+              "
+            >
+              <ServerCog
+                size={16}
+              />
+            </div>
+
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold">
+                Device Management
+              </h1>
+
+              <p
+                className="
+                  mt-0.5
+                  text-[11px]
+                  text-slate-500
+                  dark:text-slate-400
+                "
+              >
+                Assign a logical device once; the system creates the required measurement-level permissions automatically.
               </p>
             </div>
-            <Database className="text-blue-500" size={22} />
           </div>
 
-          {loading ? (
-            <div className="flex min-h-64 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-              <RefreshCw className="mr-3 animate-spin" size={18} />
-              Loading devices...
-            </div>
-          ) : filteredDevices.length === 0 ? (
-            <div className="flex min-h-64 flex-col items-center justify-center px-6 text-center">
-              <ServerCog
-                size={34}
-                className="text-gray-300 dark:text-gray-600"
-              />
-              <h3 className="mt-4 font-bold text-gray-900 dark:text-white">
-                No device assignments found
-              </h3>
-              <p className="mt-2 max-w-md text-sm text-gray-500 dark:text-gray-400">
-                Register an Influx device and assign it to an organization
-                before its admins can use it in Template Builder.
-              </p>
-              <button
-                type="button"
-                onClick={openCreateForm}
-                className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-              >
-                <Plus size={17} />
-                Assign First Device
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead
-                  className={`text-xs uppercase tracking-wider ${
-                    dark
-                      ? "bg-slate-950 text-sky-200"
-                      : "bg-gray-50 text-gray-500"
-                  }`}
-                >
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Organization</th>
-                    <th className="px-6 py-4 font-semibold">Device</th>
-                    <th className="px-6 py-4 font-semibold">Influx source</th>
-                    <th className="px-6 py-4 font-semibold">Tag</th>
-                    <th className="px-6 py-4 text-right font-semibold">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-                <tbody
-                  className={dark ? "divide-y divide-slate-800 bg-slate-900" : "divide-y divide-gray-100 bg-white"}
-                >
-                  {filteredDevices.map((device) => (
-                    <tr
-                      key={device.id}
-                      className={dark ? "transition hover:bg-slate-800/90" : "transition hover:bg-blue-50/40"}
-                    >
-                      <td className="px-6 py-4 font-semibold text-gray-800 dark:text-gray-100">
-                        {device.org_name}
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="font-semibold text-gray-800 dark:text-gray-100">
-                          {device.device_name || "Unnamed device"}
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">
-                          {device.tag_value}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="font-mono text-xs font-semibold text-gray-700 dark:text-gray-200">
-                          {device.bucket_name}
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">
-                          {device.measurement_name}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-300">
-                        {device.tag_key} = {device.tag_value}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setPendingDelete(device)}
-                          disabled={deletingId === device.id}
-                          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            dark
-                              ? "border-red-400 bg-red-500/10 text-red-300 hover:border-red-500 hover:bg-red-600 hover:text-white"
-                              : "border-red-300 bg-red-50 text-red-600 hover:border-red-500 hover:bg-red-600 hover:text-white"
-                          }`}
-                        >
-                          <Trash2 size={15} />
-                          {deletingId === device.id ? "Removing..." : "Remove"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={
+              openAssignModal
+            }
+            className="
+              inline-flex h-8
+              shrink-0 items-center
+              justify-center gap-1.5
+              rounded-lg
+              bg-emerald-600
+              px-3 text-xs
+              font-semibold text-white
+              hover:bg-emerald-700
+            "
+          >
+            <Plus size={14} />
+            Assign Devices
+          </button>
         </div>
       </div>
 
       {(error || notice) && (
         <div
-          className="
-            fixed right-5 top-5 z-[80]
-            flex w-[min(420px,calc(100vw-2.5rem))]
-            items-start gap-3 rounded-2xl border p-4 shadow-2xl
-            backdrop-blur-xl
-            animate-[fadeIn_.2s_ease-out]
-          "
-          role="status"
+          className={`
+            mb-3 rounded-xl
+            border px-3 py-2
+            text-xs
+            ${
+              error
+                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+            }
+          `}
         >
-          <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-              error
-                ? "bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-300"
-                : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-300"
-            }`}
-          >
-            {error ? <AlertCircle size={19} /> : <CheckCircle2 size={19} />}
-          </div>
-
-          <div
-            className={`min-w-0 flex-1 pt-0.5 text-sm ${
-              error
-                ? "text-red-800 dark:text-red-200"
-                : "text-emerald-800 dark:text-emerald-200"
-            }`}
-          >
-            <p className="font-bold">
-              {error ? "Action failed" : "Success"}
-            </p>
-            <p className="mt-1 leading-relaxed opacity-90">
-              {error || notice}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setError("");
-              setNotice("");
-            }}
-            className="
-              rounded-xl p-1.5 text-gray-400 transition
-              hover:bg-gray-100 hover:text-gray-700
-              dark:hover:bg-gray-800 dark:hover:text-white
-            "
-            aria-label="Dismiss notification"
-          >
-            <X size={17} />
-          </button>
+          {error || notice}
         </div>
       )}
 
-      {pendingDelete && (
-        <div
-          className="
-            fixed inset-0 z-[70] flex items-center justify-center
-            bg-black/60 p-6 backdrop-blur-sm
-          "
-          onClick={() => {
-            if (!deletingId) setPendingDelete(null);
-          }}
-        >
-          <div
-            className="
-              w-full max-w-md rounded-3xl border border-gray-200
-              bg-white p-7 shadow-2xl
-              dark:border-gray-700 dark:bg-gray-900
-            "
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-300">
-              <Trash2 size={22} />
-            </div>
-
-            <h2 className="mt-5 text-xl font-bold text-gray-900 dark:text-white">
-              Remove device assignment?
-            </h2>
-
-            <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-              Remove 
-              <span className="font-semibold text-gray-800 dark:text-gray-200">
-                {pendingDelete.device_name ||
-                  `${pendingDelete.measurement_name} / ${pendingDelete.tag_value}`}
-              </span> from {pendingDelete.org_name}. Organization admins will no longer be able to select this device in Template Builder.
-            </p>
-
-            <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => setPendingDelete(null)}
-                disabled={Boolean(deletingId)}
-                className="
-                  rounded-2xl border border-gray-300 bg-white px-5 py-3
-                  font-semibold text-gray-700 transition hover:bg-gray-100
-                  disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800
-                  dark:text-white dark:hover:bg-gray-700
-                "
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={() => deleteDevice(pendingDelete)}
-                disabled={Boolean(deletingId)}
-                className="
-                  inline-flex items-center justify-center gap-2 rounded-2xl
-                  bg-red-600 px-5 py-3 font-semibold text-white
-                  transition hover:bg-red-700 disabled:cursor-not-allowed
-                  disabled:opacity-60
-                "
-              >
-                {deletingId ? (
-                  <RefreshCw className="animate-spin" size={17} />
-                ) : (
-                  <Trash2 size={17} />
-                )}
-                {deletingId ? "Removing..." : "Remove Device"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showForm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
-          onClick={closeCreateForm}
-        >
-          <form
-            onSubmit={submitDevice}
-            onClick={(event) => event.stopPropagation()}
-            className={`w-full max-w-4xl overflow-hidden rounded-3xl border shadow-2xl ${
+      {/* FILTERS */}
+      <div
+        className={`
+          mb-3 grid gap-2
+          rounded-xl border p-3
+          md:grid-cols-[220px_minmax(0,1fr)]
+          ${
+            dark
+              ? "border-slate-700 bg-slate-900"
+              : "border-slate-200 bg-white"
+          }
+        `}
+      >
+        <select
+          value={
+            assignmentOrgFilter
+          }
+          onChange={(event) =>
+            setAssignmentOrgFilter(
+              event.target.value
+            )
+          }
+          className={`
+            h-9 rounded-lg
+            border px-3
+            text-xs outline-none
+            ${
               dark
-                ? "border-slate-700 bg-slate-900 text-slate-100"
-                : "border-slate-200 bg-white text-slate-900"
-            }`}
-          >
-            <div
-              className={`flex items-center justify-between border-b px-7 py-6 ${
+                ? "border-slate-700 bg-slate-950"
+                : "border-slate-300 bg-white"
+            }
+          `}
+        >
+          <option value="">
+            All organizations
+          </option>
+
+          {organizations.map(
+            (organization) => (
+              <option
+                key={
+                  organization.id
+                }
+                value={
+                  organization.id
+                }
+              >
+                {
+                  organization.name
+                }
+              </option>
+            )
+          )}
+        </select>
+
+        <div className="relative">
+          <Search
+            size={14}
+            className="
+              absolute left-3
+              top-1/2
+              -translate-y-1/2
+              text-slate-400
+            "
+          />
+
+          <input
+            value={
+              assignmentSearch
+            }
+            onChange={(event) =>
+              setAssignmentSearch(
+                event.target.value
+              )
+            }
+            placeholder="Search assigned logical devices..."
+            className={`
+              h-9 w-full
+              rounded-lg border
+              pl-9 pr-3
+              text-xs outline-none
+              ${
                 dark
-                  ? "border-slate-700 bg-slate-900"
-                  : "border-slate-200 bg-white"
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+                  ? "border-slate-700 bg-slate-950"
+                  : "border-slate-300 bg-white"
+              }
+            `}
+          />
+        </div>
+      </div>
+
+      {/* CURRENT LOGICAL ASSIGNMENTS */}
+      <div
+        className={`
+          overflow-hidden
+          rounded-xl border
+          ${
+            dark
+              ? "border-slate-700 bg-slate-900"
+              : "border-slate-200 bg-white"
+          }
+        `}
+      >
+        <div
+          className={`
+            hidden border-b
+            px-3 py-2
+            text-[10px] font-bold
+            uppercase tracking-wider
+            md:grid
+            md:grid-cols-[minmax(150px,1fr)_minmax(180px,1.1fr)_minmax(220px,1.5fr)_100px_38px]
+            md:gap-3
+            ${
+              dark
+                ? "border-slate-700 text-slate-400"
+                : "border-slate-200 text-slate-400"
+            }
+          `}
+        >
+          <span>
+            Organization
+          </span>
+          <span>
+            Logical Device
+          </span>
+          <span>
+            Measurements
+          </span>
+          <span>
+            Access
+          </span>
+          <span />
+        </div>
+
+        {loading ? (
+          <div
+            className="
+              p-8 text-center
+              text-xs text-slate-400
+            "
+          >
+            Loading assignments...
+          </div>
+        ) : filteredAssignments.length ===
+          0 ? (
+          <div
+            className="
+              p-8 text-center
+              text-xs text-slate-400
+            "
+          >
+            No logical-device assignments found.
+          </div>
+        ) : (
+          filteredAssignments.map(
+            (item) => (
+              <div
+                key={
+                  item.key
+                }
+                className={`
+                  grid gap-2
+                  border-b px-3
+                  py-2.5
+                  last:border-b-0
+                  md:grid-cols-[minmax(150px,1fr)_minmax(180px,1.1fr)_minmax(220px,1.5fr)_100px_38px]
+                  md:items-center
+                  md:gap-3
+                  ${
                     dark
-                      ? "bg-blue-500/15 text-blue-300"
-                      : "bg-blue-100 text-blue-600"
-                  }`}
-                >
-                  <Database size={21} />
+                      ? "border-slate-800"
+                      : "border-slate-100"
+                  }
+                `}
+              >
+                <div>
+                  <p
+                    className="
+                      text-[9px] font-bold
+                      uppercase tracking-wider
+                      text-slate-400 md:hidden
+                    "
+                  >
+                    Organization
+                  </p>
+
+                  <p className="truncate text-xs font-semibold">
+                    {
+                      item.org_name
+                    }
+                  </p>
+                </div>
+
+                <div className="min-w-0">
+                  <p
+                    className="
+                      text-[9px] font-bold
+                      uppercase tracking-wider
+                      text-slate-400 md:hidden
+                    "
+                  >
+                    Logical Device
+                  </p>
+
+                  <p className="truncate text-xs font-semibold">
+                    {
+                      item
+                        .device_type_label
+                    }
+                  </p>
+
+                  <p className="mt-0.5 truncate font-mono text-[9px] text-slate-400">
+                    {
+                      item.tag_value
+                    }
+                  </p>
+                </div>
+
+                <div className="min-w-0">
+                  <p
+                    className="
+                      text-[9px] font-bold
+                      uppercase tracking-wider
+                      text-slate-400 md:hidden
+                    "
+                  >
+                    Measurements
+                  </p>
+
+                  <div
+                    className="
+                      flex flex-wrap
+                      gap-1
+                    "
+                  >
+                    {item
+                      .measurement_names
+                      .slice(0, 4)
+                      .map(
+                        (
+                          measurement
+                        ) => (
+                          <span
+                            key={
+                              measurement
+                            }
+                            className="
+                              rounded-md
+                              bg-slate-100
+                              px-1.5 py-0.5
+                              font-mono
+                              text-[9px]
+                              text-slate-500
+                              dark:bg-slate-800
+                              dark:text-slate-300
+                            "
+                          >
+                            {
+                              measurement
+                            }
+                          </span>
+                        )
+                      )}
+
+                    {item
+                      .measurement_names
+                      .length > 4 && (
+                      <span
+                        className="
+                          rounded-md
+                          bg-slate-100
+                          px-1.5 py-0.5
+                          text-[9px]
+                          text-slate-400
+                          dark:bg-slate-800
+                        "
+                      >
+                        +
+                        {item
+                          .measurement_names
+                          .length -
+                          4}{" "}
+                        more
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div>
-                  <h2
-                    className={`text-xl font-bold ${
-                      dark ? "text-white" : "text-slate-900"
-                    }`}
+                  <span
+                    className="
+                      inline-flex
+                      rounded-full
+                      bg-emerald-50
+                      px-2 py-1
+                      text-[9px] font-bold
+                      text-emerald-700
+                      dark:bg-emerald-500/10
+                      dark:text-emerald-300
+                    "
                   >
-                    Assign Influx Device
-                  </h2>
-
-                  <p
-                    className={`mt-1 text-sm ${
-                      dark ? "text-slate-300" : "text-slate-500"
-                    }`}
-                  >
-                    Choose a real Influx source and assign it to one organization.
-                  </p>
+                    {
+                      item
+                        .measurement_count
+                    }{" "}
+                    allowed
+                  </span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    removeLogicalAssignment(
+                      item
+                    )
+                  }
+                  className="
+                    flex h-8 w-8
+                    items-center
+                    justify-center
+                    rounded-lg
+                    text-slate-400
+                    hover:bg-red-50
+                    hover:text-red-500
+                    dark:hover:bg-red-500/10
+                  "
+                  title="Remove logical device"
+                >
+                  <Trash2
+                    size={14}
+                  />
+                </button>
+              </div>
+            )
+          )
+        )}
+      </div>
+
+      {/* BULK LOGICAL ASSIGNMENT MODAL */}
+      {showAssignModal && (
+        <div
+          className="
+            fixed inset-0 z-50
+            flex items-center
+            justify-center
+            bg-black/60 p-3
+            backdrop-blur-sm
+          "
+          onClick={() =>
+            setShowAssignModal(
+              false
+            )
+          }
+        >
+          <div
+            className={`
+              flex max-h-[92vh]
+              w-full max-w-4xl
+              flex-col overflow-hidden
+              rounded-2xl border
+              shadow-2xl
+              ${
+                dark
+                  ? "border-slate-700 bg-slate-900"
+                  : "border-slate-200 bg-white"
+              }
+            `}
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            {/* MODAL HEADER */}
+            <div
+              className={`
+                flex shrink-0
+                items-center
+                justify-between
+                border-b px-4
+                py-3
+                ${
+                  dark
+                    ? "border-slate-700"
+                    : "border-slate-200"
+                }
+              `}
+            >
+              <div>
+                <h2 className="text-base font-bold">
+                  Assign Logical Devices
+                </h2>
+
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  One selection can contain several measurement permissions.
+                </p>
               </div>
 
               <button
                 type="button"
-                onClick={closeCreateForm}
-                className={`rounded-xl p-2 transition ${
-                  dark
-                    ? "text-slate-400 hover:bg-slate-800 hover:text-white"
-                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                }`}
-                aria-label="Close dialog"
+                onClick={() =>
+                  setShowAssignModal(
+                    false
+                  )
+                }
+                className="
+                  rounded-lg p-1.5
+                  text-slate-400
+                  hover:bg-slate-100
+                  dark:hover:bg-slate-800
+                "
               >
-                <X size={20} />
+                <X size={17} />
               </button>
             </div>
 
+            {/* MODAL FILTERS */}
             <div
-              className={`grid gap-5 p-7 md:grid-cols-2 ${
-                dark ? "bg-slate-900" : "bg-white"
-              }`}
+              className={`
+                shrink-0 border-b
+                px-4 py-3
+                ${
+                  dark
+                    ? "border-slate-700"
+                    : "border-slate-200"
+                }
+              `}
             >
-              <label className="md:col-span-2">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                  Organization
-                </span>
+              <div
+                className="
+                  grid gap-2
+                  md:grid-cols-[1fr_220px_auto]
+                "
+              >
                 <select
-                  value={form.org_id}
-                  onChange={(event) => updateForm("org_id", event.target.value)}
-                  required
-                  className={`mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
+                  value={
+                    selectedOrgId
+                  }
+                  onChange={(event) => {
+                    setSelectedOrgId(
+                      event.target.value
+                    );
+
+                    setSelectedLogicalKeys(
+                      []
+                    );
+                  }}
+                  className={`
+                    h-9 rounded-lg
+                    border px-3
+                    text-xs
+                    ${
+                      dark
+                        ? "border-slate-700 bg-slate-950"
+                        : "border-slate-300 bg-white"
+                    }
+                  `}
                 >
-                  <option value="">Select organization</option>
-                  {organizations.map((organization) => (
-                    <option key={organization.id} value={organization.id}>
-                      {organization.name}
-                    </option>
-                  ))}
+                  <option value="">
+                    Select organization
+                  </option>
+
+                  {organizations.map(
+                    (organization) => (
+                      <option
+                        key={
+                          organization.id
+                        }
+                        value={
+                          organization.id
+                        }
+                      >
+                        {
+                          organization.name
+                        }
+                      </option>
+                    )
+                  )}
                 </select>
-              </label>
 
-              <label>
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                  Device display name
-                </span>
-                <input
-                  value={form.device_name}
-                  onChange={(event) =>
-                    updateForm("device_name", event.target.value)
-                  }
-                  placeholder="Sterilizer 01"
-                  className={`mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
-                />
-              </label>
-
-              <label>
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                  Bucket
-                </span>
                 <select
-                  value={form.bucket_name}
-                  onChange={(event) =>
-                    updateForm("bucket_name", event.target.value)
+                  value={
+                    selectedBucket
                   }
-                  required
-                  disabled={metadataLoading && availableBuckets.length === 0}
-                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}
+                  onChange={async (
+                    event
+                  ) => {
+                    const value =
+                      event.target
+                        .value;
+
+                    setSelectedBucket(
+                      value
+                    );
+
+                    setSelectedLogicalKeys(
+                      []
+                    );
+
+                    await discoverLogicalDevices(
+                      value
+                    );
+                  }}
+                  className={`
+                    h-9 rounded-lg
+                    border px-3
+                    font-mono text-xs
+                    ${
+                      dark
+                        ? "border-slate-700 bg-slate-950"
+                        : "border-slate-300 bg-white"
+                    }
+                  `}
                 >
-                  <option value="">Select available bucket</option>
-                  {availableBuckets.map((bucketName) => (
-                    <option key={bucketName} value={bucketName}>
-                      {bucketName}
-                    </option>
-                  ))}
+                  {availableBuckets.map(
+                    (bucketName) => (
+                      <option
+                        key={
+                          bucketName
+                        }
+                        value={
+                          bucketName
+                        }
+                      >
+                        {
+                          bucketName
+                        }
+                      </option>
+                    )
+                  )}
                 </select>
-              </label>
 
-              <label>
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                  Measurement
-                </span>
-                <select
-                  value={form.measurement_name}
-                  onChange={(event) =>
-                    updateForm("measurement_name", event.target.value)
+                <button
+                  type="button"
+                  onClick={() =>
+                    discoverLogicalDevices(
+                      selectedBucket
+                    )
                   }
-                  required
-                  disabled={!form.bucket_name || metadataLoading}
-                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}
-                >
-                  <option value="">Select available measurement</option>
-                  {availableMeasurements.map((measurementName) => (
-                    <option key={measurementName} value={measurementName}>
-                      {measurementName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                  Tag key
-                </span>
-                <input
-                  value={form.tag_key}
-                  onChange={(event) =>
-                    updateForm("tag_key", event.target.value)
-                  }
-                  placeholder="id"
-                  required
-                  pattern="[A-Za-z_][A-Za-z0-9_]*"
-                  title="Use letters, numbers, and underscores. The first character cannot be a number."
-                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 ${inputClass}`}
-                />
-              </label>
-
-              <label>
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                  Tag value / device ID
-                </span>
-                <select
-                  value={form.tag_value}
-                  onChange={(event) =>
-                    updateForm("tag_value", event.target.value)
-                  }
-                  required
                   disabled={
-                    !form.measurement_name ||
-                    !form.tag_key ||
-                    metadataLoading
+                    discoveryLoading ||
+                    !selectedBucket
                   }
-                  className={`mt-2 w-full rounded-2xl border px-4 py-3 font-mono outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}
+                  className="
+                    inline-flex h-9
+                    items-center
+                    justify-center
+                    gap-1.5
+                    rounded-lg
+                    bg-slate-800
+                    px-3 text-xs
+                    font-semibold
+                    text-white
+                    disabled:opacity-50
+                  "
                 >
-                  <option value="">Select available device ID</option>
-                  {availableIds.map((deviceId) => (
-                    <option key={deviceId} value={deviceId}>
-                      {deviceId}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <RefreshCw
+                    size={13}
+                    className={
+                      discoveryLoading
+                        ? "animate-spin"
+                        : ""
+                    }
+                  />
+                  Refresh
+                </button>
+              </div>
 
-              <div className="md:col-span-2">
+              <div
+                className="
+                  mt-2 flex
+                  flex-col gap-2
+                  sm:flex-row
+                  sm:items-center
+                "
+              >
+                <div className="relative min-w-0 flex-1">
+                  <Search
+                    size={13}
+                    className="
+                      absolute left-3
+                      top-1/2
+                      -translate-y-1/2
+                      text-slate-400
+                    "
+                  />
+
+                  <input
+                    value={
+                      discoverySearch
+                    }
+                    onChange={(event) =>
+                      setDiscoverySearch(
+                        event.target
+                          .value
+                      )
+                    }
+                    placeholder="Search type, device ID, measurement..."
+                    className={`
+                      h-9 w-full
+                      rounded-lg border
+                      pl-9 pr-3
+                      text-xs
+                      ${
+                        dark
+                          ? "border-slate-700 bg-slate-950"
+                          : "border-slate-300 bg-white"
+                      }
+                    `}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    toggleVisible
+                  }
+                  disabled={
+                    !selectedOrgId ||
+                    !selectableVisibleKeys.length
+                  }
+                  className="
+                    inline-flex h-9
+                    shrink-0 items-center
+                    justify-center
+                    gap-1.5 rounded-lg
+                    border border-slate-300
+                    px-3 text-xs
+                    font-semibold
+                    disabled:opacity-50
+                    dark:border-slate-700
+                  "
+                >
+                  <Check size={13} />
+                  {allVisibleSelected
+                    ? "Clear Visible"
+                    : "Select Visible"}
+                </button>
+              </div>
+            </div>
+
+            {/* DEVICE CARDS */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {!selectedOrgId ? (
                 <div
-                  className={`rounded-2xl border px-4 py-3 text-xs ${
-                    dark
-                      ? "border-blue-900/80 bg-blue-950/35 text-blue-200"
-                      : "border-blue-100 bg-blue-50 text-blue-700"
-                  }`}
+                  className="
+                    p-10 text-center
+                    text-xs text-slate-400
+                  "
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold">
-                      {metadataLoading
-                        ? "Loading available Influx metadata..."
-                        : `${availableBuckets.length} bucket(s) · ${availableMeasurements.length} measurement(s) · ${availableIds.length} device ID(s) · ${availableChannels.length} channel(s)`}
-                    </span>
+                  Select an organization to see assignment status.
+                </div>
+              ) : discoveryLoading ? (
+                <div
+                  className="
+                    p-10 text-center
+                    text-xs text-slate-400
+                  "
+                >
+                  Discovering measurement + device-ID relationships...
+                </div>
+              ) : groupedDiscovery.length ===
+                0 ? (
+                <div
+                  className="
+                    p-10 text-center
+                    text-xs text-slate-400
+                  "
+                >
+                  No logical devices found.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {groupedDiscovery.map(
+                    (group) => (
+                      <section
+                        key={
+                          group.key
+                        }
+                      >
+                        <div
+                          className="
+                            mb-2 flex
+                            items-center
+                            justify-between
+                          "
+                        >
+                          <div
+                            className="
+                              flex items-center
+                              gap-2
+                            "
+                          >
+                            <Layers3
+                              size={14}
+                              className="text-emerald-500"
+                            />
 
-                    <button
-                      type="button"
-                      onClick={refreshInfluxMetadata}
-                      disabled={metadataLoading}
-                      className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <RefreshCw
-                        size={14}
-                        className={metadataLoading ? "animate-spin" : ""}
-                      />
-                      Refresh metadata
-                    </button>
-                  </div>
+                            <h3 className="text-xs font-bold">
+                              {
+                                group.label
+                              }
+                            </h3>
+                          </div>
 
-                  {metadataError && (
-                    <p className="mt-2 text-red-500 dark:text-red-300">
-                      {metadataError}
-                    </p>
+                          <span className="text-[10px] text-slate-400">
+                            {
+                              group
+                                .devices
+                                .length
+                            }{" "}
+                            device(s)
+                          </span>
+                        </div>
+
+                        <div
+                          className="
+                            grid gap-2
+                            md:grid-cols-2
+                          "
+                        >
+                          {group.devices.map(
+                            (
+                              device
+                            ) => {
+                              const progress =
+                                getAssignmentProgress(
+                                  device
+                                );
+
+                              const selected =
+                                selectedLogicalKeys.includes(
+                                  device.key
+                                );
+
+                              return (
+                                <button
+                                  key={
+                                    device.key
+                                  }
+                                  type="button"
+                                  onClick={() =>
+                                    toggleLogicalDevice(
+                                      device
+                                    )
+                                  }
+                                  disabled={
+                                    progress.complete
+                                  }
+                                  className={`
+                                    flex min-w-0
+                                    items-start gap-3
+                                    rounded-xl border
+                                    p-3 text-left
+                                    transition-colors
+                                    ${
+                                      progress.complete
+                                        ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-950"
+                                        : selected
+                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                        : dark
+                                        ? "border-slate-700 bg-slate-950 hover:border-emerald-500/40"
+                                        : "border-slate-200 bg-white hover:border-emerald-300"
+                                    }
+                                  `}
+                                >
+                                  <span
+                                    className={`
+                                      mt-0.5 flex
+                                      h-5 w-5
+                                      shrink-0
+                                      items-center
+                                      justify-center
+                                      rounded-md border
+                                      ${
+                                        selected
+                                          ? "border-emerald-500 bg-emerald-600 text-white"
+                                          : "border-slate-300 text-transparent dark:border-slate-600"
+                                      }
+                                    `}
+                                  >
+                                    <Check
+                                      size={12}
+                                    />
+                                  </span>
+
+                                  <span className="min-w-0 flex-1">
+                                    <span
+                                      className="
+                                        block truncate
+                                        font-mono
+                                        text-[11px]
+                                        font-bold
+                                      "
+                                    >
+                                      {
+                                        device
+                                          .tag_value
+                                      }
+                                    </span>
+
+                                    <span className="mt-1 block text-[10px] text-slate-400">
+                                      {
+                                        device
+                                          .measurement_count
+                                      }{" "}
+                                      measurement(s)
+                                    </span>
+
+                                    <span
+                                      className="
+                                        mt-1 block
+                                        truncate
+                                        text-[9px]
+                                        text-slate-400
+                                      "
+                                    >
+                                      {(
+                                        device
+                                          .measurement_names ||
+                                        []
+                                      )
+                                        .slice(
+                                          0,
+                                          5
+                                        )
+                                        .join(
+                                          " · "
+                                        )}
+
+                                      {(device
+                                        .measurement_names ||
+                                        [])
+                                        .length >
+                                      5
+                                        ? " …"
+                                        : ""}
+                                    </span>
+
+                                    {progress.complete ? (
+                                      <span
+                                        className="
+                                          mt-1.5
+                                          inline-flex
+                                          rounded-full
+                                          bg-emerald-100
+                                          px-2 py-0.5
+                                          text-[9px]
+                                          font-bold
+                                          text-emerald-700
+                                          dark:bg-emerald-500/10
+                                          dark:text-emerald-300
+                                        "
+                                      >
+                                        Fully assigned
+                                      </span>
+                                    ) : progress.partial ? (
+                                      <span
+                                        className="
+                                          mt-1.5
+                                          inline-flex
+                                          rounded-full
+                                          bg-amber-100
+                                          px-2 py-0.5
+                                          text-[9px]
+                                          font-bold
+                                          text-amber-700
+                                          dark:bg-amber-500/10
+                                          dark:text-amber-300
+                                        "
+                                      >
+                                        {
+                                          progress.assignedCount
+                                        }
+                                        /
+                                        {
+                                          progress.total
+                                        }{" "}
+                                        already assigned
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </button>
+                              );
+                            }
+                          )}
+                        </div>
+                      </section>
+                    )
                   )}
                 </div>
+              )}
+            </div>
 
-                <div
-                  className={`mt-4 rounded-3xl border p-4 ${
-                    dark
-                      ? "border-slate-700 bg-slate-900"
-                      : "border-slate-200 bg-white"
-                  }`}
+            {/* FOOTER */}
+            <div
+              className={`
+                flex shrink-0
+                items-center
+                justify-between
+                gap-3 border-t
+                px-4 py-3
+                ${
+                  dark
+                    ? "border-slate-700"
+                    : "border-slate-200"
+                }
+              `}
+            >
+              <p className="text-[11px] text-slate-400">
+                {
+                  selectedLogicalKeys.length
+                }{" "}
+                logical device(s) selected
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowAssignModal(
+                      false
+                    )
+                  }
+                  className="
+                    h-9 rounded-lg
+                    border
+                    border-slate-300
+                    px-4 text-xs
+                    font-semibold
+                    dark:border-slate-700
+                  "
                 >
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <h3
-                        className={`text-sm font-black ${
-                          dark ? "text-white" : "text-slate-900"
-                        }`}
-                      >
-                        Available Influx Sources
-                      </h3>
+                  Cancel
+                </button>
 
-                      <p
-                        className={`mt-1 text-xs ${
-                          dark ? "text-slate-400" : "text-slate-500"
-                        }`}
-                      >
-                        Select a bucket and measurement to browse the device IDs and channels detected in InfluxDB.
-                      </p>
-                    </div>
-
-                    <Database
-                      size={18}
-                      className="shrink-0 text-blue-500"
-                    />
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <MetadataList
-                      title="Buckets"
-                      values={availableBuckets}
-                      activeValue={form.bucket_name}
-                      emptyText="No buckets found"
-                      dark={dark}
-                      onSelect={(value) =>
-                        updateForm("bucket_name", value)
-                      }
-                    />
-
-                    <MetadataList
-                      title="Measurements"
-                      values={availableMeasurements}
-                      activeValue={form.measurement_name}
-                      emptyText={
-                        form.bucket_name
-                          ? "No measurements found"
-                          : "Select a bucket first"
-                      }
-                      dark={dark}
-                      onSelect={(value) =>
-                        updateForm("measurement_name", value)
-                      }
-                    />
-
-                    <MetadataList
-                      title="Device IDs"
-                      values={availableIds}
-                      activeValue={form.tag_value}
-                      emptyText={
-                        form.measurement_name
-                          ? "No device IDs found"
-                          : "Select a measurement first"
-                      }
-                      dark={dark}
-                      onSelect={(value) =>
-                        updateForm("tag_value", value)
-                      }
-                    />
-
-                    <MetadataList
-                      title="Channels"
-                      values={availableChannels}
-                      emptyText={
-                        form.measurement_name
-                          ? "No channels found"
-                          : "Select a measurement first"
-                      }
-                      dark={dark}
-                    />
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={
+                    assignSelected
+                  }
+                  disabled={
+                    saving ||
+                    !selectedOrgId ||
+                    selectedLogicalKeys.length ===
+                      0
+                  }
+                  className="
+                    h-9 rounded-lg
+                    bg-emerald-600
+                    px-4 text-xs
+                    font-semibold
+                    text-white
+                    disabled:opacity-50
+                  "
+                >
+                  {saving
+                    ? "Assigning..."
+                    : `Assign ${
+                        selectedLogicalKeys.length
+                      } Device${
+                        selectedLogicalKeys.length ===
+                        1
+                          ? ""
+                          : "s"
+                      }`}
+                </button>
               </div>
             </div>
-
-            <div
-              className={`flex flex-col-reverse gap-3 border-t px-7 py-6 sm:flex-row sm:justify-end ${
-                dark
-                  ? "border-slate-700 bg-slate-950/40"
-                  : "border-slate-200 bg-slate-50/70"
-              }`}
-            >
-              <button
-                type="button"
-                onClick={closeCreateForm}
-                disabled={saving}
-                className={`rounded-2xl border px-5 py-3 font-semibold transition disabled:opacity-60 ${
-                  dark
-                    ? "border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? (
-                  <RefreshCw className="animate-spin" size={17} />
-                ) : (
-                  <Plus size={17} />
-                )}
-                {saving ? "Assigning..." : "Assign Device"}
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
       )}
     </div>

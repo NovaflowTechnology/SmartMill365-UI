@@ -304,6 +304,7 @@ export default function App() {
             roles={[
               "superadmin",
               "admin",
+              "editor",
             ]}
           >
             <Layout

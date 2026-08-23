@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import WidgetRenderer from "../components/WidgetRenderer";
-import { dataOptions } from "../data/dataOptions";
 
 import {
   Maximize2,
   Minimize2,
   LayoutGrid,
+  Activity,
+  Pencil,
   Plus,
   FolderOpen,
   RefreshCw,
@@ -264,6 +265,14 @@ export default function Dashboard({
   setPage,
   dark = false,
 }) {
+  const currentRole =
+    localStorage.getItem("role");
+
+  const canEditTemplate =
+    ["superadmin", "admin", "editor"].includes(
+      currentRole
+    );
+
   const [data, setData] = useState({});
   const [history, setHistory] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -292,6 +301,94 @@ export default function Dashboard({
   const [isFullscreen, setIsFullscreen] =
     useState(false);
 
+  // The dashboard has three practical viewing situations:
+  // 1. sidebar open  -> narrower dashboard canvas
+  // 2. sidebar closed -> wider dashboard canvas
+  // 3. fullscreen -> widest canvas with its own density
+  //
+  // We observe the ACTUAL dashboard width instead of coupling this
+  // component to Layout's sidebar state.
+  const dashboardRef = useRef(null);
+  const dashboardGridRef = useRef(null);
+
+  // Prevent overlapping /template-live-data requests.
+  // This is important when an Influx request takes longer than the normal
+  // polling interval.
+  const liveRequestInFlightRef =
+    useRef(false);
+
+  const [dashboardMode, setDashboardMode] =
+    useState("sidebar-open");
+
+  const [
+    dashboardAvailableHeight,
+    setDashboardAvailableHeight,
+  ] = useState(0);
+
+  useEffect(() => {
+    const element = dashboardRef.current;
+    if (!element) return undefined;
+
+    let frameId = 0;
+
+    const updateMode = () => {
+      cancelAnimationFrame(frameId);
+
+      frameId = requestAnimationFrame(() => {
+        if (isFullscreen) {
+          setDashboardMode((current) =>
+            current === "fullscreen"
+              ? current
+              : "fullscreen"
+          );
+          return;
+        }
+
+        const width =
+          element.getBoundingClientRect().width;
+
+        const nextMode =
+          width < 1420
+            ? "sidebar-open"
+            : "sidebar-closed";
+
+        setDashboardMode((current) =>
+          current === nextMode
+            ? current
+            : nextMode
+        );
+      });
+    };
+
+    updateMode();
+
+    const observer =
+      new ResizeObserver(updateMode);
+
+    observer.observe(element);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, [isFullscreen]);
+
+  // Compact dashboard rows.
+  // These are intentionally smaller than the original 225–235px cards.
+  // The dashboard will also cap the row height to the remaining viewport
+  // space so a normal layout does not overflow the page.
+  const preferredDashboardRowHeight =
+    dashboardMode === "sidebar-open"
+      ? 180
+      : dashboardMode === "fullscreen"
+      ? 182
+      : 188;
+
+  const dashboardGap =
+    "gap-2";
+
+  const dashboardGapPx = 8;
+
   const [items, setItems] = useState(
     template?.layout?.items || []
   );
@@ -307,8 +404,255 @@ export default function Dashboard({
       ? JSON.parse(template.layout)
       : template?.layout || {};
 
-  const influxConfig = layout?.influx || null;
-  const channelMap = layout?.channelMap || {};
+  // Dashboard view should only render rows that are actually occupied.
+  // The template can still keep a larger configured grid for editing,
+  // but empty rows below the last widget should not create scroll space.
+  const occupiedDashboardRows =
+    items.length > 0
+      ? Math.max(
+          1,
+          ...items.map((item) => {
+            const y = Number(item?.y) || 0;
+            const h = Math.max(
+              1,
+              Number(item?.h) || 1
+            );
+
+            return y + h;
+          })
+        )
+      : 1;
+
+  // Measure the visible space from the dashboard grid to the bottom
+  // of Layout's scrolling <main>. We only SHRINK rows when needed;
+  // we do not stretch compact widgets to fill an unusually tall screen.
+  useEffect(() => {
+    let frameId = 0;
+
+    const measureAvailableHeight =
+      () => {
+        if (
+          !dashboardGridRef.current
+        ) {
+          return;
+        }
+
+        cancelAnimationFrame(
+          frameId
+        );
+
+        frameId =
+          requestAnimationFrame(
+            () => {
+              const gridRect =
+                dashboardGridRef.current?.getBoundingClientRect();
+
+              if (!gridRect) {
+                return;
+              }
+
+              const main =
+                dashboardRef.current?.closest(
+                  "main"
+                );
+
+              const mainRect =
+                main?.getBoundingClientRect();
+
+              const visibleBottom =
+                isFullscreen
+                  ? window.innerHeight
+                  : mainRect?.bottom ||
+                    window.innerHeight;
+
+              const bottomSafetyGap =
+                isFullscreen
+                  ? 6
+                  : 4;
+
+              const nextHeight =
+                Math.max(
+                  180,
+                  Math.floor(
+                    visibleBottom -
+                      gridRect.top -
+                      bottomSafetyGap
+                  )
+                );
+
+              setDashboardAvailableHeight(
+                (current) =>
+                  Math.abs(
+                    current -
+                      nextHeight
+                  ) < 2
+                    ? current
+                    : nextHeight
+              );
+            }
+          );
+      };
+
+    measureAvailableHeight();
+
+    window.addEventListener(
+      "resize",
+      measureAvailableHeight
+    );
+
+    const observer =
+      typeof ResizeObserver !==
+      "undefined"
+        ? new ResizeObserver(
+            measureAvailableHeight
+          )
+        : null;
+
+    if (
+      dashboardRef.current &&
+      observer
+    ) {
+      observer.observe(
+        dashboardRef.current
+      );
+    }
+
+    const main =
+      dashboardRef.current?.closest(
+        "main"
+      );
+
+    if (
+      main &&
+      observer
+    ) {
+      observer.observe(main);
+    }
+
+    return () => {
+      cancelAnimationFrame(
+        frameId
+      );
+
+      window.removeEventListener(
+        "resize",
+        measureAvailableHeight
+      );
+
+      observer?.disconnect();
+    };
+  }, [
+    isFullscreen,
+    dashboardMode,
+    occupiedDashboardRows,
+    dataError,
+    template?.id,
+  ]);
+
+  const fitRowHeight =
+    dashboardAvailableHeight > 0
+      ? Math.floor(
+          (
+            dashboardAvailableHeight -
+            Math.max(
+              0,
+              occupiedDashboardRows - 1
+            ) *
+              dashboardGapPx
+          ) /
+            occupiedDashboardRows
+        )
+      : preferredDashboardRowHeight;
+
+  /*
+   * Let normal dashboards USE the available page height instead of leaving
+   * a large empty area underneath the final widget row.
+   *
+   * 1 row  -> may grow more
+   * 2 rows -> moderate growth
+   * 3 rows -> fills the page naturally
+   * 4+     -> keep the compact baseline and scroll instead of stretching
+   */
+  const maximumFitRowHeight =
+    occupiedDashboardRows === 1
+      ? 360
+      : occupiedDashboardRows === 2
+      ? 280
+      : 235;
+
+  const dashboardRowHeight =
+    occupiedDashboardRows <= 3
+      ? Math.max(
+          160,
+          Math.min(
+            maximumFitRowHeight,
+            fitRowHeight
+          )
+        )
+      : preferredDashboardRowHeight;
+
+  const influxConfig =
+    layout?.influx || null;
+
+  const channelMap =
+    layout?.channelMap || {};
+
+  const dataSources =
+    layout?.dataSources &&
+    typeof layout.dataSources === "object" &&
+    !Array.isArray(layout.dataSources)
+      ? layout.dataSources
+      : (layout?.customDataOptions || []).reduce(
+          (result, option) => {
+            const source = option?.source;
+
+            if (
+              option?.key &&
+              source?.bucket &&
+              source?.measurement &&
+              (
+                source?.tagValue ||
+                source?.id
+              ) &&
+              (
+                source?.field ||
+                source?.channel
+              )
+            ) {
+              result[option.key] = {
+                bucket: source.bucket,
+                measurement:
+                  source.measurement,
+                tagKey:
+                  source.tagKey || "id",
+                tagValue:
+                  source.tagValue ||
+                  source.id,
+                id:
+                  source.tagValue ||
+                  source.id,
+                field:
+                  source.field ||
+                  source.channel,
+              };
+            }
+
+            return result;
+          },
+          {}
+        );
+
+  const hasPerSourceMapping =
+    Object.keys(dataSources).length > 0;
+
+  const hasLegacyMapping =
+    Boolean(
+      influxConfig?.bucket &&
+      influxConfig?.measurement &&
+      influxConfig?.id &&
+      channelMap &&
+      Object.keys(channelMap).length > 0
+    );
 
   const templateTitle =
     template?.name ||
@@ -372,36 +716,29 @@ export default function Dashboard({
 
     if (!token) {
       window.location.href = "/";
-      return;
+      return false;
+    }
+
+    // If the previous poll is still waiting on InfluxDB, skip this cycle
+    // instead of stacking another expensive live + history request.
+    if (
+      liveRequestInFlightRef.current
+    ) {
+      return false;
     }
 
     if (
-      !influxConfig?.bucket ||
-      !influxConfig?.measurement ||
-      !influxConfig?.id
+      !hasPerSourceMapping &&
+      !hasLegacyMapping
     ) {
       setDataError(
-        "This template has no Influx device mapping configured."
+        "This template has no widget data sources configured."
       );
 
       setLiveStatus(null);
       setSankeyValues({});
       setLogs([]);
-      return;
-    }
-
-    if (
-      !channelMap ||
-      Object.keys(channelMap).length === 0
-    ) {
-      setDataError(
-        "This template has no channel mapping configured."
-      );
-
-      setLiveStatus(null);
-      setSankeyValues({});
-      setLogs([]);
-      return;
+      return false;
     }
 
     const timeRequest = getTimeRequest(
@@ -413,8 +750,11 @@ export default function Dashboard({
       setDataError(
         "Choose a valid custom start and end time."
       );
-      return;
+      return false;
     }
+
+    liveRequestInFlightRef.current =
+      true;
 
     try {
       setLoadingData(true);
@@ -429,8 +769,13 @@ export default function Dashboard({
             Authorization: token,
           },
           body: JSON.stringify({
+            // Preferred multi-source format.
+            dataSources,
+
+            // Legacy format remains included for older templates.
             influx: influxConfig,
             channelMap,
+
             ...timeRequest,
             items: layout?.items || items || [],
           }),
@@ -440,10 +785,19 @@ export default function Dashboard({
       const result = await res.json();
 
       if (!res.ok) {
-        throw new Error(
-          result?.error ||
-            "Failed to retrieve template live data"
-        );
+        const requestError =
+          new Error(
+            result?.error ||
+              "Failed to retrieve template live data"
+          );
+
+        requestError.transient =
+          Boolean(
+            result?.transient ||
+            res.status === 503
+          );
+
+        throw requestError;
       }
 
       const incoming = result?.data || {};
@@ -473,37 +827,80 @@ export default function Dashboard({
           ? result.history
           : []
       );
+
+      return true;
     } catch (err) {
       console.error(
         "❌ Template live data error:",
         err
       );
 
-      setLiveStatus(null);
-      setSankeyValues({});
-      setLogs([]);
+      /*
+       * IMPORTANT:
+       * Do NOT clear data/history/liveStatus/logs/sankeyValues here.
+       *
+       * One temporary timeout should not make a monitoring dashboard appear
+       * empty. Keep the last successful snapshot until the next request
+       * succeeds.
+       */
       setDataError(
-        err.message ||
-          "Unable to retrieve live data."
+        err?.transient
+          ? "Live connection delayed. Showing the last successful data."
+          : err.message ||
+            "Unable to retrieve live data."
       );
+
+      return false;
     } finally {
+      liveRequestInFlightRef.current =
+        false;
+
       setLoadingData(false);
     }
   };
 
   // FETCH CURRENT VALUES + REAL INFLUX HISTORY
+  //
+  // Sequential polling avoids request pile-up:
+  // request -> finish -> wait 5s -> next request.
+  //
+  // With setInterval(), a 10–15 second Influx timeout could otherwise
+  // create multiple overlapping /template-live-data requests.
   useEffect(() => {
-    if (!template) return;
+    if (!template) {
+      return;
+    }
 
-    fetchTemplateLiveData();
+    let cancelled = false;
+    let timer = null;
 
-    const timer = setInterval(() => {
-      fetchTemplateLiveData();
-    }, 5000);
+    const poll =
+      async () => {
+        await fetchTemplateLiveData();
 
-    return () => clearInterval(timer);
+        if (!cancelled) {
+          timer =
+            window.setTimeout(
+              poll,
+              5000
+            );
+        }
+      };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+
+      if (timer) {
+        window.clearTimeout(
+          timer
+        );
+      }
+    };
   }, [
     template?.id,
+    JSON.stringify(dataSources),
     influxConfig?.bucket,
     influxConfig?.measurement,
     influxConfig?.id,
@@ -538,41 +935,12 @@ export default function Dashboard({
     setFullscreen?.(next);
   };
 
-  const getLabel = (key) =>
-    dataOptions.find((d) => d.key === key)?.label ||
-    key;
-
-  const getWidgetTitle = (item) => {
-    if (item?.label) {
-      return item.label;
-    }
-
-    if (
-      item?.dataKeys &&
-      item.dataKeys.length > 1
-    ) {
-      return item.dataKeys
-        .map((key) => getLabel(key))
-        .join(" / ");
-    }
-
-    if (item?.type === "image") {
-      return "System Diagram";
-    }
-
-    if (item?.type === "logs") {
-      return "System Logs";
-    }
-
-    return getLabel(item.dataKey);
-  };
-
   if (!template) {
     return (
       <div
         className={`
           dashboard-page
-          ${isDarkMode ? "dashboard-dark bg-[#050a1e] text-slate-100" : ""}
+          ${isDarkMode ? "dark dashboard-dark bg-[#050a1e] text-slate-100" : ""}
           min-h-[calc(100vh-3rem)]
           w-full
           flex items-center
@@ -584,7 +952,7 @@ export default function Dashboard({
           <style>{`
             .dashboard-dark {
               color: #e2e8f0;
-              background-color: #050a1e !important;
+              background-color: #0b1120 !important;
             }
 
             .dashboard-dark .text-gray-900,
@@ -679,8 +1047,8 @@ export default function Dashboard({
                 justify-center
                 gap-2
                 px-5 py-3
-                rounded-2xl
-                bg-emerald-600
+                rounded-[14px]
+                bg-blue-600
                 hover:bg-emerald-700
                 text-white
                 font-semibold
@@ -699,7 +1067,7 @@ export default function Dashboard({
                 justify-center
                 gap-2
                 px-5 py-3
-                rounded-2xl
+                rounded-[14px]
                 bg-gray-100
                 hover:bg-gray-200
                 dark:bg-gray-700
@@ -721,23 +1089,26 @@ export default function Dashboard({
 
   return (
     <div
+      ref={dashboardRef}
+      data-dashboard-mode={dashboardMode}
       className={`
         dashboard-page
-        ${isDarkMode ? "dashboard-dark bg-[#050a1e] text-slate-100" : ""}
+        ${isDarkMode ? "dark dashboard-dark bg-[#0b1120] text-slate-100" : "bg-[#eef1f5] text-slate-900"}
         ${
           isFullscreen
             ? `
               fixed inset-0
-              ${isDarkMode ? "bg-[#050a1e]" : "bg-gray-100 dark:bg-gray-900"}
+              ${isDarkMode ? "bg-[#0b1120]" : "bg-[#eef1f5]"}
               z-50
               flex flex-col
-              p-4
+              overflow-y-auto
+              p-3
             `
             : `
-              min-h-[calc(100vh-3rem)]
+              min-h-0
               w-full
               flex flex-col
-              ${isDarkMode ? "bg-[#050a1e]" : ""}
+              ${isDarkMode ? "bg-[#0b1120]" : "bg-[#eef1f5]"}
             `
         }
       `}
@@ -746,7 +1117,7 @@ export default function Dashboard({
         <style>{`
           .dashboard-dark {
             color: #e2e8f0;
-            background-color: #050a1e !important;
+            background-color: #0b1120 !important;
           }
 
           .dashboard-dark * {
@@ -759,7 +1130,7 @@ export default function Dashboard({
 
           .dashboard-dark .bg-gray-50,
           .dashboard-dark .bg-gray-100 {
-            background-color: #0b1220 !important;
+            background-color: #0f172a !important;
           }
 
           .dashboard-dark .bg-gray-200,
@@ -775,7 +1146,7 @@ export default function Dashboard({
           .dashboard-dark .bg-gray-900,
           .dashboard-dark .bg-slate-900,
           .dashboard-dark .bg-slate-950 {
-            background-color: #020617 !important;
+            background-color: #111827 !important;
           }
 
           .dashboard-dark .border-gray-200,
@@ -803,7 +1174,7 @@ export default function Dashboard({
           .dashboard-dark select,
           .dashboard-dark textarea {
             color: #f8fafc !important;
-            background-color: #020617 !important;
+            background-color: #111827 !important;
             border-color: #334155 !important;
           }
 
@@ -814,7 +1185,7 @@ export default function Dashboard({
 
           .dashboard-dark option {
             color: #f8fafc !important;
-            background-color: #020617 !important;
+            background-color: #111827 !important;
           }
 
           .dashboard-dark .hover\:bg-gray-50:hover,
@@ -836,6 +1207,49 @@ export default function Dashboard({
           }
         `}</style>
       )}
+
+      <style>{`
+        /*
+         * Widget hover layering
+         * ---------------------
+         * Every dashboard cell normally clips its own content so the grid
+         * stays tidy. On hover/focus we temporarily lift that cell above
+         * neighboring widgets and allow overlays (especially Recharts
+         * tooltips) to escape the card boundary.
+         */
+        .dashboard-widget-cell {
+          position: relative;
+          z-index: 0;
+          isolation: auto;
+          overflow: hidden;
+        }
+
+        .dashboard-widget-cell:hover,
+        .dashboard-widget-cell:focus-within {
+          z-index: 80;
+          overflow: visible;
+        }
+
+        .dashboard-widget-cell:hover .dashboard-widget-surface,
+        .dashboard-widget-cell:focus-within .dashboard-widget-surface {
+          overflow: visible !important;
+        }
+
+        .dashboard-widget-cell:hover .recharts-responsive-container,
+        .dashboard-widget-cell:focus-within .recharts-responsive-container,
+        .dashboard-widget-cell:hover .recharts-wrapper,
+        .dashboard-widget-cell:focus-within .recharts-wrapper {
+          overflow: visible !important;
+        }
+
+        .dashboard-widget-cell:hover .recharts-tooltip-wrapper,
+        .dashboard-widget-cell:focus-within .recharts-tooltip-wrapper {
+          z-index: 160 !important;
+          overflow: visible !important;
+          pointer-events: none;
+        }
+      `}</style>
+
       {/* HEADER */}
       <div
         className={`
@@ -843,24 +1257,24 @@ export default function Dashboard({
           lg:flex-row
           lg:items-center
           lg:justify-between
-          gap-3
+          gap-2
           bg-white
-          dark:bg-gray-800
-          border border-gray-200
-          dark:border-gray-700
-          shadow-sm
+          dark:bg-slate-900
+          border border-slate-200
+          dark:border-slate-700
+          shadow-[0_2px_8px_rgba(15,23,42,0.05)]
 
           ${
             isFullscreen
               ? `
-                mb-3
-                rounded-2xl
-                px-4 py-3
+                mb-1
+                rounded-[10px]
+                px-2.5 py-1
               `
               : `
-                mb-6
-                rounded-3xl
-                p-5
+                mb-1
+                rounded-[10px]
+                px-3 py-1.5
               `
           }
         `}
@@ -869,54 +1283,47 @@ export default function Dashboard({
           <div
             className="
               flex items-center
-              gap-3
+              gap-2
             "
           >
             <div
               className={`
-                rounded-2xl
-                bg-emerald-600
+                rounded-full
+                border border-slate-200
+                bg-white
                 flex items-center
                 justify-center
-                text-white
-                shadow-lg
-                shadow-emerald-500/20
+                text-emerald-600
+                shadow-sm
+                dark:border-slate-700
+                dark:bg-slate-800
+                dark:text-emerald-300
 
                 ${
                   isFullscreen
-                    ? "w-9 h-9 text-sm"
-                    : "w-11 h-11"
+                    ? "w-6 h-6"
+                    : "w-7 h-7"
                 }
               `}
             >
-              📊
+              <Activity
+                size={15}
+                strokeWidth={2.25}
+              />
             </div>
 
             <div>
-              {!isFullscreen && (
-                <p
-                  className="
-                    text-xs
-                    uppercase
-                    tracking-[0.2em]
-                    text-gray-400
-                    font-bold
-                  "
-                >
-                  Active Template
-                </p>
-              )}
-
               <h1
                 className={`
                   font-black
+                  leading-tight
                   text-gray-900
                   dark:text-white
 
                   ${
                     isFullscreen
-                      ? "text-lg"
-                      : "text-2xl"
+                      ? "text-[14px]"
+                      : "text-base"
                   }
                 `}
               >
@@ -927,10 +1334,11 @@ export default function Dashboard({
                 influxConfig?.id && (
                   <p
                     className="
-                      text-xs
+                      text-[9px]
+                      leading-none
                       text-gray-500
                       dark:text-gray-400
-                      mt-1
+                      mt-[2px]
                     "
                   >
                     {influxConfig.bucket} /{" "}
@@ -946,7 +1354,7 @@ export default function Dashboard({
           className="
             flex flex-wrap
             items-center
-            gap-3
+            gap-1.5
           "
         >
           <div className="relative">
@@ -956,8 +1364,8 @@ export default function Dashboard({
                 setShowTimeRangeMenu((visible) => !visible)
               }
               className={`
-                inline-flex items-center gap-2
-                rounded-2xl
+                inline-flex items-center gap-1.5
+                rounded-[10px]
                 bg-white dark:bg-gray-900
                 border border-gray-200 dark:border-gray-700
                 text-gray-700 dark:text-gray-200
@@ -966,18 +1374,18 @@ export default function Dashboard({
                 focus:ring-2 focus:ring-emerald-500
                 ${
                   isFullscreen
-                    ? "h-9 px-3 text-xs"
-                    : "h-11 px-4 text-sm"
+                    ? "h-6 px-2 text-[9px]"
+                    : "h-7 px-2 text-[10px]"
                 }
               `}
               title="Chart history time range"
             >
-              <CalendarDays size={16} />
+              <CalendarDays size={13} />
               <span className="max-w-48 truncate font-semibold">
                 {getTimeRangeLabel(timeRange, customRange)}
               </span>
               <ChevronDown
-                size={16}
+                size={12}
                 className={
                   showTimeRangeMenu
                     ? "rotate-180 transition-transform"
@@ -989,7 +1397,7 @@ export default function Dashboard({
             {showTimeRangeMenu && (
               <div
                 className="
-                  absolute right-0 top-full z-40 mt-2
+                  absolute right-0 top-full z-40 mt-1.5
                   w-[min(760px,calc(100vw-2rem))]
                   overflow-hidden rounded-3xl
                   border border-gray-200 dark:border-gray-700
@@ -1010,7 +1418,7 @@ export default function Dashboard({
                   <button
                     type="button"
                     onClick={() => setShowTimeRangeMenu(false)}
-                    className="rounded-xl p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="rounded-[14px] p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                     aria-label="Close time range menu"
                   >
                     <X size={18} />
@@ -1033,7 +1441,7 @@ export default function Dashboard({
                             setShowTimeRangeMenu(false);
                           }}
                           className={`
-                            w-full rounded-xl px-3 py-2 text-left text-sm transition
+                            w-full rounded-[14px] px-3 py-2 text-left text-sm transition
                             ${
                               timeRange === option.value
                                 ? "bg-emerald-600 text-white"
@@ -1062,7 +1470,7 @@ export default function Dashboard({
                             setShowTimeRangeMenu(false);
                           }}
                           className={`
-                            w-full rounded-xl px-3 py-2 text-left text-sm transition
+                            w-full rounded-[14px] px-3 py-2 text-left text-sm transition
                             ${
                               timeRange === option.value
                                 ? "bg-emerald-600 text-white"
@@ -1097,7 +1505,7 @@ export default function Dashboard({
                           from: event.target.value,
                         }))
                       }
-                      className="mb-4 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      className="mb-4 w-full rounded-[14px] border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     />
 
                     <label className="mb-2 block text-xs font-semibold text-gray-600 dark:text-gray-300">
@@ -1112,7 +1520,7 @@ export default function Dashboard({
                           to: event.target.value,
                         }))
                       }
-                      className="mb-4 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      className="mb-4 w-full rounded-[14px] border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     />
 
                     <button
@@ -1134,7 +1542,7 @@ export default function Dashboard({
                         setTimeRange("custom");
                         setShowTimeRangeMenu(false);
                       }}
-                      className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                      className="w-full rounded-[14px] bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
                     >
                       Apply custom range
                     </button>
@@ -1144,13 +1552,48 @@ export default function Dashboard({
             )}
           </div>
 
+          {canEditTemplate && !isFullscreen && (
+            <button
+              type="button"
+              onClick={() =>
+                setPage?.("editor")
+              }
+              className="
+                inline-flex h-7
+                items-center
+                justify-center gap-1.5
+                rounded-[10px]
+                border border-emerald-200
+                bg-emerald-50 px-2.5
+                text-[10px] font-bold
+                tracking-wide
+                text-emerald-700
+                shadow-sm
+                transition-colors
+                hover:border-emerald-300
+                hover:bg-emerald-100
+                focus:outline-none
+                focus:ring-2
+                focus:ring-emerald-500/20
+                dark:border-emerald-500/30
+                dark:bg-emerald-500/10
+                dark:text-emerald-300
+                dark:hover:bg-emerald-500/20
+              "
+              title="Edit this template"
+            >
+              <Pencil size={12} />
+              EDIT
+            </button>
+          )}
+
           <button
             onClick={fetchTemplateLiveData}
             disabled={loadingData}
             className={`
               inline-flex items-center
-              gap-2
-              rounded-2xl
+              gap-1.5
+              rounded-[10px]
               bg-white
               hover:bg-gray-50
               dark:bg-gray-900
@@ -1166,14 +1609,14 @@ export default function Dashboard({
 
               ${
                 isFullscreen
-                  ? "h-9 px-3"
-                  : "h-11 px-4"
+                  ? "h-6 px-2"
+                  : "h-7 px-2"
               }
             `}
             title="Refresh live data"
           >
             <RefreshCw
-              size={16}
+              size={13}
               className={
                 loadingData
                   ? "animate-spin"
@@ -1183,7 +1626,7 @@ export default function Dashboard({
 
             <span
               className="
-                text-xs
+                text-[10px]
                 font-bold
                 tracking-wide
               "
@@ -1196,8 +1639,8 @@ export default function Dashboard({
             onClick={toggleFullscreen}
             className={`
               inline-flex items-center
-              gap-2
-              rounded-2xl
+              gap-1.5
+              rounded-[10px]
               bg-white
               hover:bg-gray-50
               dark:bg-gray-900
@@ -1211,20 +1654,20 @@ export default function Dashboard({
 
               ${
                 isFullscreen
-                  ? "h-9 px-3"
-                  : "h-11 px-4"
+                  ? "h-6 px-2"
+                  : "h-7 px-2"
               }
             `}
           >
             {isFullscreen ? (
-              <Minimize2 size={16} />
+              <Minimize2 size={13} />
             ) : (
-              <Maximize2 size={16} />
+              <Maximize2 size={13} />
             )}
 
             <span
               className="
-                text-xs
+                text-[10px]
                 font-bold
                 tracking-wide
               "
@@ -1240,16 +1683,16 @@ export default function Dashboard({
       {dataError && (
         <div
           className="
-            mb-4
-            rounded-2xl
+            mb-2
+            rounded-[10px]
             border border-red-200
             dark:border-red-800
             bg-red-50
             dark:bg-red-950/30
             text-red-600
             dark:text-red-300
-            px-4 py-3
-            text-sm
+            px-3 py-2
+            text-xs
           "
         >
           {dataError}
@@ -1258,29 +1701,24 @@ export default function Dashboard({
 
       {/* GRID */}
       <div
+        ref={dashboardGridRef}
         className={`
           grid
-          flex-1
-          h-full
+          flex-none
+          h-auto
+          min-h-0
+          content-start
 
-          ${
-            isFullscreen
-              ? "gap-3"
-              : "gap-4"
-          }
+          ${dashboardGap}
         `}
         style={{
           gridTemplateColumns: `repeat(${
             layout?.cols || 1
-          }, 1fr)`,
+          }, minmax(0, 1fr))`,
 
-          gridTemplateRows: isFullscreen
-            ? `repeat(${
-                layout?.rows || 1
-              }, minmax(0, 1fr))`
-            : `repeat(${
-                layout?.rows || 1
-              }, minmax(180px, 1fr))`,
+          gridTemplateRows: `repeat(${
+            occupiedDashboardRows
+          }, ${dashboardRowHeight}px)`,
 
           gridAutoFlow: "dense",
         }}
@@ -1289,15 +1727,12 @@ export default function Dashboard({
           <div
             key={item.id}
             className="
-              bg-white
-              dark:bg-gray-800
-              rounded-2xl
-              shadow-lg
-              border
-              border-gray-200
-              dark:border-gray-700
+              dashboard-widget-cell
+              min-h-0 min-w-0
               flex flex-col
               overflow-hidden
+              transition-[box-shadow]
+              duration-150
             "
             style={{
               gridColumn: `${item.x + 1} / span ${item.w}`,
@@ -1305,49 +1740,12 @@ export default function Dashboard({
             }}
           >
             <div
-              className={`
-                border-b
-                bg-gray-50
-                dark:bg-gray-700
-                border-gray-200
-                dark:border-gray-600
-
-                ${
-                  isFullscreen
-                    ? "px-3 py-2"
-                    : "px-4 py-3"
-                }
-              `}
-            >
-              <span
-                className={`
-                  font-semibold
-                  text-gray-800
-                  dark:text-white
-
-                  ${
-                    isFullscreen
-                      ? "text-xs"
-                      : "text-sm"
-                  }
-                `}
-              >
-                {getWidgetTitle(item)}
-              </span>
-            </div>
-
-            <div
-              className={`
-                flex-1
-                flex items-center
-                justify-center
-
-                ${
-                  isFullscreen
-                    ? "p-2"
-                    : "p-3"
-                }
-              `}
+              className="
+                min-h-0 flex-1
+                flex items-stretch
+                justify-stretch
+                p-0
+              "
             >
               <WidgetRenderer
                 type={item.type}

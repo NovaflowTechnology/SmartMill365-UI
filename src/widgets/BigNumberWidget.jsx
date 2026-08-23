@@ -52,6 +52,12 @@ const alignmentClasses = {
   right: "items-end text-right",
 };
 
+const alignmentJustifyClasses = {
+  left: "justify-start",
+  center: "justify-center",
+  right: "justify-end",
+};
+
 const statusTone = {
   default: {
     text: "text-slate-700 dark:text-slate-200",
@@ -60,22 +66,22 @@ const statusTone = {
     dot: "bg-slate-400",
   },
   cyan: {
-    text: "text-cyan-700 dark:text-cyan-300",
+    text: "text-[#638f2d] dark:text-[#A4C65A]",
     badge:
-      "border-cyan-300/60 bg-cyan-100/70 dark:border-cyan-500/30 dark:bg-cyan-500/10",
-    dot: "bg-cyan-400",
+      "border-[#A4C65A]/40 bg-[#A4C65A]/10 dark:border-[#A4C65A]/30 dark:bg-[#A4C65A]/10",
+    dot: "bg-[#7CB342]",
   },
   green: {
-    text: "text-emerald-700 dark:text-emerald-300",
+    text: "text-[#4f7c25] dark:text-[#A4C65A]",
     badge:
-      "border-emerald-300/60 bg-emerald-100/70 dark:border-emerald-500/30 dark:bg-emerald-500/10",
-    dot: "bg-emerald-400",
+      "border-[#7CB342]/35 bg-[#7CB342]/10 dark:border-[#7CB342]/30 dark:bg-[#7CB342]/10",
+    dot: "bg-[#7CB342]",
   },
   blue: {
-    text: "text-blue-700 dark:text-blue-300",
+    text: "text-[#2E7D32] dark:text-[#8FCB75]",
     badge:
-      "border-blue-300/60 bg-blue-100/70 dark:border-blue-500/30 dark:bg-blue-500/10",
-    dot: "bg-blue-400",
+      "border-[#2E7D32]/30 bg-[#2E7D32]/10 dark:border-[#2E7D32]/40 dark:bg-[#2E7D32]/10",
+    dot: "bg-[#2E7D32]",
   },
   amber: {
     text: "text-amber-700 dark:text-amber-300",
@@ -96,10 +102,10 @@ const statusTone = {
     dot: "bg-rose-400",
   },
   purple: {
-    text: "text-violet-700 dark:text-violet-300",
+    text: "text-[#6D254D] dark:text-[#D989A7]",
     badge:
-      "border-violet-300/60 bg-violet-100/70 dark:border-violet-500/30 dark:bg-violet-500/10",
-    dot: "bg-violet-400",
+      "border-[#6D254D]/25 bg-[#6D254D]/10 dark:border-[#B65C7A]/30 dark:bg-[#6D254D]/10",
+    dot: "bg-[#6D254D]",
   },
   gray: {
     text: "text-slate-600 dark:text-slate-300",
@@ -239,8 +245,7 @@ export default function BigNumberWidget({
     ) * 100;
 
   const mappedSourceValue =
-    settings.mode === "combined" &&
-    statusValue !== undefined
+    settings.mode === "combined"
       ? statusValue
       : value;
 
@@ -251,7 +256,7 @@ export default function BigNumberWidget({
 
   let thresholdStatus = {
     text: "NORMAL",
-    color: "cyan",
+    color: "green",
   };
 
   if (numericValue >= danger) {
@@ -270,7 +275,10 @@ export default function BigNumberWidget({
     text:
       activeMapping?.text?.trim() ||
       settings.fallbackText?.trim() ||
-      String(mappedSourceValue ?? "—"),
+      (settings.mode === "combined" &&
+      mappedSourceValue === undefined
+        ? "NO STATUS DATA"
+        : String(mappedSourceValue ?? "—")),
     color:
       activeMapping?.color ||
       settings.fallbackColor ||
@@ -289,6 +297,12 @@ export default function BigNumberWidget({
   const alignmentClass =
     alignmentClasses[settings.alignment] ||
     alignmentClasses.left;
+
+  const alignmentJustifyClass =
+    alignmentJustifyClasses[
+      settings.alignment
+    ] ||
+    alignmentJustifyClasses.left;
 
   const sizeClass = tiny
     ? "text-3xl"
@@ -312,33 +326,7 @@ export default function BigNumberWidget({
       ? "Falling"
       : "Stable";
 
-  const renderStatus = () => (
-    <div
-      className={`
-        inline-flex max-w-full items-center gap-2
-        rounded-full border px-3 py-1.5
-        ${statusClass.badge}
-      `}
-      title={currentStatus.text}
-    >
-      <span
-        className={`
-          h-2 w-2 shrink-0 rounded-full
-          ${statusClass.dot}
-          shadow-[0_0_10px_currentColor]
-        `}
-      />
-      <span
-        className={`
-          truncate text-[11px] font-semibold
-          uppercase tracking-[0.12em]
-          ${statusClass.text}
-        `}
-      >
-        {currentStatus.text}
-      </span>
-    </div>
-  );
+
 
   if (settings.mode === "valueMapping") {
     return (
@@ -356,7 +344,7 @@ export default function BigNumberWidget({
           `}
         >
           {settings.showLabel && (
-            <div className={TECH_HEADER_CLASS}>
+            <div className={`${TECH_HEADER_CLASS} pr-14`}>
               {label}
             </div>
           )}
@@ -407,7 +395,7 @@ export default function BigNumberWidget({
           ${alignmentClass}
         `}
       >
-        <div className="flex w-full items-start justify-between gap-3">
+        <div className="flex w-full items-start pr-14">
           <div className="min-w-0">
             {settings.showLabel && (
               <div
@@ -417,38 +405,39 @@ export default function BigNumberWidget({
                 {label}
               </div>
             )}
-
-            {!tiny && (
-              <div
-                className={`
-                  mt-1 text-[10px] font-medium
-                  ${TECH_MUTED_CLASS}
-                `}
-              >
-                {dataKey || "Live metric"}
-              </div>
-            )}
           </div>
-
-          {settings.mode === "combined" &&
-            renderStatus()}
         </div>
 
         <div className="flex min-h-0 flex-1 items-center">
-          <div className="w-full">
+          <div
+            className={`
+              w-full px-0.5
+              ${
+                settings.alignment === "center"
+                  ? "text-center"
+                  : settings.alignment === "right"
+                  ? "text-right"
+                  : "text-left"
+              }
+            `}
+          >
             <div
               className={`
-                flex max-w-full items-baseline gap-2
-                bg-gradient-to-r
-                from-cyan-600 via-blue-600 to-violet-600
-                bg-clip-text font-semibold
-                tracking-[-0.04em] text-transparent
-                dark:from-cyan-300 dark:via-blue-300
-                dark:to-violet-300
+                flex w-full max-w-full
+                items-baseline gap-2
+                ${alignmentJustifyClass}
+                font-extrabold tracking-[-0.045em]
+                text-slate-950 dark:text-slate-100
                 ${sizeClass}
               `}
             >
-              <span className="truncate">
+              <span
+                className="
+                  min-w-0 whitespace-nowrap
+                  px-1 tabular-nums
+                  overflow-visible
+                "
+              >
                 {formattedValue}
               </span>
 
@@ -469,19 +458,21 @@ export default function BigNumberWidget({
 
             {settings.showTrend && !tiny && (
               <div
-                className="
-                  mt-2 inline-flex items-center gap-1.5
+                className={`
+                  mt-2 flex w-full
+                  items-center gap-1.5
+                  ${alignmentJustifyClass}
                   text-xs text-slate-500
                   dark:text-slate-400
-                "
+                `}
               >
                 <TrendIcon
                   size={14}
                   className={
                     trend === "up"
-                      ? "text-cyan-500"
+                      ? "text-[#7CB342]"
                       : trend === "down"
-                      ? "text-violet-500"
+                      ? "text-[#6D254D]"
                       : "text-slate-400"
                   }
                 />
@@ -491,16 +482,29 @@ export default function BigNumberWidget({
 
             {settings.mode === "combined" &&
               !tiny && (
-                <div className="mt-3 flex items-center gap-2">
+                <div
+                  className={`
+                    mt-3 flex w-full min-w-0
+                    items-center gap-2
+                    ${alignmentJustifyClass}
+                  `}
+                  title={currentStatus.text}
+                >
                   <Activity
                     size={13}
-                    className="text-cyan-500"
+                    className={
+                      statusClass.text
+                    }
                   />
+
                   <span
-                    className={`text-xs ${TECH_MUTED_CLASS}`}
+                    className={`
+                      min-w-0 truncate
+                      text-xs font-semibold
+                      ${statusClass.text}
+                    `}
                   >
-                    {settings.statusLabel ||
-                      "Machine Status"}
+                    {currentStatus.text}
                   </span>
                 </div>
               )}
@@ -530,7 +534,7 @@ export default function BigNumberWidget({
                 className="
                   h-full rounded-full
                   bg-gradient-to-r
-                  from-cyan-400 via-blue-500 to-violet-500
+                  from-[#A4C65A] via-[#7CB342] to-[#2E7D32]
                   transition-[width] duration-500
                 "
                 style={{

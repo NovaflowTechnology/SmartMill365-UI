@@ -690,7 +690,8 @@ export default function OrganizationManagement({ dark = false }) {
         w-full
         overflow-auto
         bg-transparent
-        p-6
+        p-3
+        text-[13px]
         text-gray-900
         dark:bg-[#050a1e]
         dark:text-slate-100
@@ -1061,47 +1062,101 @@ export default function OrganizationManagement({ dark = false }) {
       {/* HEADER */}
       <div
         className="
-          flex flex-col md:flex-row
-          md:items-center md:justify-between
-          gap-4 mb-8
+          org-surface
+          mb-3
+          rounded-lg
+          border
+          bg-white
+          px-3 py-2.5
+          shadow-sm
+          dark:bg-slate-900
         "
       >
-        <div>
-          <h1
-            className="
-              text-3xl font-bold
-              dark:text-white
-              flex items-center gap-3
-            "
-          >
-            <Building2 className="w-8 h-8 text-cyan-500" />
-            {isSuperadmin
-              ? "Organization Management"
-              : "User Management"}
-          </h1>
-
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            {isSuperadmin
-              ? "Manage organizations, template assignments, and users by selected organization."
-              : `Manage users within ${currentOrgName || "your organization"}.`}
-          </p>
-        </div>
-
-        <button
-          onClick={refreshAll}
+        <div
           className="
-            flex items-center gap-2
-            bg-cyan-600 hover:bg-cyan-700
-            text-white
-            px-5 py-3
-            rounded-2xl
-            shadow-lg
-            transition
+            flex flex-col gap-2
+            sm:flex-row
+            sm:items-center
+            sm:justify-between
           "
         >
-          <RefreshCw size={18} />
-          Refresh
-        </button>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div
+              className="
+                flex h-8 w-8
+                shrink-0
+                items-center justify-center
+                rounded-lg
+                bg-emerald-50
+                text-emerald-600
+                dark:bg-emerald-500/10
+                dark:text-emerald-300
+              "
+            >
+              {isSuperadmin ? (
+                <Building2 size={16} />
+              ) : (
+                <Users size={16} />
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <h1
+                className="
+                  truncate
+                  text-lg font-bold
+                  tracking-tight
+                  text-slate-950
+                  dark:text-white
+                "
+              >
+                {isSuperadmin
+                  ? "Organization Management"
+                  : "User Management"}
+              </h1>
+
+              <p
+                className="
+                  mt-0.5
+                  truncate
+                  text-[11px]
+                  text-slate-500
+                  dark:text-slate-400
+                "
+              >
+                {isSuperadmin
+                  ? "Manage organizations, template assignments, and users."
+                  : `Manage users within ${currentOrgName || "your organization"}.`}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={refreshAll}
+            className="
+              inline-flex h-8
+              shrink-0
+              items-center justify-center
+              gap-1.5
+              rounded-lg
+              border border-slate-200
+              bg-white px-3
+              text-xs font-semibold
+              text-slate-700
+              shadow-sm
+              transition
+              hover:bg-slate-50
+              dark:border-slate-700
+              dark:bg-slate-950
+              dark:text-slate-200
+              dark:hover:bg-slate-800
+            "
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* SUMMARY CARDS */}
@@ -1109,8 +1164,8 @@ export default function OrganizationManagement({ dark = false }) {
         className={`
           grid grid-cols-1
           md:grid-cols-4
-          gap-5
-          mb-8
+          gap-2
+          mb-3
           ${isAdmin ? "hidden" : ""}
         `}
       >
@@ -1119,30 +1174,31 @@ export default function OrganizationManagement({ dark = false }) {
             summary-card org-surface
             bg-white
             border
-            rounded-3xl
-            p-6
-            shadow-lg
+            min-h-[74px]
+            rounded-lg
+            p-3
+            shadow-sm
           "
         >
-          <div className="flex items-center gap-3">
+          <div className="flex h-full items-center gap-2.5">
             <div
               className="
-                w-12 h-12
-                rounded-2xl
+                w-8 h-8
+                rounded-lg
                 bg-cyan-500/10
                 text-cyan-500
                 flex items-center justify-center
               "
             >
-              <Building2 size={24} />
+              <Building2 size={14} />
             </div>
 
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
                 Total Organizations
               </p>
 
-              <p className="text-2xl font-bold dark:text-white">
+              <p className="text-lg font-bold dark:text-white">
                 {orgs.length}
               </p>
             </div>
@@ -1154,30 +1210,31 @@ export default function OrganizationManagement({ dark = false }) {
             summary-card org-surface
             bg-white
             border
-            rounded-3xl
-            p-6
-            shadow-lg
+            min-h-[74px]
+            rounded-lg
+            p-3
+            shadow-sm
           "
         >
-          <div className="flex items-center gap-3">
+          <div className="flex h-full items-center gap-2.5">
             <div
               className="
-                w-12 h-12
-                rounded-2xl
+                w-8 h-8
+                rounded-lg
                 bg-emerald-500/10
                 text-emerald-500
                 flex items-center justify-center
               "
             >
-              <Layers size={24} />
+              <Layers size={14} />
             </div>
 
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
                 Template Assignments
               </p>
 
-              <p className="text-2xl font-bold text-emerald-500">
+              <p className="text-lg font-bold text-emerald-500">
                 {totalAssignedTemplates}
               </p>
             </div>
@@ -1189,30 +1246,31 @@ export default function OrganizationManagement({ dark = false }) {
             summary-card org-surface
             bg-white
             border
-            rounded-3xl
-            p-6
-            shadow-lg
+            min-h-[74px]
+            rounded-lg
+            p-3
+            shadow-sm
           "
         >
-          <div className="flex items-center gap-3">
+          <div className="flex h-full items-center gap-2.5">
             <div
               className="
-                w-12 h-12
-                rounded-2xl
+                w-8 h-8
+                rounded-lg
                 bg-purple-500/10
                 text-purple-500
                 flex items-center justify-center
               "
             >
-              <Users size={24} />
+              <Users size={18} />
             </div>
 
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
                 Total Users
               </p>
 
-              <p className="text-2xl font-bold text-purple-500">
+              <p className="text-lg font-bold text-purple-500">
                 {totalUsers}
               </p>
             </div>
@@ -1224,30 +1282,31 @@ export default function OrganizationManagement({ dark = false }) {
             summary-card org-surface
             bg-white
             border
-            rounded-3xl
-            p-6
-            shadow-lg
+            min-h-[74px]
+            rounded-lg
+            p-3
+            shadow-sm
           "
         >
-          <div className="flex items-center gap-3">
+          <div className="flex h-full items-center gap-2.5">
             <div
               className="
-                w-12 h-12
-                rounded-2xl
+                w-8 h-8
+                rounded-lg
                 bg-yellow-500/10
                 text-yellow-500
                 flex items-center justify-center
               "
             >
-              <ShieldCheck size={24} />
+              <ShieldCheck size={18} />
             </div>
 
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
                 Admin Users
               </p>
 
-              <p className="text-2xl font-bold text-yellow-500">
+              <p className="text-lg font-bold text-yellow-500">
                 {adminCount}
               </p>
             </div>
@@ -1261,16 +1320,16 @@ export default function OrganizationManagement({ dark = false }) {
           administration-card org-surface
           bg-white
           border
-          rounded-3xl
-          shadow-lg
-          mb-8
+          rounded-lg
+          shadow-sm
+          mb-3
           overflow-hidden
         "
       >
         {/* SECTION HEADER */}
         <div
           className="
-            p-6
+            px-3 py-2.5
             border-b border-gray-200 dark:border-gray-700
             bg-gradient-to-r
             from-cyan-50
@@ -1285,22 +1344,22 @@ export default function OrganizationManagement({ dark = false }) {
             className="
               flex flex-col xl:flex-row
               xl:items-center xl:justify-between
-              gap-5
+              gap-3
             "
           >
             <div>
               <h2
                 className="
-                  text-xl font-bold
+                  text-base font-bold
                   dark:text-white
                   flex items-center gap-2
                 "
               >
-                <ShieldCheck className="w-5 h-5 text-purple-500" />
+                <ShieldCheck className="w-4 h-4 text-purple-500" />
                 {isSuperadmin ? "Administration Actions" : "Create User"}
               </h2>
 
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
                 {isSuperadmin
                   ? "Control Panel"
                   : `Add users directly into ${currentOrgName || "your organization"}.`}
@@ -1314,10 +1373,10 @@ export default function OrganizationManagement({ dark = false }) {
                 org-surface
                 flex flex-col
                 sm:flex-row
-                gap-2
+                gap-1
                 w-full xl:w-auto
-                rounded-3xl
-                p-2
+                rounded-lg
+                p-1
                 border
               "
             >
@@ -1328,10 +1387,10 @@ export default function OrganizationManagement({ dark = false }) {
                     setActiveAction("organization")
                   }
                   className={`
-                    flex items-center justify-center gap-2
-                    px-4 py-3
-                    rounded-2xl
-                    text-sm font-semibold
+                    flex h-8 items-center justify-center gap-1.5
+                    px-3
+                    rounded-lg
+                    text-xs font-semibold
                     transition
 
                     ${
@@ -1341,7 +1400,7 @@ export default function OrganizationManagement({ dark = false }) {
                     }
                   `}
                 >
-                  <Building2 size={17} />
+                  <Building2 size={14} />
                   Add Org
                 </button>
               )}
@@ -1352,10 +1411,10 @@ export default function OrganizationManagement({ dark = false }) {
                   setActiveAction("user")
                 }
                 className={`
-                  flex items-center justify-center gap-2
-                  px-4 py-3
-                  rounded-2xl
-                  text-sm font-semibold
+                  flex h-8 items-center justify-center gap-1.5
+                  px-3
+                  rounded-lg
+                  text-xs font-semibold
                   transition
 
                   ${
@@ -1365,7 +1424,7 @@ export default function OrganizationManagement({ dark = false }) {
                   }
                 `}
               >
-                <UserPlus size={17} />
+                <UserPlus size={14} />
                 New User
               </button>
 
@@ -1376,10 +1435,10 @@ export default function OrganizationManagement({ dark = false }) {
                     setActiveAction("assignment")
                   }
                   className={`
-                    flex items-center justify-center gap-2
-                    px-4 py-3
-                    rounded-2xl
-                    text-sm font-semibold
+                    flex h-8 items-center justify-center gap-1.5
+                    px-3
+                    rounded-lg
+                    text-xs font-semibold
                     transition
 
                     ${
@@ -1389,7 +1448,7 @@ export default function OrganizationManagement({ dark = false }) {
                     }
                   `}
                 >
-                  <Users size={17} />
+                  <Users size={14} />
                   Assignment
                 </button>
               )}
@@ -1398,14 +1457,14 @@ export default function OrganizationManagement({ dark = false }) {
         </div>
 
         {/* ACTION CONTENT */}
-        <div className="p-6">
+        <div className="p-3">
           {/* ADD ORGANIZATION */}
           {isSuperadmin &&
             activeAction === "organization" && (
             <div
               className="
                 organization-action-panel
-                rounded-3xl
+                rounded-2xl
                 border
                 p-5
               "
@@ -1414,22 +1473,22 @@ export default function OrganizationManagement({ dark = false }) {
                 className="
                   flex flex-col lg:flex-row
                   lg:items-center lg:justify-between
-                  gap-5
-                  mb-5
+                  gap-2.5
+                  mb-3
                 "
               >
                 <div className="flex items-center gap-3">
                   <div
                     className="
-                      w-11 h-11
-                      rounded-2xl
+                      w-8 h-8
+                      rounded-lg
                       bg-cyan-600
                       text-white
                       flex items-center justify-center
                       shadow-lg shadow-cyan-500/20
                     "
                   >
-                    <Building2 size={21} />
+                    <Building2 size={17} />
                   </div>
 
                   <div>
@@ -1437,7 +1496,7 @@ export default function OrganizationManagement({ dark = false }) {
                       Add New Organization
                     </h3>
 
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       Create an organization profile before assigning templates or users.
                     </p>
                   </div>
@@ -1445,8 +1504,8 @@ export default function OrganizationManagement({ dark = false }) {
 
                 <span
                   className="
-                    px-4 py-2
-                    rounded-2xl
+                    px-2.5 py-1
+                    rounded-lg
                     bg-cyan-100
                     dark:bg-cyan-900/30
                     text-cyan-700
@@ -1479,12 +1538,14 @@ export default function OrganizationManagement({ dark = false }) {
                   }}
                   className="
                     flex-1
-                    rounded-2xl
+                    h-10
+                    rounded-lg
                     border border-gray-300
                     dark:border-gray-700
                     bg-white dark:bg-gray-900
                     dark:text-white
-                    px-4 py-3
+                    px-3 py-2
+                    text-sm
                     outline-none
                     focus:ring-2 focus:ring-cyan-500
                   "
@@ -1501,9 +1562,10 @@ export default function OrganizationManagement({ dark = false }) {
                     disabled:opacity-50
                     disabled:cursor-not-allowed
                     text-white
-                    px-6 py-3
-                    rounded-2xl
-                    font-semibold
+                    h-10
+                    px-4
+                    rounded-lg
+                    text-sm font-semibold
                     transition
                     shadow-lg shadow-cyan-500/20
                   "
@@ -1522,7 +1584,7 @@ export default function OrganizationManagement({ dark = false }) {
             <div
               className="
                 new-user-action-panel
-                rounded-3xl
+                rounded-2xl
                 border
                 p-5
               "
@@ -1531,22 +1593,22 @@ export default function OrganizationManagement({ dark = false }) {
                 className="
                   flex flex-col lg:flex-row
                   lg:items-center lg:justify-between
-                  gap-5
-                  mb-5
+                  gap-2.5
+                  mb-3
                 "
               >
                 <div className="flex items-center gap-3">
                   <div
                     className="
-                      w-11 h-11
-                      rounded-2xl
+                      w-8 h-8
+                      rounded-lg
                       bg-emerald-600
                       text-white
                       flex items-center justify-center
                       shadow-lg shadow-emerald-500/20
                     "
                   >
-                    <UserPlus size={21} />
+                    <UserPlus size={17} />
                   </div>
 
                   <div>
@@ -1554,7 +1616,7 @@ export default function OrganizationManagement({ dark = false }) {
                       Create New User
                     </h3>
 
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       Create a login account, choose a role, and optionally assign an organization.
                     </p>
                   </div>
@@ -1562,8 +1624,8 @@ export default function OrganizationManagement({ dark = false }) {
 
                 <span
                   className="
-                    px-4 py-2
-                    rounded-2xl
+                    px-2.5 py-1
+                    rounded-lg
                     bg-emerald-100
                     dark:bg-emerald-900/30
                     text-emerald-700
@@ -1591,12 +1653,14 @@ export default function OrganizationManagement({ dark = false }) {
                     setNewUsername(e.target.value)
                   }
                   className="
-                    rounded-2xl
+                    h-10
+                    rounded-lg
                     border border-gray-300
                     dark:border-gray-700
                     bg-white dark:bg-gray-900
                     dark:text-white
-                    px-4 py-3
+                    px-3 py-2
+                    text-sm
                     outline-none
                     focus:ring-2 focus:ring-emerald-500
                   "
@@ -1615,12 +1679,14 @@ export default function OrganizationManagement({ dark = false }) {
                     }
                   }}
                   className="
-                    rounded-2xl
+                    h-10
+                    rounded-lg
                     border border-gray-300
                     dark:border-gray-700
                     bg-white dark:bg-gray-900
                     dark:text-white
-                    px-4 py-3
+                    px-3 py-2
+                    text-sm
                     outline-none
                     focus:ring-2 focus:ring-emerald-500
                   "
@@ -1632,12 +1698,14 @@ export default function OrganizationManagement({ dark = false }) {
                     setNewUserRole(e.target.value)
                   }
                   className="
-                    rounded-2xl
+                    h-10
+                    rounded-lg
                     border border-gray-300
                     dark:border-gray-700
                     bg-white dark:bg-gray-900
                     dark:text-white
-                    px-4 py-3
+                    px-3 py-2
+                    text-sm
                     outline-none
                     focus:ring-2 focus:ring-emerald-500
                   "
@@ -1659,12 +1727,14 @@ export default function OrganizationManagement({ dark = false }) {
                       setNewUserOrgId(e.target.value)
                     }
                     className="
-                      rounded-2xl
+                      h-10
+                      rounded-lg
                       border border-gray-300
                       dark:border-gray-700
                       bg-white dark:bg-gray-900
                       dark:text-white
-                      px-4 py-3
+                      px-3 py-2
+                      text-sm
                       outline-none
                       focus:ring-2 focus:ring-emerald-500
                     "
@@ -1685,7 +1755,8 @@ export default function OrganizationManagement({ dark = false }) {
                 ) : (
                   <div
                     className="
-                      rounded-2xl
+                      h-10
+                      rounded-lg
                       border border-gray-300
                       dark:border-gray-700
                       bg-white dark:bg-gray-900
@@ -1707,14 +1778,14 @@ export default function OrganizationManagement({ dark = false }) {
                     inline-flex
                     items-center justify-center
                     gap-2
-                    rounded-2xl
+                    rounded-lg
                     bg-emerald-600
                     hover:bg-emerald-700
                     disabled:opacity-50
                     disabled:cursor-not-allowed
                     text-white
                     font-semibold
-                    px-5 py-3
+                    px-4 py-2.5
                     transition
                     shadow-lg shadow-emerald-500/20
                   "
@@ -1729,10 +1800,10 @@ export default function OrganizationManagement({ dark = false }) {
               <div
                 className="
                   password-guidance
-                  mt-4
-                  rounded-2xl
+                  mt-3
+                  rounded-lg
                   border
-                  px-4 py-3
+                  px-3 py-2
                   text-xs
                   font-medium
                   leading-relaxed
@@ -1748,7 +1819,7 @@ export default function OrganizationManagement({ dark = false }) {
             <div
               className="
                 assignment-action-panel
-                rounded-3xl
+                rounded-2xl
                 border
                 p-5
               "
@@ -1757,22 +1828,22 @@ export default function OrganizationManagement({ dark = false }) {
                 className="
                   flex flex-col lg:flex-row
                   lg:items-center lg:justify-between
-                  gap-5
-                  mb-5
+                  gap-2.5
+                  mb-3
                 "
               >
                 <div className="flex items-center gap-3">
                   <div
                     className="
-                      w-11 h-11
-                      rounded-2xl
+                      w-8 h-8
+                      rounded-lg
                       bg-purple-600
                       text-white
                       flex items-center justify-center
                       shadow-lg shadow-purple-500/20
                     "
                   >
-                    <Users size={21} />
+                    <Users size={17} />
                   </div>
 
                   <div>
@@ -1780,7 +1851,7 @@ export default function OrganizationManagement({ dark = false }) {
                       Add / Update User Assignment
                     </h3>
 
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       Assign an existing user to an organization and update their role.
                     </p>
                   </div>
@@ -1788,8 +1859,8 @@ export default function OrganizationManagement({ dark = false }) {
 
                 <span
                   className="
-                    px-4 py-2
-                    rounded-2xl
+                    px-2.5 py-1
+                    rounded-lg
                     bg-purple-100
                     dark:bg-purple-900/30
                     text-purple-700
@@ -1806,25 +1877,25 @@ export default function OrganizationManagement({ dark = false }) {
                 className="
                   grid grid-cols-1
                   lg:grid-cols-3
-                  gap-5
-                  mb-6
+                  gap-2
+                  mb-3
                 "
               >
                 {/* USER */}
                 <div
                   className="
                     assignment-step-card org-surface
-                    rounded-3xl
+                    rounded-xl
                     border
                     bg-white
-                    p-5
+                    p-3
                   "
                 >
-                  <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center gap-2 mb-2.5">
                     <div
                       className="
-                        w-9 h-9
-                        rounded-2xl
+                        w-8 h-8
+                        rounded-lg
                         bg-purple-500
                         text-white
                         flex items-center justify-center
@@ -1852,12 +1923,14 @@ export default function OrganizationManagement({ dark = false }) {
                     }
                     className="
                       w-full
-                      rounded-2xl
+                      h-10
+                      rounded-lg
                       border border-gray-300
                       dark:border-gray-700
                       bg-white dark:bg-gray-800
                       dark:text-white
-                      px-4 py-3
+                      px-3 py-2
+                      text-sm
                       outline-none
                       focus:ring-2 focus:ring-purple-500
                     "
@@ -1884,17 +1957,17 @@ export default function OrganizationManagement({ dark = false }) {
                 <div
                   className="
                     assignment-step-card org-surface
-                    rounded-3xl
+                    rounded-xl
                     border
                     bg-white
-                    p-5
+                    p-3
                   "
                 >
-                  <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center gap-2 mb-2.5">
                     <div
                       className="
-                        w-9 h-9
-                        rounded-2xl
+                        w-8 h-8
+                        rounded-lg
                         bg-purple-500
                         text-white
                         flex items-center justify-center
@@ -1925,7 +1998,7 @@ export default function OrganizationManagement({ dark = false }) {
                         }
                         className={`
                           py-3
-                          rounded-2xl
+                          rounded-lg
                           border
                           text-sm
                           font-semibold
@@ -1953,16 +2026,16 @@ export default function OrganizationManagement({ dark = false }) {
                 <div
                   className="
                     assignment-step-card org-surface
-                    rounded-3xl
+                    rounded-xl
                     border
                     bg-white
-                    p-5
+                    p-3
                   "
                 >
-                  <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center gap-2 mb-2.5">
                     <div
                       className="
-                        w-9 h-9
+                        w-8 h-8
                         rounded-2xl
                         bg-purple-500
                         text-white
@@ -2040,7 +2113,7 @@ export default function OrganizationManagement({ dark = false }) {
                   className="
                     assignment-preview-card org-surface
                     mb-6
-                    rounded-3xl
+                    rounded-2xl
                     border
                     bg-white
                     p-5
@@ -2173,7 +2246,7 @@ export default function OrganizationManagement({ dark = false }) {
                     setSelectedOrgId("");
                   }}
                   className="
-                    px-5 py-3
+                    px-4 py-2.5
                     rounded-2xl
                     bg-gray-100
                     hover:bg-gray-200
@@ -2200,14 +2273,15 @@ export default function OrganizationManagement({ dark = false }) {
                     inline-flex
                     items-center justify-center
                     gap-2
-                    rounded-2xl
+                    rounded-lg
                     bg-purple-600
                     hover:bg-purple-700
                     disabled:opacity-50
                     disabled:cursor-not-allowed
                     text-white
                     font-semibold
-                    px-6 py-3
+                    h-10 px-4
+                    text-sm
                     transition
                     shadow-lg
                     shadow-purple-500/20
@@ -2231,10 +2305,10 @@ export default function OrganizationManagement({ dark = false }) {
           table-card org-surface
           bg-white
           border
-          rounded-3xl
-          shadow-lg
+          rounded-xl
+          shadow-sm
           overflow-hidden
-          mb-8
+          mb-3
           ${isAdmin ? "hidden" : ""}
         `}
       >
@@ -2243,25 +2317,25 @@ export default function OrganizationManagement({ dark = false }) {
           className="
             flex flex-col md:flex-row
             md:items-center md:justify-between
-            gap-4
-            p-6
+            gap-2
+            px-3 py-2.5
             border-b border-gray-200 dark:border-gray-700
           "
         >
           <div>
-            <h2 className="text-xl font-bold dark:text-white">
+            <h2 className="text-base font-bold dark:text-white">
               Organization List
             </h2>
 
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
               Select an organization to view and manage its users below.
             </p>
           </div>
 
-          <div className="relative w-full md:w-80">
+          <div className="relative w-full md:w-72">
             <Search
               className="
-                absolute left-4 top-1/2
+                absolute left-3 top-1/2
                 -translate-y-1/2
                 text-gray-400
               "
@@ -2277,12 +2351,14 @@ export default function OrganizationManagement({ dark = false }) {
               }
               className="
                 w-full
-                rounded-2xl
+                h-9
+                rounded-lg
                 border border-gray-300
                 dark:border-gray-700
                 bg-gray-50 dark:bg-gray-900
                 dark:text-white
-                pl-11 pr-4 py-3
+                pl-9 pr-3
+                text-xs
                 outline-none
                 focus:ring-2 focus:ring-cyan-500
               "
@@ -2292,43 +2368,43 @@ export default function OrganizationManagement({ dark = false }) {
 
         {/* TABLE */}
         {loading || userLoading ? (
-          <div className="p-6 text-gray-500 dark:text-gray-400">
+          <div className="p-4 text-xs text-gray-500 dark:text-gray-400">
             Loading organizations and users...
           </div>
         ) : filteredOrgs.length === 0 ? (
-          <div className="p-6 text-gray-500 dark:text-gray-400">
+          <div className="p-4 text-xs text-gray-500 dark:text-gray-400">
             No organizations found.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead
                 className="
                   bg-gray-100 dark:bg-gray-900
                   text-gray-500 dark:text-gray-400
-                  uppercase text-xs
+                  uppercase text-[10px]
                 "
               >
                 <tr>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     ID
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Organization
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Users
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Assigned Templates
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Template Names
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Status
                   </th>
-                  <th className="text-right px-6 py-4">
+                  <th className="text-right px-4 py-3">
                     Actions
                   </th>
                 </tr>
@@ -2378,11 +2454,11 @@ export default function OrganizationManagement({ dark = false }) {
                         }
                       `}
                     >
-                      <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
                         #{org.id}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         {isEditing ? (
                           <input
                             value={editingOrgName}
@@ -2421,14 +2497,14 @@ export default function OrganizationManagement({ dark = false }) {
                           <div className="flex items-center gap-3">
                             <div
                               className="
-                                w-10 h-10
-                                rounded-xl
+                                w-8 h-8
+                                rounded-lg
                                 bg-cyan-500/10
                                 text-cyan-500
                                 flex items-center justify-center
                               "
                             >
-                              <Building2 size={18} />
+                              <Building2 size={15} />
                             </div>
 
                             <div>
@@ -2444,7 +2520,7 @@ export default function OrganizationManagement({ dark = false }) {
                         )}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <span
                           className="
                             inline-flex items-center gap-2
@@ -2461,7 +2537,7 @@ export default function OrganizationManagement({ dark = false }) {
                         </span>
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <span
                           className="
                             inline-flex items-center gap-2
@@ -2478,7 +2554,7 @@ export default function OrganizationManagement({ dark = false }) {
                         </span>
                       </td>
 
-                      <td className="px-6 py-4 max-w-[360px]">
+                      <td className="px-4 py-3 max-w-[360px]">
                         {org.assigned_templates ? (
                           <div className="flex flex-wrap gap-2">
                             {org.assigned_templates
@@ -2514,7 +2590,7 @@ export default function OrganizationManagement({ dark = false }) {
                         )}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         {hasTemplate ? (
                           <span
                             className="
@@ -2548,7 +2624,7 @@ export default function OrganizationManagement({ dark = false }) {
                         )}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
                           {isEditing ? (
                             <>
@@ -2560,7 +2636,7 @@ export default function OrganizationManagement({ dark = false }) {
                                   );
                                 }}
                                 className="
-                                  w-9 h-9
+                                  w-8 h-8
                                   rounded-xl
                                   bg-emerald-500
                                   hover:bg-emerald-600
@@ -2578,7 +2654,7 @@ export default function OrganizationManagement({ dark = false }) {
                                   cancelEditOrg();
                                 }}
                                 className="
-                                  w-9 h-9
+                                  w-8 h-8
                                   rounded-xl
                                   bg-gray-200
                                   hover:bg-gray-300
@@ -2602,8 +2678,8 @@ export default function OrganizationManagement({ dark = false }) {
                                   );
                                 }}
                                 className={`
-                                  h-9
-                                  px-3
+                                  h-8
+                                  px-2.5
                                   rounded-xl
                                   text-white
                                   flex items-center justify-center
@@ -2630,7 +2706,7 @@ export default function OrganizationManagement({ dark = false }) {
                                       startEditOrg(org);
                                     }}
                                     className="
-                                      w-9 h-9
+                                      w-8 h-8
                                       rounded-xl
                                       bg-yellow-500
                                       hover:bg-yellow-600
@@ -2650,7 +2726,7 @@ export default function OrganizationManagement({ dark = false }) {
                                       );
                                     }}
                                     className="
-                                      w-9 h-9
+                                      w-8 h-8
                                       rounded-xl
                                       bg-red-500
                                       hover:bg-red-600
@@ -2682,48 +2758,48 @@ export default function OrganizationManagement({ dark = false }) {
           user-list-card org-surface
           bg-white
           border
-          rounded-3xl
-          shadow-lg
+          rounded-xl
+          shadow-sm
           overflow-hidden
         "
       >
         <div
           className="
-            p-6
+            px-3 py-2.5
             border-b
             border-gray-200
             dark:border-gray-700
             flex flex-col md:flex-row
             md:items-center md:justify-between
-            gap-4
+            gap-2
           "
         >
           <div>
             <h2
               className="
-                text-xl font-bold
+                text-base font-bold
                 dark:text-white
                 flex items-center gap-2
               "
             >
-              <Users className="w-5 h-5 text-purple-500" />
+              <Users className="w-4 h-4 text-purple-500" />
 
               {selectedOrg
                 ? `Users in ${selectedOrg.name}`
                 : "Selected Organization Users"}
             </h2>
 
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
               {isSuperadmin
                 ? "Select an organization above to view, edit, or remove its users."
                 : "View users in your organization and update their roles."}
             </p>
           </div>
 
-          <div className="relative w-full md:w-80">
+          <div className="relative w-full md:w-72">
             <Search
               className="
-                absolute left-4 top-1/2
+                absolute left-3 top-1/2
                 -translate-y-1/2
                 text-gray-400
               "
@@ -2739,12 +2815,14 @@ export default function OrganizationManagement({ dark = false }) {
               }
               className="
                 w-full
-                rounded-2xl
+                h-9
+                rounded-lg
                 border border-gray-300
                 dark:border-gray-700
                 bg-gray-50 dark:bg-gray-900
                 dark:text-white
-                pl-11 pr-4 py-3
+                pl-9 pr-3
+                text-xs
                 outline-none
                 focus:ring-2 focus:ring-purple-500
               "
@@ -2753,34 +2831,34 @@ export default function OrganizationManagement({ dark = false }) {
         </div>
 
         {!selectedOrg ? (
-          <div className="p-6 text-gray-500 dark:text-gray-400">
+          <div className="p-4 text-xs text-gray-500 dark:text-gray-400">
             Please select an organization from the list above.
           </div>
         ) : selectedOrgUsers.length === 0 ? (
-          <div className="p-6 text-gray-500 dark:text-gray-400">
+          <div className="p-4 text-xs text-gray-500 dark:text-gray-400">
             No users found in this organization.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead
                 className="
                   bg-gray-100 dark:bg-gray-900
                   text-gray-500 dark:text-gray-400
-                  uppercase text-xs
+                  uppercase text-[10px]
                 "
               >
                 <tr>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     User
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Current Role
                   </th>
-                  <th className="text-left px-6 py-4">
+                  <th className="text-left px-4 py-3">
                     Change Role
                   </th>
-                  <th className="text-right px-6 py-4">
+                  <th className="text-right px-4 py-3">
                     Actions
                   </th>
                 </tr>
@@ -2811,7 +2889,7 @@ export default function OrganizationManagement({ dark = false }) {
                         dark:hover:bg-gray-900/70
                       "
                     >
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <div className="font-semibold dark:text-white">
                           {user.username}
                         </div>
@@ -2821,7 +2899,7 @@ export default function OrganizationManagement({ dark = false }) {
                         </div>
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <span
                           className={`
                             inline-flex items-center gap-2
@@ -2844,7 +2922,7 @@ export default function OrganizationManagement({ dark = false }) {
                         </span>
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <select
                           value={draftRole}
                           disabled={isProtectedAdmin}
@@ -2875,7 +2953,7 @@ export default function OrganizationManagement({ dark = false }) {
                         </select>
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
                           <button
                             disabled={

@@ -17,8 +17,119 @@ import {
   groupTemplateDataSources,
   validateTemplateSourceGroup,
   fetchTemplateSourceGroup,
+  discoverSmartMillLogicalDevices,
+  collectRowsWithRetry,
+  isTransientInfluxError,
 } from "../services/influxService.js";
 const router = express.Router();
+
+const wait = (ms) =>
+  new Promise((resolve) =>
+    setTimeout(resolve, ms)
+  );
+
+const TRANSIENT_HTTP_STATUSES =
+  new Set([
+    429,
+    502,
+    503,
+    504,
+  ]);
+
+/**
+ * HTTP retry helper for the InfluxDB REST API.
+ *
+ * A new AbortSignal is created for every attempt because an aborted signal
+ * cannot be reused.
+ */
+const fetchInfluxHttpWithRetry =
+  async (
+    endpoint,
+    {
+      maxAttempts = 2,
+      retryDelayMs = 700,
+    } = {}
+  ) => {
+    let lastError;
+
+    for (
+      let attempt = 1;
+      attempt <= maxAttempts;
+      attempt += 1
+    ) {
+      try {
+        const response =
+          await fetch(
+            endpoint,
+            {
+              headers: {
+                Authorization:
+                  `Token ${process.env.INFLUX_TOKEN}`,
+                Accept:
+                  "application/json",
+              },
+              signal:
+                AbortSignal.timeout(
+                  influxTimeout
+                ),
+            }
+          );
+
+        const shouldRetryStatus =
+          TRANSIENT_HTTP_STATUSES.has(
+            response.status
+          ) &&
+          attempt < maxAttempts;
+
+        if (
+          shouldRetryStatus
+        ) {
+          // Drain the body before retrying so the connection can be released.
+          await response
+            .arrayBuffer()
+            .catch(() => null);
+
+          console.warn(
+            `⚠️ Influx HTTP ${response.status} (${attempt}/${maxAttempts}). Retrying in ${retryDelayMs}ms...`
+          );
+
+          await wait(
+            retryDelayMs
+          );
+
+          continue;
+        }
+
+        return response;
+      } catch (error) {
+        lastError = error;
+
+        const hasRetry =
+          isTransientInfluxError(
+            error
+          ) &&
+          attempt < maxAttempts;
+
+        if (!hasRetry) {
+          throw error;
+        }
+
+        console.warn(
+          `⚠️ Influx HTTP request temporarily failed (${attempt}/${maxAttempts}). Retrying in ${retryDelayMs}ms...`,
+          error?.code ||
+            error?.cause?.code ||
+            error?.name ||
+            error?.message
+        );
+
+        await wait(
+          retryDelayMs
+        );
+      }
+    }
+
+    throw lastError;
+  };
 
 // =====================================
 // GET ALL INFLUX BUCKETS (SUPERADMIN)
@@ -48,13 +159,10 @@ router.get(
         endpoint.searchParams.set("org", org);
       }
 
-      const response = await fetch(endpoint, {
-        headers: {
-          Authorization: `Token ${process.env.INFLUX_TOKEN}`,
-          Accept: "application/json",
-        },
-        signal: AbortSignal.timeout(influxTimeout),
-      });
+      const response =
+        await fetchInfluxHttpWithRetry(
+          endpoint
+        );
 
       const payload = await response.json();
 
@@ -78,11 +186,135 @@ router.get(
 
       return res.json({ buckets });
     } catch (err) {
-      console.error("❌ Fetch Influx buckets error:", err);
+      console.error(
+        "❌ Fetch Influx buckets error:",
+        err
+      );
 
-      return res.status(500).json({
-        error: "Failed to fetch InfluxDB buckets",
+      // Bucket listing is metadata only. If the remote list endpoint has a
+      // temporary network failure, keep Device Management usable with the
+      // configured application bucket.
+      if (bucket) {
+        console.warn(
+          `⚠️ Falling back to configured Influx bucket: ${bucket}`
+        );
+
+        return res.json({
+          buckets: [bucket],
+          fallback: true,
+          warning:
+            "InfluxDB bucket discovery temporarily unavailable. Using the configured bucket.",
+        });
+      }
+
+      return res
+        .status(
+          isTransientInfluxError(
+            err
+          )
+            ? 503
+            : 500
+        )
+        .json({
+          error:
+            "Failed to fetch InfluxDB buckets",
+          transient:
+            isTransientInfluxError(
+              err
+            ),
+        });
+    }
+  }
+);
+
+
+// =====================================
+// DISCOVER LOGICAL DEVICES (SUPERADMIN)
+//
+// GET /influx/logical-devices?bucket=SmartMill365&tagKey=id
+//
+// Returns real measurement + device-ID relationships grouped into
+// user-friendly logical equipment cards.
+// =====================================
+router.get(
+  "/influx/logical-devices",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const selectedBucket =
+      String(
+        req.query.bucket ||
+        bucket ||
+        ""
+      ).trim();
+
+    const tagKey =
+      String(
+        req.query.tagKey ||
+        "id"
+      ).trim();
+
+    if (!selectedBucket) {
+      return res.status(400).json({
+        error:
+          "Bucket is required",
       });
+    }
+
+    if (
+      !isValidFluxColumnName(
+        tagKey
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          "Invalid tag key",
+      });
+    }
+
+    try {
+      const queryApi =
+        influxDB.getQueryApi(
+          org
+        );
+
+      const devices =
+        await discoverSmartMillLogicalDevices({
+          queryApi,
+          bucketName:
+            selectedBucket,
+          tagKey,
+        });
+
+      return res.json({
+        bucket:
+          selectedBucket,
+        tagKey,
+        devices,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Logical device discovery error:",
+        err
+      );
+
+      const transient =
+        isTransientInfluxError(
+          err
+        );
+
+      return res
+        .status(
+          transient
+            ? 503
+            : 500
+        )
+        .json({
+          error:
+            transient
+              ? "InfluxDB is temporarily unavailable"
+              : "Failed to discover logical Influx devices",
+          transient,
+        });
     }
   }
 );
@@ -120,7 +352,12 @@ router.get(
       `;
 
       const rows =
-        await queryApi.collectRows(fluxQuery);
+        await collectRowsWithRetry({
+          queryApi,
+          fluxQuery,
+          label:
+            "Influx measurement discovery",
+        });
 
       const measurements = [
         ...new Set(
@@ -145,10 +382,24 @@ router.get(
         err
       );
 
-      return res.status(500).json({
-        error:
-          "Failed to fetch InfluxDB measurements",
-      });
+      const transient =
+        isTransientInfluxError(
+          err
+        );
+
+      return res
+        .status(
+          transient
+            ? 503
+            : 500
+        )
+        .json({
+          error:
+            transient
+              ? "InfluxDB is temporarily unavailable"
+              : "Failed to fetch InfluxDB measurements",
+          transient,
+        });
     }
   }
 );
@@ -202,7 +453,12 @@ router.get(
       `;
 
       const rows =
-        await queryApi.collectRows(fluxQuery);
+        await collectRowsWithRetry({
+          queryApi,
+          fluxQuery,
+          label:
+            "Influx device-ID discovery",
+        });
 
       const ids = [
         ...new Set(
@@ -224,9 +480,24 @@ router.get(
         err
       );
 
-      return res.status(500).json({
-        error: "Failed to fetch InfluxDB IDs",
-      });
+      const transient =
+        isTransientInfluxError(
+          err
+        );
+
+      return res
+        .status(
+          transient
+            ? 503
+            : 500
+        )
+        .json({
+          error:
+            transient
+              ? "InfluxDB is temporarily unavailable"
+              : "Failed to fetch InfluxDB IDs",
+          transient,
+        });
     }
   }
 );
@@ -322,7 +593,12 @@ router.get(
       `;
 
       const rows =
-        await queryApi.collectRows(fluxQuery);
+        await collectRowsWithRetry({
+          queryApi,
+          fluxQuery,
+          label:
+            "Influx channel discovery",
+        });
 
       const channels = [
         ...new Set(
@@ -349,10 +625,24 @@ router.get(
         err
       );
 
-      return res.status(500).json({
-        error:
-          "Failed to fetch InfluxDB channels",
-      });
+      const transient =
+        isTransientInfluxError(
+          err
+        );
+
+      return res
+        .status(
+          transient
+            ? 503
+            : 500
+        )
+        .json({
+          error:
+            transient
+              ? "InfluxDB is temporarily unavailable"
+              : "Failed to fetch InfluxDB channels",
+          transient,
+        });
     }
   }
 );
@@ -950,15 +1240,29 @@ router.post(
         err
       );
 
-      return res.status(500).json({
-        error:
-          "Failed to fetch template live data",
-        detail:
-          process.env.NODE_ENV ===
-          "development"
-            ? err.message
-            : undefined,
-      });
+      const transient =
+        isTransientInfluxError(
+          err
+        );
+
+      return res
+        .status(
+          transient
+            ? 503
+            : 500
+        )
+        .json({
+          error:
+            transient
+              ? "InfluxDB connection is temporarily unavailable"
+              : "Failed to fetch template live data",
+          transient,
+          detail:
+            process.env.NODE_ENV ===
+            "development"
+              ? err.message
+              : undefined,
+        });
     }
   }
 );

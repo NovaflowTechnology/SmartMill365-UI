@@ -1,7 +1,16 @@
 import express from "express";
 import { dbQuery } from "../config/db.js";
+import {
+  influxDB,
+  org,
+} from "../config/influx.js";
 import auth from "../middleware/auth.js";
 import { isValidFluxColumnName } from "../utils/helpers.js";
+import {
+  discoverSmartMillLogicalDevices,
+  getLogicalDeviceKey,
+} from "../services/influxService.js";
+
 const router = express.Router();
 
 // =====================================
@@ -122,6 +131,377 @@ router.get(
 
       return res.status(500).json({
         error: "Failed to fetch organization Influx devices",
+      });
+    }
+  }
+);
+
+
+// =====================================
+// BULK LOGICAL DEVICE ASSIGNMENT
+// =====================================
+//
+// The browser selects ONE logical equipment card.
+// The server re-discovers the real measurement + device-ID relationships
+// from InfluxDB and inserts the missing measurement-level permission rows.
+//
+// The client is therefore NOT trusted to supply measurement_names.
+//
+router.post(
+  "/organization-influx-devices/bulk-logical",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const {
+      org_id,
+      devices,
+    } = req.body;
+
+    if (
+      !org_id ||
+      !Array.isArray(devices) ||
+      devices.length === 0
+    ) {
+      return res.status(400).json({
+        error:
+          "org_id and at least one logical device are required",
+      });
+    }
+
+    try {
+      const organizations =
+        await dbQuery(
+          `
+          SELECT id
+          FROM organizations
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [org_id]
+        );
+
+      if (
+        !organizations.length
+      ) {
+        return res.status(404).json({
+          error:
+            "Organization not found",
+        });
+      }
+
+      // Discover each bucket/tag-key combination only once.
+      const discoveryCache =
+        new Map();
+
+      const getDiscovery = async ({
+        bucketName,
+        tagKey,
+      }) => {
+        const cacheKey =
+          `${bucketName}::${tagKey}`;
+
+        if (
+          discoveryCache.has(
+            cacheKey
+          )
+        ) {
+          return discoveryCache.get(
+            cacheKey
+          );
+        }
+
+        const queryApi =
+          influxDB.getQueryApi(
+            org
+          );
+
+        const discovered =
+          await discoverSmartMillLogicalDevices({
+            queryApi,
+            bucketName,
+            tagKey,
+          });
+
+        discoveryCache.set(
+          cacheKey,
+          discovered
+        );
+
+        return discovered;
+      };
+
+      let assigned = 0;
+      let skipped = 0;
+      const invalid = [];
+
+      for (
+        const requestedDevice
+        of devices
+      ) {
+        const bucketName =
+          String(
+            requestedDevice
+              ?.bucket_name || ""
+          ).trim();
+
+        const tagKey =
+          String(
+            requestedDevice
+              ?.tag_key || "id"
+          ).trim();
+
+        const tagValue =
+          String(
+            requestedDevice
+              ?.tag_value || ""
+          ).trim();
+
+        const deviceType =
+          String(
+            requestedDevice
+              ?.device_type || ""
+          ).trim();
+
+        if (
+          !bucketName ||
+          !tagValue ||
+          !deviceType ||
+          !isValidFluxColumnName(
+            tagKey
+          )
+        ) {
+          invalid.push({
+            device_type:
+              deviceType || null,
+            tag_value:
+              tagValue || null,
+            reason:
+              "Invalid logical device identity",
+          });
+
+          continue;
+        }
+
+        const discovered =
+          await getDiscovery({
+            bucketName,
+            tagKey,
+          });
+
+        const requestedKey =
+          getLogicalDeviceKey({
+            deviceType,
+            bucketName,
+            tagKey,
+            tagValue,
+          });
+
+        const actual =
+          discovered.find(
+            (device) =>
+              device.key ===
+              requestedKey
+          );
+
+        if (!actual) {
+          invalid.push({
+            device_type:
+              deviceType,
+            tag_value:
+              tagValue,
+            reason:
+              "Logical device was not found in InfluxDB",
+          });
+
+          continue;
+        }
+
+        const deviceName =
+          String(
+            requestedDevice
+              ?.device_name || ""
+          ).trim() ||
+          `${actual.device_type_label} · ${actual.tag_value}`;
+
+        for (
+          const measurementName
+          of actual.measurement_names
+        ) {
+          const existing =
+            await dbQuery(
+              `
+              SELECT id
+              FROM organization_influx_devices
+              WHERE org_id = ?
+                AND bucket_name = ?
+                AND measurement_name = ?
+                AND tag_key = ?
+                AND tag_value = ?
+              LIMIT 1
+              `,
+              [
+                org_id,
+                bucketName,
+                measurementName,
+                tagKey,
+                tagValue,
+              ]
+            );
+
+          if (
+            existing.length
+          ) {
+            skipped += 1;
+            continue;
+          }
+
+          try {
+            await dbQuery(
+              `
+              INSERT INTO organization_influx_devices
+              (
+                org_id,
+                bucket_name,
+                measurement_name,
+                tag_key,
+                tag_value,
+                device_name
+              )
+              VALUES (?, ?, ?, ?, ?, ?)
+              `,
+              [
+                org_id,
+                bucketName,
+                measurementName,
+                tagKey,
+                tagValue,
+                deviceName,
+              ]
+            );
+
+            assigned += 1;
+          } catch (
+            insertError
+          ) {
+            if (
+              insertError.code ===
+              "ER_DUP_ENTRY"
+            ) {
+              skipped += 1;
+              continue;
+            }
+
+            throw insertError;
+          }
+        }
+      }
+
+      return res.status(201).json({
+        success: true,
+        assigned,
+        skipped,
+        invalid,
+        message:
+          `${assigned} measurement permission row(s) assigned`,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Bulk logical device assignment error:",
+        err
+      );
+
+      return res.status(500).json({
+        error:
+          "Failed to assign logical devices",
+      });
+    }
+  }
+);
+
+// Remove the underlying measurement-level permission rows that make up
+// one or more logical-device cards.
+router.post(
+  "/organization-influx-devices/bulk-remove",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const assignmentIds = [
+      ...new Set(
+        (
+          Array.isArray(
+            req.body
+              ?.assignment_ids
+          )
+            ? req.body
+                .assignment_ids
+            : []
+        )
+          .map((value) =>
+            Number(value)
+          )
+          .filter(
+            (value) =>
+              Number.isInteger(
+                value
+              ) &&
+              value > 0
+          )
+      ),
+    ];
+
+    if (
+      !assignmentIds.length
+    ) {
+      return res.status(400).json({
+        error:
+          "At least one assignment ID is required",
+      });
+    }
+
+    if (
+      assignmentIds.length >
+      500
+    ) {
+      return res.status(400).json({
+        error:
+          "Too many assignments in one request",
+      });
+    }
+
+    try {
+      let removed = 0;
+
+      for (
+        const assignmentId
+        of assignmentIds
+      ) {
+        const result =
+          await dbQuery(
+            `
+            DELETE FROM organization_influx_devices
+            WHERE id = ?
+            `,
+            [assignmentId]
+          );
+
+        removed +=
+          Number(
+            result
+              ?.affectedRows || 0
+          );
+      }
+
+      return res.json({
+        success: true,
+        removed,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Bulk logical device removal error:",
+        err
+      );
+
+      return res.status(500).json({
+        error:
+          "Failed to remove logical device assignments",
       });
     }
   }

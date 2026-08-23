@@ -1,4 +1,5 @@
 import boilerImg from "../assets/Boiler.png";
+import { TECH_SURFACE_CLASS, TechBackdrop } from "./widgetTech";
 
 export default function ImageWidget({
   valueMap = {},
@@ -39,8 +40,8 @@ export default function ImageWidget({
 
   const statusStyles = {
     normal: {
-      pin: "bg-cyan-400",
-      text: "text-cyan-300",
+      pin: "bg-[#7CB342]",
+      text: "text-[#C5D98B]",
       label: "NORMAL",
     },
     warning: {
@@ -49,22 +50,17 @@ export default function ImageWidget({
       label: "WARNING",
     },
     critical: {
-      pin: "bg-red-500",
-      text: "text-red-400",
+      pin: "bg-[#6D254D]",
+      text: "text-[#D989A7]",
       label: "CRITICAL",
     },
   };
 
   return (
     <div
-      className="
-        relative h-full w-full overflow-hidden rounded-2xl
-        border border-cyan-100/80
-        bg-gradient-to-br from-slate-100 via-white to-cyan-50
-        dark:border-cyan-500/20
-        dark:from-slate-950 dark:via-slate-900 dark:to-cyan-950/20
-      "
+      className={`${TECH_SURFACE_CLASS} p-0`}
     >
+      <TechBackdrop />
       <img
         src={imageSrc}
         alt="System process diagram"
@@ -77,7 +73,7 @@ export default function ImageWidget({
       <div
         className="
           absolute inset-0 z-0 pointer-events-none
-          bg-black/10
+          bg-black/[0.03] dark:bg-black/20
         "
       />
 
@@ -167,7 +163,7 @@ export default function ImageWidget({
                 mt-2 min-w-[110px] max-w-[170px]
                 break-words rounded-xl
                 border border-white/10
-                bg-black/80 px-3 py-2
+                bg-[#172019]/90 px-3 py-2
                 text-center text-white shadow-2xl
                 backdrop-blur-md
                 transition-all duration-300

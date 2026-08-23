@@ -6,10 +6,10 @@ import {
   Hash,
   Image as ImageIcon,
   Gauge,
-  ChartArea,
   Radio,
   Workflow,
   ScrollText,
+  PanelsTopLeft,
 } from "lucide-react";
 
 export const allDataKeys = [
@@ -33,7 +33,8 @@ export const widgetLibrary = [
     label: "Gauge",
     description:
       "Display a value using a circular gauge.",
-    icon: Activity,
+    // Switched: circular Gauge now uses the Gauge icon.
+    icon: Gauge,
     supportedData: allDataKeys,
   },
 
@@ -42,7 +43,8 @@ export const widgetLibrary = [
     label: "Linear Gauge",
     description:
       "Display a value using a horizontal progress gauge.",
-    icon: Gauge,
+    // Switched: Linear Gauge now uses the Activity icon.
+    icon: Activity,
     supportedData: allDataKeys,
   },
 
@@ -50,17 +52,8 @@ export const widgetLibrary = [
     type: "line",
     label: "Line",
     description:
-      "Display historical values as a line chart.",
+      "Display historical values as a line or filled area chart.",
     icon: TrendingUp,
-    supportedData: allDataKeys,
-  },
-
-  {
-    type: "area",
-    label: "Area",
-    description:
-      "Display historical values as a filled area chart.",
-    icon: ChartArea,
     supportedData: allDataKeys,
   },
 
@@ -97,6 +90,15 @@ export const widgetLibrary = [
     description:
       "Display a numeric value or map raw values into readable status text.",
     icon: Hash,
+    supportedData: allDataKeys,
+  },
+
+  {
+    type: "composite",
+    label: "Composite",
+    description:
+      "Combine two compatible widget views inside one dashboard card.",
+    icon: PanelsTopLeft,
     supportedData: allDataKeys,
   },
 

@@ -506,14 +506,14 @@ export default function ImageWidgetEditor({
 
       <div className="image-editor-shell flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#020617] dark:text-slate-100">
         {/* IMAGE WORKSPACE */}
-        <div className="image-editor-workspace relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-5 dark:bg-[#07101f]">
+        <div className="image-editor-workspace relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-3 dark:bg-[#07101f]">
           {/* TOOLBAR */}
           <div
             className="
               z-30 flex shrink-0
               items-center justify-between
-              gap-4 rounded-2xl
-              border px-4 py-3
+              gap-3 rounded-xl
+              border px-3 py-2.5
               shadow-lg backdrop-blur-xl
             "
             style={{
@@ -530,7 +530,7 @@ export default function ImageWidgetEditor({
                 type="button"
                 onClick={returnToWidgetSettings}
                 className="
-                  inline-flex h-10 w-10
+                  inline-flex h-8 w-8
                   shrink-0 items-center justify-center
                   rounded-xl border
                   transition
@@ -629,7 +629,7 @@ export default function ImageWidgetEditor({
                   type="button"
                   onClick={toggleTheme}
                   className="
-                    inline-flex h-10 w-10
+                    inline-flex h-8 w-8
                     items-center justify-center
                     rounded-xl border border-slate-200
                     bg-slate-100 text-slate-700
@@ -663,9 +663,9 @@ export default function ImageWidgetEditor({
                 onClick={handleSave}
                 disabled={!mappingReady}
                 className="
-                  inline-flex h-10
+                  inline-flex h-8
                   items-center gap-2 rounded-xl
-                  bg-emerald-600 px-4
+                  bg-emerald-600 px-3
                   text-sm font-black text-white
                   shadow-lg shadow-emerald-600/20
                   transition hover:bg-emerald-700
@@ -683,8 +683,8 @@ export default function ImageWidgetEditor({
             ref={canvasRef}
             className="
               image-editor-canvas
-              relative mt-4 min-h-0 flex-1
-              overflow-hidden rounded-2xl
+              relative mt-3 min-h-0 flex-1
+              overflow-hidden rounded-xl
               border border-slate-200
               bg-slate-100
               shadow-inner
@@ -720,7 +720,7 @@ export default function ImageWidgetEditor({
                     absolute bottom-4 left-4 z-30
                     rounded-xl border
                     border-amber-300
-                    bg-amber-50 px-4 py-2
+                    bg-amber-50 px-3 py-2
                     text-xs font-semibold
                     text-amber-800 shadow-lg
                     dark:border-amber-900/60
@@ -809,7 +809,7 @@ export default function ImageWidgetEditor({
                       onClick={(event) => event.stopPropagation()}
                       className="
                         absolute left-9 top-1/2
-                        min-w-[116px] max-w-[190px]
+                        min-w-[116px] max-w-[165px]
                         -translate-y-1/2 cursor-default
                         rounded-xl border
                         border-slate-700
@@ -839,9 +839,9 @@ export default function ImageWidgetEditor({
                 <div
                   className="
                     image-editor-help
-                    rounded-2xl border
+                    rounded-xl border
                     border-slate-200
-                    bg-white/90 px-4 py-3
+                    bg-white/90 px-3 py-2.5
                     text-center shadow-lg
                     backdrop-blur
                     dark:border-slate-700
@@ -860,7 +860,7 @@ export default function ImageWidgetEditor({
         {/* PIN SETTINGS */}
         <div className="image-editor-sidebar w-[380px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0b1220]">
           <div
-            className="sticky top-0 z-10 border-b p-5 backdrop-blur-xl"
+            className="sticky top-0 z-10 border-b p-3 backdrop-blur-xl"
             style={{
               backgroundColor: isDarkMode
                 ? "rgba(15, 23, 42, 0.98)"
@@ -876,7 +876,7 @@ export default function ImageWidgetEditor({
             <div className="flex items-start gap-3">
               <div
                 className="
-                  flex h-10 w-10 shrink-0
+                  flex h-8 w-8 shrink-0
                   items-center justify-center
                   rounded-xl border
                   border-emerald-200
@@ -916,10 +916,10 @@ export default function ImageWidgetEditor({
             </div>
           </div>
 
-          <div className="space-y-4 p-5">
+          <div className="space-y-3 p-3">
             <div
               className={`
-                rounded-2xl border p-4
+                rounded-xl border p-3
                 ${
                   mappingReady
                     ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
@@ -1030,9 +1030,9 @@ export default function ImageWidgetEditor({
               <div
                 className="
                   image-editor-empty
-                  rounded-2xl border
+                  rounded-xl border
                   border-dashed border-slate-300
-                  bg-white px-5 py-10
+                  bg-white px-4 py-10
                   text-center
                   dark:border-slate-700
                   dark:bg-slate-900
@@ -1058,14 +1058,14 @@ export default function ImageWidgetEditor({
                 key={pin.id || index}
                 className="
                   image-editor-card
-                  rounded-2xl border
+                  rounded-xl border
                   border-slate-200 bg-white
-                  p-4 shadow-sm
+                  p-3 shadow-sm
                   dark:border-slate-700
                   dark:bg-[#111827]
                 "
               >
-                <div className="mb-4 flex items-center justify-between">
+                <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span
                       className="
@@ -1180,7 +1180,7 @@ export default function ImageWidgetEditor({
                     })
                   }
                   className={`
-                    mt-4 flex w-full
+                    mt-3 flex w-full
                     items-center justify-center
                     gap-2 rounded-xl
                     border px-3 py-2.5

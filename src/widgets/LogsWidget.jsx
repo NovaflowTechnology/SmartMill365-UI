@@ -7,6 +7,7 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
+import { TECH_SURFACE_CLASS, TechBackdrop } from "./widgetTech";
 
 const DEFAULT_DISPLAY = {
   showTimestamp: true,
@@ -29,18 +30,18 @@ const levelStyles = {
     label: "Info",
     icon: Info,
     badge:
-      "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+      "bg-[#A4C65A]/15 text-[#5f8f25] dark:bg-[#A4C65A]/10 dark:text-[#C5D98B]",
     iconClass:
-      "text-blue-500 dark:text-blue-300",
+      "text-[#7CB342] dark:text-[#A4C65A]",
   },
 
   success: {
     label: "Success",
     icon: CheckCircle2,
     badge:
-      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+      "bg-[#2E7D32]/10 text-[#2E7D32] dark:bg-[#2E7D32]/15 dark:text-[#8FCB75]",
     iconClass:
-      "text-emerald-500 dark:text-emerald-300",
+      "text-[#2E7D32] dark:text-[#8FCB75]",
   },
 
   warning: {
@@ -56,9 +57,9 @@ const levelStyles = {
     label: "Error",
     icon: AlertCircle,
     badge:
-      "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
+      "bg-[#6D254D]/10 text-[#7d2d58] dark:bg-[#6D254D]/15 dark:text-[#d989a7]",
     iconClass:
-      "text-red-500 dark:text-red-300",
+      "text-[#6D254D] dark:text-[#d989a7]",
   },
 
   default: {
@@ -204,30 +205,19 @@ export default function LogsWidget({
 
   return (
     <div
-      className="
-        flex h-full w-full
-        min-h-0 flex-col
-        overflow-hidden
-        rounded-2xl border
-        border-cyan-100/80
-        bg-gradient-to-br
-        from-slate-50 via-white to-cyan-50/40
-        dark:border-cyan-500/20
-        dark:from-slate-950
-        dark:via-slate-900
-        dark:to-cyan-950/20
-      "
+      className={`${TECH_SURFACE_CLASS} flex min-h-0 flex-col p-0`}
     >
+      <TechBackdrop />
       <div
         className="
           flex shrink-0
           items-center justify-between
           gap-3 border-b
-          border-cyan-100/80
-          bg-cyan-50/30
+          border-slate-100 pr-14
+          bg-white
           px-4 py-3
-          dark:border-cyan-500/15
-          dark:bg-cyan-500/[0.03]
+          dark:border-white/10
+          dark:bg-[#121816]
         "
       >
         <div className="min-w-0">
@@ -257,7 +247,7 @@ export default function LogsWidget({
         </div>
 
         {settings.showSearch && (
-          <div className="relative w-40 max-w-[48%]">
+          <div className="relative w-36 max-w-[44%]">
             <Search
               size={14}
               className="
@@ -282,7 +272,7 @@ export default function LogsWidget({
                 text-xs text-slate-800
                 outline-none
                 focus:ring-2
-                focus:ring-blue-500
+                focus:ring-[#7CB342]
                 dark:border-slate-600
                 dark:bg-slate-950
                 dark:text-white
@@ -305,8 +295,8 @@ export default function LogsWidget({
             <CircleDot
               size={28}
               className="
-                text-slate-300
-                dark:text-slate-600
+                text-[#A4C65A]
+                dark:text-[#7CB342]
               "
             />
 
@@ -353,8 +343,10 @@ export default function LogsWidget({
                     flex gap-3
                     px-4
                     transition
-                    hover:bg-slate-50
-                    dark:hover:bg-slate-800/60
+                    hover:bg-[#A4C65A]/8
+                    hover:text-slate-900
+                    dark:hover:bg-slate-800
+                    dark:hover:text-slate-100
 
                     ${
                       settings.compact

@@ -535,21 +535,21 @@ export default function SankeyFlowEditor({
 
       <div className="flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#020617] dark:text-slate-100">
         {/* PREVIEW */}
-        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-5 dark:bg-[#07101f]">
+        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-3 dark:bg-[#07101f]">
           <div
             className="
               z-20 flex shrink-0 items-center justify-between
-              gap-4 rounded-2xl border border-slate-200
-              bg-white/95 px-4 py-3 shadow-lg backdrop-blur-xl
+              gap-3 rounded-xl border border-slate-200
+              bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur-xl
               dark:border-slate-700 dark:bg-slate-900/95
             "
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
               <button
                 type="button"
                 onClick={handleBack}
                 className="
-                  inline-flex h-10 w-10 shrink-0
+                  inline-flex h-8 w-8 shrink-0
                   items-center justify-center rounded-xl
                   border border-slate-200 bg-slate-100
                   text-slate-700 transition hover:bg-slate-200
@@ -569,7 +569,7 @@ export default function SankeyFlowEditor({
                     className="shrink-0 text-emerald-500"
                   />
 
-                  <h1 className="truncate text-base font-black text-slate-900 dark:text-white">
+                  <h1 className="truncate text-sm font-black text-slate-900 dark:text-white">
                     Sankey Flow Editor
                   </h1>
                 </div>
@@ -586,7 +586,7 @@ export default function SankeyFlowEditor({
                   type="button"
                   onClick={toggleTheme}
                   className="
-                    inline-flex h-10 w-10 items-center
+                    inline-flex h-8 w-8 items-center
                     justify-center rounded-xl border
                     border-slate-200 bg-slate-100
                     text-slate-700 transition hover:bg-slate-200
@@ -607,8 +607,8 @@ export default function SankeyFlowEditor({
                 onClick={handleSave}
                 disabled={!mappingReady}
                 className="
-                  inline-flex h-10 items-center gap-2
-                  rounded-xl bg-emerald-600 px-4
+                  inline-flex h-8 items-center gap-2
+                  rounded-xl bg-emerald-600 px-3
                   text-sm font-black text-white shadow-lg
                   shadow-emerald-600/20 transition
                   hover:bg-emerald-700
@@ -621,7 +621,7 @@ export default function SankeyFlowEditor({
             </div>
           </div>
 
-          <div className="mt-4 min-h-0 flex-1">
+          <div className="mt-3 min-h-0 flex-1">
             <SankeyWidget
               data={previewValues}
               item={{
@@ -636,12 +636,12 @@ export default function SankeyFlowEditor({
         </div>
 
         {/* SETTINGS */}
-        <div className="w-[520px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0b1220]">
-          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95">
-            <div className="flex items-start gap-3">
+        <div className="w-[430px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0b1220]">
+          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-3 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95">
+            <div className="flex items-start gap-2.5">
               <div
                 className="
-                  flex h-10 w-10 shrink-0 items-center
+                  flex h-8 w-8 shrink-0 items-center
                   justify-center rounded-xl border
                   border-emerald-200 bg-emerald-50
                   text-emerald-600
@@ -654,7 +654,7 @@ export default function SankeyFlowEditor({
               </div>
 
               <div>
-                <h2 className="text-base font-black text-slate-900 dark:text-white">
+                <h2 className="text-sm font-black text-slate-900 dark:text-white">
                   Flow Settings
                 </h2>
 
@@ -665,11 +665,11 @@ export default function SankeyFlowEditor({
             </div>
           </div>
 
-          <div className="space-y-5 p-5">
+          <div className="space-y-3 p-3">
             {/* TEMPLATE DATA MAPPING */}
             <div
               className={`
-                rounded-2xl border p-4
+                rounded-xl border p-3
                 ${
                   mappingReady
                     ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
@@ -677,7 +677,7 @@ export default function SankeyFlowEditor({
                 }
               `}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-2.5">
                 <div>
                   <div className="flex items-center gap-2">
                     <Database
@@ -747,7 +747,7 @@ export default function SankeyFlowEditor({
                 </p>
               )}
 
-              <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="mt-3 flex items-center justify-between gap-2.5">
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   {loadingChannels
                     ? "Loading mapped fields..."
@@ -787,8 +787,8 @@ export default function SankeyFlowEditor({
             </div>
 
             {/* SUMMARY */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-center dark:border-blue-900/50 dark:bg-blue-500/10">
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-center dark:border-blue-900/50 dark:bg-blue-500/10">
                 <p className="text-[9px] font-black uppercase tracking-wider text-blue-500">
                   Source
                 </p>
@@ -797,7 +797,7 @@ export default function SankeyFlowEditor({
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-center dark:border-emerald-900/50 dark:bg-emerald-500/10">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-center dark:border-emerald-900/50 dark:bg-emerald-500/10">
                 <p className="text-[9px] font-black uppercase tracking-wider text-emerald-500">
                   Configured
                 </p>
@@ -806,7 +806,7 @@ export default function SankeyFlowEditor({
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-violet-100 bg-violet-50 p-3 text-center dark:border-violet-900/50 dark:bg-violet-500/10">
+              <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-center dark:border-violet-900/50 dark:bg-violet-500/10">
                 <p className="text-[9px] font-black uppercase tracking-wider text-violet-500">
                   Preview
                 </p>
@@ -819,12 +819,12 @@ export default function SankeyFlowEditor({
             </div>
 
             {/* SOURCE */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
               <h3 className="text-sm font-black">
                 Source Node
               </h3>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Source Name
@@ -886,7 +886,7 @@ export default function SankeyFlowEditor({
                 </div>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Source Color
                 </label>
@@ -950,8 +950,8 @@ export default function SankeyFlowEditor({
             </div>
 
             {/* OUTPUTS */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-              <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <div className="mb-3 flex items-center justify-between gap-2.5">
                 <div>
                   <h3 className="text-sm font-black">
                     Outputs
@@ -990,8 +990,8 @@ export default function SankeyFlowEditor({
                     <div
                       key={output.id}
                       className="
-                        rounded-2xl border border-slate-200
-                        bg-slate-50 p-4
+                        rounded-xl border border-slate-200
+                        bg-slate-50 p-3
                         dark:border-slate-700
                         dark:bg-slate-950/60
                       "
@@ -1015,7 +1015,7 @@ export default function SankeyFlowEditor({
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2.5">
                         <div>
                           <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                             Display Name
@@ -1120,7 +1120,7 @@ export default function SankeyFlowEditor({
                         </div>
                       )}
 
-                      <div className="mt-4">
+                      <div className="mt-3">
                         <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                           Flow Color
                         </label>

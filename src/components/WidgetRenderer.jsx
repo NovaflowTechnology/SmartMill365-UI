@@ -1,4 +1,4 @@
-import AreaWidget from "../widgets/AreaWidget";
+import { TECH_SERIES } from "../widgets/widgetTech";
 import BarWidget from "../widgets/BarWidget";
 import BigNumberWidget from "../widgets/BigNumberWidget";
 import GaugeWidget from "../widgets/GaugeWidget";
@@ -10,17 +10,7 @@ import StatusWidget from "../widgets/StatusWidget";
 import PieWidget from "../widgets/PieWidget";
 import SankeyWidget from "../widgets/SankeyWidget";
 import LogsWidget from "../widgets/LogsWidget";
-
-const TECH_COLORS = [
-  "#22d3ee",
-  "#3b82f6",
-  "#8b5cf6",
-  "#14b8a6",
-  "#f59e0b",
-  "#f43f5e",
-  "#a3e635",
-  "#ec4899",
-];
+import CompositeWidget from "../widgets/CompositeWidget";
 
 export default function WidgetRenderer({
   type,
@@ -34,14 +24,18 @@ export default function WidgetRenderer({
   updateItem = () => {},
   editMode = false,
 }) {
-  const selectedKeys =
-    item?.dataKeys?.length > 0
-      ? item.dataKeys
-      : dataKey
-      ? [dataKey]
-      : [];
-
   switch (type) {
+    case "composite":
+      return (
+        <CompositeWidget
+          data={data}
+          history={history}
+          liveStatus={liveStatus}
+          historyWindow={historyWindow}
+          item={item}
+        />
+      );
+
     case "status":
       return (
         <StatusWidget
@@ -50,15 +44,13 @@ export default function WidgetRenderer({
       );
 
     case "logs": {
-      // Runtime data takes priority over any preview data
-      // accidentally stored in an old template.
       const logs =
-        Array.isArray(data?.logs)
+        Array.isArray(item?.logs)
+          ? item.logs
+          : Array.isArray(data?.logs)
           ? data.logs
           : Array.isArray(liveStatus?.logs)
           ? liveStatus.logs
-          : Array.isArray(item?.logs)
-          ? item.logs
           : [];
 
       return (
@@ -95,7 +87,14 @@ export default function WidgetRenderer({
         />
       );
 
-    case "bar":
+    case "bar": {
+      const selectedKeys =
+        item?.dataKeys?.length > 0
+          ? item.dataKeys
+          : dataKey
+          ? [dataKey]
+          : [];
+
       return (
         <BarWidget
           data={data}
@@ -112,18 +111,26 @@ export default function WidgetRenderer({
             item?.rangeConfig
           }
           rangeConfigs={
-            item?.rangeConfigs
+            item?.rangeConfigs || {}
           }
           dataLabels={
-            item?.dataLabels
+            item?.dataLabels || {}
           }
           chartDisplay={
-            item?.chartDisplay
+            item?.chartDisplay || {}
           }
         />
       );
+    }
 
-    case "pie":
+    case "pie": {
+      const selectedKeys =
+        item?.dataKeys?.length > 0
+          ? item.dataKeys
+          : dataKey
+          ? [dataKey]
+          : [];
+
       return (
         <PieWidget
           data={data}
@@ -133,6 +140,7 @@ export default function WidgetRenderer({
           }}
         />
       );
+    }
 
     case "sankey":
       return (
@@ -144,8 +152,9 @@ export default function WidgetRenderer({
 
     case "bignumber": {
       const statusDataKey =
-        item?.bigNumberDisplay
-          ?.statusDataKey || "";
+        item?.bigNumberDisplay?.statusDataKey ||
+        item?.dataKeys?.[1] ||
+        "";
 
       const statusValue =
         statusDataKey
@@ -158,9 +167,10 @@ export default function WidgetRenderer({
           statusValue={statusValue}
           label={item?.label || dataKey}
           dataKey={dataKey}
-          display={
-            item?.bigNumberDisplay
-          }
+          display={{
+            ...(item?.bigNumberDisplay || {}),
+            statusDataKey,
+          }}
           rangeConfig={
             item?.rangeConfig
           }
@@ -168,48 +178,76 @@ export default function WidgetRenderer({
       );
     }
 
-    case "area":
+    /*
+     * Backward compatibility for older saved templates.
+     *
+     * New widgets should no longer save:
+     *   type: "area"
+     *
+     * They should save:
+     *   type: "line"
+     *   chartDisplay.chartStyle: "area"
+     *
+     * Keeping this case means old Area widgets still render correctly
+     * even after AreaWidget.jsx is removed.
+     */
+    case "area": {
+      const colors = TECH_SERIES;
+
+      const selectedKeys =
+        item?.dataKeys?.length > 0
+          ? item.dataKeys
+          : dataKey
+          ? [dataKey]
+          : [];
+
       return (
-        <AreaWidget
+        <LineWidget
           data={history}
           label={
             item?.label ||
             "Area Trend"
           }
           historyWindow={
-            item?.historyWindow ||
             historyWindow
           }
           rangeConfig={
             item?.rangeConfig
           }
           rangeConfigs={
-            item?.rangeConfigs
+            item?.rangeConfigs || {}
           }
           dataLabels={
-            item?.dataLabels
+            item?.dataLabels || {}
           }
-          chartDisplay={
-            item?.chartDisplay
-          }
+          chartDisplay={{
+            ...(item?.chartDisplay || {}),
+            chartStyle: "area",
+          }}
           lines={selectedKeys.map(
             (key, index) => ({
               key,
-              label:
-                item?.dataLabels?.[
-                  key
-                ],
               color:
-                TECH_COLORS[
+                colors[
                   index %
-                    TECH_COLORS.length
+                    colors.length
                 ],
             })
           )}
         />
       );
+    }
 
-    case "line":
+    case "line": {
+      const colors = TECH_SERIES;
+
+      const selectedKeys =
+        item?.dataKeys?.length > 0
+          ? item.dataKeys
+          : dataKey
+          ? [dataKey]
+          : [];
+
       return (
         <LineWidget
           data={history}
@@ -218,37 +256,36 @@ export default function WidgetRenderer({
             "Trend"
           }
           historyWindow={
-            item?.historyWindow ||
             historyWindow
           }
           rangeConfig={
             item?.rangeConfig
           }
           rangeConfigs={
-            item?.rangeConfigs
+            item?.rangeConfigs || {}
           }
           dataLabels={
-            item?.dataLabels
+            item?.dataLabels || {}
           }
-          chartDisplay={
-            item?.chartDisplay
-          }
+          chartDisplay={{
+            ...(item?.chartDisplay || {}),
+            chartStyle:
+              item?.chartDisplay?.chartStyle ||
+              "line",
+          }}
           lines={selectedKeys.map(
             (key, index) => ({
               key,
-              label:
-                item?.dataLabels?.[
-                  key
-                ],
               color:
-                TECH_COLORS[
+                colors[
                   index %
-                    TECH_COLORS.length
+                    colors.length
                 ],
             })
           )}
         />
       );
+    }
 
     case "image":
       if (editMode) {
@@ -286,7 +323,7 @@ export default function WidgetRenderer({
 
     default:
       return (
-        <div className="flex h-full items-center justify-center text-slate-400">
+        <div className="text-gray-400">
           Unknown Widget
         </div>
       );

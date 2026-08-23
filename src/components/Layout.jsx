@@ -27,27 +27,15 @@ export default function Layout({
   dark = false,
   toggleTheme,
 }) {
-  // SIDEBAR
-  const [collapsed, setCollapsed] =
-    useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
-  // ROLE / ORG
-  const role =
-    localStorage.getItem("role");
+  const role = localStorage.getItem("role");
+  const orgName = localStorage.getItem("org_name");
 
-  const orgName =
-    localStorage.getItem("org_name");
+  const isSuperadmin = role === "superadmin";
+  const isAdmin = role === "admin";
+  const isEditor = role === "editor";
 
-  const isSuperadmin =
-    role === "superadmin";
-
-  const isAdmin =
-    role === "admin";
-
-  const isEditor =
-    role === "editor";
-
-  // SETTINGS GROUP
   const settingKeys = [
     "builder",
     "templates",
@@ -55,10 +43,9 @@ export default function Layout({
     "device-management",
   ];
 
-  const [settingOpen, setSettingOpen] =
-    useState(
-      settingKeys.includes(currentPage)
-    );
+  const [settingOpen, setSettingOpen] = useState(
+    settingKeys.includes(currentPage)
+  );
 
   useEffect(() => {
     if (settingKeys.includes(currentPage)) {
@@ -66,13 +53,11 @@ export default function Layout({
     }
   }, [currentPage]);
 
-  // LOGOUT
   const handleLogout = () => {
     localStorage.clear();
     window.location.href = "/";
   };
 
-  // MAIN MENU
   const mainMenu = [
     {
       key: "dashboard",
@@ -82,11 +67,8 @@ export default function Layout({
     },
   ];
 
-  // SETTING MENU
   const settingMenu = [
-    ...(isSuperadmin ||
-    isAdmin ||
-    isEditor
+    ...(isSuperadmin || isAdmin || isEditor
       ? [
           {
             key: "builder",
@@ -96,17 +78,14 @@ export default function Layout({
           },
         ]
       : []),
-
     {
       key: "templates",
-      label:
-        isSuperadmin
-          ? "Template Management"
-          : "Templates",
+      label: isSuperadmin
+        ? "Template Management"
+        : "Templates",
       description: "Manage dashboards",
       icon: Folder,
     },
-
     ...(isSuperadmin
       ? [
           {
@@ -117,96 +96,63 @@ export default function Layout({
           },
         ]
       : []),
-
     ...(isSuperadmin || isAdmin
       ? [
           {
             key: "organizations",
-            label:
-              isSuperadmin
-                ? "Organization Management"
-                : "User Management",
-            description:
-              isSuperadmin
-                ? "Manage companies"
-                : "Manage users",
+            label: isSuperadmin
+              ? "Organization Management"
+              : "User Management",
+            description: isSuperadmin
+              ? "Manage companies"
+              : "Manage users",
             icon: Building2,
           },
         ]
       : []),
   ];
 
-  const isSettingActive =
-    settingKeys.includes(currentPage);
+  const isSettingActive = settingKeys.includes(currentPage);
 
   const renderMenuButton = (item) => {
     const Icon = item.icon;
-
-    const isActive =
-      currentPage === item.key;
+    const isActive = currentPage === item.key;
 
     return (
       <button
         key={item.key}
-        onClick={() => {
-          setPage(item.key);
-        }}
-        title={
-          collapsed
-            ? item.label
-            : ""
-        }
+        onClick={() => setPage(item.key)}
+        title={collapsed ? item.label : ""}
         className={`
-          relative
-          flex items-center
-          gap-3
-          rounded-2xl
-          text-sm
-          font-medium
-          transition-all duration-200
-          group
+          group relative flex items-center
+          rounded-xl font-medium
+          transition-colors duration-150
 
           ${
             collapsed
-              ? "w-11 h-11 mx-auto justify-center p-0"
-              : "w-full min-h-[60px] px-4 py-3"
+              ? "mx-auto h-9 w-9 justify-center p-0"
+              : "min-h-[44px] w-full gap-2.5 px-3 py-2"
           }
 
           ${
             isActive
-              ? `
-                bg-emerald-600
-                text-white
-                shadow-sm
-              `
-              : `
-                text-slate-300
-                hover:bg-slate-800
-                hover:text-white
-              `
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-300 hover:bg-slate-800 hover:text-white"
           }
         `}
       >
-        {/* ACTIVE SIDE INDICATOR */}
         {isActive && !collapsed && (
           <span
             className="
-              absolute left-0
-              w-1 h-8
-              rounded-r-full
-              bg-emerald-300
+              absolute left-0 h-6 w-[3px]
+              rounded-r-full bg-emerald-300
             "
           />
         )}
 
         <div
           className={`
-            w-5 h-5
-            flex items-center
-            justify-center
-            shrink-0
-            transition
-
+            flex h-4 w-4 shrink-0 items-center justify-center
             ${
               isActive
                 ? "text-white"
@@ -214,20 +160,17 @@ export default function Layout({
             }
           `}
         >
-          <Icon size={18} strokeWidth={2} />
+          <Icon size={16} strokeWidth={2} />
         </div>
 
         {!collapsed && (
-          <div className="flex-1 text-left">
-            <div>
+          <div className="min-w-0 flex-1 text-left">
+            <div className="truncate text-[12px] leading-tight">
               {item.label}
             </div>
-
             <div
               className={`
-                text-[11px]
-                mt-0.5
-
+                mt-0.5 truncate text-[9px] leading-tight
                 ${
                   isActive
                     ? "text-emerald-50"
@@ -247,92 +190,54 @@ export default function Layout({
     <div
       className={`
         flex h-screen
-        ${
-          dark
-            ? "bg-slate-950"
-            : "bg-slate-50"
-        }
+        ${dark ? "bg-slate-950" : "bg-[#eef1f5]"}
       `}
     >
-      {/* SIDEBAR */}
       {showSidebar && !fullscreen && (
         <aside
           className={`
-            relative
-            transition-all duration-300 ease-in-out
-
-            ${
-              collapsed
-                ? "w-20"
-                : "w-[19rem]"
-            }
-
-            flex flex-col
-            border-r
-            overflow-hidden
-
-            bg-slate-950
-            border-slate-800
+            relative flex flex-col overflow-hidden
+            border-r border-slate-800 bg-slate-950
+            transition-none
+            ${collapsed ? "w-14" : "w-[14.5rem]"}
           `}
         >
-          {/* HEADER */}
           <div
             className={`
-              relative z-10
-              border-b border-slate-800
-
+              relative z-10 border-b border-slate-800
               ${
                 collapsed
-                  ? "flex flex-col items-center gap-3 px-0 py-5"
-                  : "flex items-center justify-between px-5 py-5"
+                  ? "flex flex-col items-center gap-2 px-0 py-3"
+                  : "flex items-center justify-between px-3 py-3"
               }
             `}
           >
             {!collapsed ? (
-              <div>
-                <div className="flex items-center gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5">
                   <div
                     className="
-                      w-11 h-11
-                      rounded-2xl
-                      bg-emerald-600
-                      flex items-center
-                      justify-center
-                      shadow-sm
+                      flex h-9 w-9 shrink-0 items-center justify-center
+                      rounded-xl bg-emerald-600 shadow-sm
                     "
                   >
-                    <Monitor
-                      size={18}
-                      strokeWidth={2}
-                      className="text-white"
-                    />
+                    <Monitor size={15} strokeWidth={2} className="text-white" />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <h2
                       className="
-                        font-black
-                        text-sm
-                        tracking-wider
-                        uppercase
-                        text-white
-                        leading-tight
+                        text-[12px] font-black uppercase
+                        leading-[1.05] tracking-[0.06em] text-white
                       "
                     >
                       UI Template
                       <span className="text-emerald-300">
-                        {" "}
-                        System
+                        {" "}System
                       </span>
                     </h2>
 
-                    <p
-                      className="
-                        text-[11px]
-                        text-slate-500
-                        mt-1
-                      "
-                    >
+                    <p className="mt-1 truncate text-[9px] text-slate-500">
                       Novaflow Technology
                     </p>
                   </div>
@@ -341,267 +246,116 @@ export default function Layout({
             ) : (
               <div
                 className="
-                  w-11 h-11
-                  rounded-2xl
-                  bg-emerald-600
-                  flex items-center
-                  justify-center
-                  shadow-sm
+                  flex h-9 w-9 items-center justify-center
+                  rounded-xl bg-emerald-600 shadow-sm
                 "
                 title="UI Template System"
               >
-                <Monitor
-                  size={18}
-                  strokeWidth={2}
-                  className="text-white"
-                />
+                <Monitor size={15} strokeWidth={2} className="text-white" />
               </div>
             )}
 
             <button
-              onClick={() =>
-                setCollapsed(!collapsed)
-              }
+              onClick={() => setCollapsed(!collapsed)}
               className="
-                w-11 h-11
-                rounded-2xl
-                flex items-center
-                justify-center
-                text-slate-400
-                hover:text-white
-                hover:bg-slate-800
-                transition
+                flex h-8 w-8 shrink-0 items-center justify-center
+                rounded-lg text-slate-400
+                transition-colors hover:bg-slate-800 hover:text-white
               "
-              title={
-                collapsed
-                  ? "Expand sidebar"
-                  : "Collapse sidebar"
-              }
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {collapsed ? (
-                <ChevronRight size={18} strokeWidth={2} />
+                <ChevronRight size={15} strokeWidth={2} />
               ) : (
-                <ChevronLeft size={18} strokeWidth={2} />
+                <ChevronLeft size={15} strokeWidth={2} />
               )}
             </button>
           </div>
 
-          {/* QUICK INFO CARD */}
           {!collapsed && (
             <div
               className="
-                relative z-10
-                mx-4 mt-5
-                rounded-3xl
-                bg-slate-900
-                border border-slate-800
-                p-4
-                shadow-sm
+                relative z-10 mx-3 mt-3 rounded-2xl
+                border border-slate-800 bg-slate-900
+                p-3 shadow-sm
               "
             >
-              <div
-                className="
-                  flex items-center
-                  justify-between
-                  mb-4
-                "
-              >
-                <div>
-                  <p
-                    className="
-                      text-[11px]
-                      uppercase
-                      tracking-[0.2em]
-                      text-slate-500
-                      font-bold
-                    "
-                  >
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500">
                     Workspace
                   </p>
-
-                  <h3
-                    className="
-                      text-sm
-                      font-bold
-                      text-white
-                      mt-1
-                    "
-                  >
+                  <h3 className="mt-1 truncate text-[12px] font-bold text-white">
                     Mill Control Center
                   </h3>
                 </div>
 
                 <div
                   className="
-                    w-10 h-10
-                    rounded-2xl
-                    bg-slate-800
-                    text-emerald-300
-                    flex items-center
-                    justify-center
-                    border border-slate-700
+                    flex h-8 w-8 shrink-0 items-center justify-center
+                    rounded-xl border border-slate-700
+                    bg-slate-800 text-emerald-300
                   "
                 >
-                  <Leaf size={18} strokeWidth={2} />
+                  <Leaf size={14} strokeWidth={2} />
                 </div>
               </div>
 
-              <div
-                className="
-                  grid grid-cols-2
-                  gap-3
-                "
-              >
-                <div
-                  className="
-                    rounded-2xl
-                    bg-slate-950
-                    border border-slate-800
-                    p-3
-                  "
-                >
-                  <p
-                    className="
-                      text-[10px]
-                      text-slate-500
-                      uppercase
-                    "
-                  >
-                    Mode
-                  </p>
-
-                  <p
-                    className="
-                      text-sm
-                      font-bold
-                      text-emerald-300
-                      mt-1
-                    "
-                  >
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-2">
+                  <p className="text-[8px] uppercase text-slate-500">Mode</p>
+                  <p className="mt-0.5 text-[11px] font-bold text-emerald-300">
                     Live
                   </p>
                 </div>
 
-                <div
-                  className="
-                    rounded-2xl
-                    bg-slate-950
-                    border border-slate-800
-                    p-3
-                  "
-                >
-                  <p
-                    className="
-                      text-[10px]
-                      text-slate-500
-                      uppercase
-                    "
-                  >
-                    Access
-                  </p>
-
-                  <p
-                    className="
-                      text-sm
-                      font-bold
-                      text-slate-200
-                      mt-1
-                      capitalize
-                      truncate
-                    "
-                  >
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-2">
+                  <p className="text-[8px] uppercase text-slate-500">Access</p>
+                  <p className="mt-0.5 truncate text-[11px] font-bold capitalize text-slate-200">
                     {role || "User"}
                   </p>
                 </div>
               </div>
 
-              <p
-                className="
-                  text-xs
-                  text-slate-500
-                  leading-relaxed
-                  mt-4
-                "
-              >
+              <p className="mt-3 text-[9px] leading-relaxed text-slate-500">
                 Manage live dashboards, sterilizer templates, and organization access.
               </p>
             </div>
           )}
 
-          {/* MENU */}
           <nav
             className={`
-              relative z-10
-              flex flex-col
-              mt-6
-              gap-2
-
-              ${
-                collapsed
-                  ? "px-0 items-center"
-                  : "px-3"
-              }
+              relative z-10 mt-3.5 flex flex-col gap-1
+              ${collapsed ? "items-center px-0" : "px-2.5"}
             `}
           >
             {!collapsed && (
-              <div
-                className="
-                  px-4 mb-1
-                  text-[11px]
-                  uppercase
-                  tracking-[0.2em]
-                  text-slate-600
-                  font-bold
-                "
-              >
+              <div className="mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.15em] text-slate-600">
                 Main Menu
               </div>
             )}
 
-            {/* DASHBOARD */}
             {mainMenu.map(renderMenuButton)}
 
-            {/* SETTING GROUP */}
             {!collapsed ? (
-              <div
-                className="
-                  mt-3
-                  rounded-3xl
-                  bg-slate-900
-                  border border-slate-800
-                  p-2
-                "
-              >
+              <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-900 p-1.5">
                 <button
                   type="button"
-                  onClick={() =>
-                    setSettingOpen(!settingOpen)
-                  }
+                  onClick={() => setSettingOpen(!settingOpen)}
                   className={`
-                    w-full
-                    min-h-[60px]
-                    flex items-center
-                    gap-3
-                    px-4 py-3
-                    rounded-2xl
-                    text-sm
-                    font-semibold
-                    transition
-
+                    flex min-h-[44px] w-full items-center gap-2.5
+                    rounded-xl px-3 py-2
+                    text-[12px] font-semibold transition-colors
                     ${
                       isSettingActive
-                        ? "text-white bg-slate-800"
+                        ? "bg-slate-800 text-white"
                         : "text-slate-300 hover:bg-slate-800 hover:text-white"
                     }
                   `}
                 >
                   <div
                     className={`
-                      w-5 h-5
-                      flex items-center
-                      justify-center
-                      shrink-0
-
+                      flex h-4 w-4 shrink-0 items-center justify-center
                       ${
                         isSettingActive
                           ? "text-emerald-300"
@@ -609,68 +363,37 @@ export default function Layout({
                       }
                     `}
                   >
-                    <Settings size={18} strokeWidth={2} />
+                    <Settings size={15} strokeWidth={2} />
                   </div>
 
-                  <div className="flex-1 text-left">
-                    <div>Setting</div>
-
-                    <div
-                      className="
-                        text-[11px]
-                        mt-0.5
-                        text-slate-500
-                      "
-                    >
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className="truncate leading-tight">Setting</div>
+                    <div className="mt-0.5 truncate text-[9px] text-slate-500">
                       Templates and access
                     </div>
                   </div>
 
                   <ChevronDown
-                    size={16}
+                    size={13}
                     strokeWidth={2}
-                    className={`
-                      transition-transform
-                      ${
-                        settingOpen
-                          ? "rotate-180"
-                          : ""
-                      }
-                    `}
+                    className={`transition-transform ${settingOpen ? "rotate-180" : ""}`}
                   />
                 </button>
 
                 {settingOpen && (
-                  <div className="mt-2 space-y-2">
-                    {settingMenu.map((item) =>
-                      renderMenuButton(item)
-                    )}
+                  <div className="mt-1.5 space-y-1">
+                    {settingMenu.map((item) => renderMenuButton(item))}
                   </div>
                 )}
               </div>
             ) : (
-              <div
-                className="
-                  mt-3
-                  space-y-2
-                  w-full
-                  flex flex-col
-                  items-center
-                "
-              >
+              <div className="mt-2 flex w-full flex-col items-center space-y-1.5">
                 <button
                   type="button"
-                  onClick={() =>
-                    setSettingOpen(!settingOpen)
-                  }
+                  onClick={() => setSettingOpen(!settingOpen)}
                   className={`
-                    w-11 h-11
-                    mx-auto
-                    flex items-center
-                    justify-center
-                    rounded-2xl
-                    transition
-
+                    mx-auto flex h-9 w-9 items-center justify-center
+                    rounded-xl transition-colors
                     ${
                       isSettingActive
                         ? "bg-slate-800 text-emerald-300"
@@ -679,7 +402,7 @@ export default function Layout({
                   `}
                   title="Setting"
                 >
-                  <Settings size={18} strokeWidth={2} />
+                  <Settings size={15} strokeWidth={2} />
                 </button>
 
                 {settingMenu.map(renderMenuButton)}
@@ -687,80 +410,29 @@ export default function Layout({
             )}
           </nav>
 
-          {/* FOOTER */}
-          <div
-            className="
-              relative z-10
-              mt-auto
-              p-4
-              border-t border-slate-800
-            "
-          >
-            {/* USER CARD */}
+          <div className="relative z-10 mt-auto border-t border-slate-800 p-2.5">
             {!collapsed && (
-              <div
-                className="
-                  mb-4
-                  rounded-3xl
-                  bg-slate-900
-                  border border-slate-800
-                  p-4
-                "
-              >
-                <div
-                  className="
-                    flex items-center gap-3
-                  "
-                >
-                  <div
-                    className="
-                      w-10 h-10
-                      rounded-2xl
-                      bg-slate-800
-                      flex items-center
-                      justify-center
-                      border border-slate-700
-                    "
-                  >
+              <div className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-800">
                     <ShieldCheck
-                      size={18}
+                      size={14}
                       strokeWidth={2}
                       className="text-emerald-300"
                     />
                   </div>
 
                   <div className="min-w-0">
-                    <div
-                      className="
-                        text-[11px]
-                        text-slate-500
-                        uppercase tracking-wide
-                      "
-                    >
+                    <div className="text-[8px] uppercase tracking-wide text-slate-500">
                       Account
                     </div>
 
-                    <div
-                      className="
-                        text-sm font-bold
-                        text-white
-                        truncate
-                      "
-                    >
-                      {orgName ||
-                        role ||
-                        "User"}
+                    <div className="truncate text-[11px] font-bold text-white">
+                      {orgName || role || "User"}
                     </div>
 
                     {orgName && (
-                      <div
-                        className="
-                          text-xs
-                          text-emerald-300
-                          capitalize
-                          mt-0.5
-                        "
-                      >
+                      <div className="mt-0.5 text-[9px] capitalize text-emerald-300">
                         {role}
                       </div>
                     )}
@@ -769,115 +441,58 @@ export default function Layout({
               </div>
             )}
 
-            {/* THEME */}
             <button
               onClick={toggleTheme}
               className={`
-                w-full
-                flex items-center
-                justify-center
-                gap-2
-
-                bg-slate-900
-                hover:bg-slate-800
-                border border-slate-800
-
-                text-slate-200
-
-                py-3 mb-3
-
-                rounded-2xl
-
-                transition-all duration-200
-
+                flex items-center justify-center gap-2
+                rounded-xl border border-slate-800
+                bg-slate-900 text-[11px] text-slate-200
+                transition-colors hover:bg-slate-800
                 ${
                   collapsed
-                    ? "w-11 h-11 p-0 mx-auto"
-                    : "px-4"
+                    ? "mx-auto mb-2 h-9 w-9 p-0"
+                    : "mb-2 w-full px-3 py-2"
                 }
               `}
-              title={
-                dark
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
-              }
+              title={dark ? "Switch to light mode" : "Switch to dark mode"}
             >
               {dark ? (
-                <Sun size={18} strokeWidth={2} />
+                <Sun size={14} strokeWidth={2} />
               ) : (
-                <Moon size={18} strokeWidth={2} />
+                <Moon size={14} strokeWidth={2} />
               )}
 
-              {!collapsed && (
-                <span>
-                  {dark
-                    ? "Light Mode"
-                    : "Dark Mode"}
-                </span>
-              )}
+              {!collapsed && <span>{dark ? "Light Mode" : "Dark Mode"}</span>}
             </button>
 
-            {/* LOGOUT */}
             <button
               onClick={handleLogout}
               className={`
-                w-full
-                flex items-center
-                justify-center
-                gap-2
-
-                bg-red-500
-                hover:bg-red-600
-
-                text-white
-
-                py-3
-
-                rounded-2xl
-
-                transition-all duration-200
-                shadow-sm
-
+                flex items-center justify-center gap-2
+                rounded-xl bg-red-500 text-[11px] text-white
+                shadow-sm transition-colors hover:bg-red-600
                 ${
                   collapsed
-                    ? "w-11 h-11 p-0 mx-auto"
-                    : "px-4"
+                    ? "mx-auto h-9 w-9 p-0"
+                    : "w-full px-3 py-2"
                 }
               `}
               title="Logout"
             >
-              <LogOut size={18} strokeWidth={2} />
-
-              {!collapsed && (
-                <span>
-                  Logout
-                </span>
-              )}
+              <LogOut size={14} strokeWidth={2} />
+              {!collapsed && <span>Logout</span>}
             </button>
           </div>
         </aside>
       )}
 
-      {/* MAIN */}
       <main
         className={`
-          flex-1
-          overflow-auto
-          transition-colors
-
-          ${
-            dark
-              ? "bg-slate-950"
-              : "bg-slate-50"
-          }
+          min-w-0 flex-1 overflow-auto transition-colors duration-150
+          ${dark ? "bg-slate-950" : "bg-[#eef1f5]"}
         `}
       >
-        <div
-          className="
-            p-6
-            min-h-full
-          "
-        >
+        <div className="min-h-full p-2.5">
           {children}
         </div>
       </main>

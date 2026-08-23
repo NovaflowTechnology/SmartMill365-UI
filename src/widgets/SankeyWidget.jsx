@@ -5,16 +5,17 @@ import {
 } from "recharts";
 
 import { useId } from "react";
+import { TECH_SURFACE_CLASS, TechBackdrop } from "./widgetTech";
 
 export const defaultSankeyConfig = {
   sourceName: "Boiler A",
-  sourceColor: "#2563eb",
+  sourceColor: "#7CB342",
   unit: "psi",
   outputs: [
     {
       id: "output-1",
       name: "Sterilizer 1",
-      color: "#06b6d4",
+      color: "#2E7D32",
       dataKey: "",
       dataSource: {
         bucket: "Mill",
@@ -28,7 +29,7 @@ export const defaultSankeyConfig = {
     {
       id: "output-2",
       name: "Sterilizer 2",
-      color: "#10b981",
+      color: "#A4C65A",
       dataKey: "",
       dataSource: {
         bucket: "Mill",
@@ -42,7 +43,7 @@ export const defaultSankeyConfig = {
     {
       id: "output-3",
       name: "Sterilizer 3",
-      color: "#f59e0b",
+      color: "#6D254D",
       dataKey: "",
       dataSource: {
         bucket: "Mill",
@@ -57,76 +58,28 @@ export const defaultSankeyConfig = {
 };
 
 const nodeColors = [
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#dc2626",
-  "#7c3aed",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
+  "#7CB342",
+  "#2E7D32",
+  "#A4C65A",
+  "#6D254D",
+  "#4F8A5B",
+  "#B65C7A",
+  "#C5D98B",
+  "#365F3C",
 ];
 
 const linkColorPairs = [
-  {
-    start: "#bfdbfe",
-    middle: "#93c5fd",
-    end: "#60a5fa",
-    text: "#1d4ed8",
-    node: "#2563eb",
-  },
-  {
-    start: "#a7f3d0",
-    middle: "#6ee7b7",
-    end: "#34d399",
-    text: "#047857",
-    node: "#059669",
-  },
-  {
-    start: "#fde68a",
-    middle: "#fcd34d",
-    end: "#fbbf24",
-    text: "#b45309",
-    node: "#d97706",
-  },
-  {
-    start: "#fecaca",
-    middle: "#fca5a5",
-    end: "#f87171",
-    text: "#b91c1c",
-    node: "#dc2626",
-  },
-  {
-    start: "#ddd6fe",
-    middle: "#c4b5fd",
-    end: "#a78bfa",
-    text: "#6d28d9",
-    node: "#7c3aed",
-  },
-  {
-    start: "#a5f3fc",
-    middle: "#67e8f9",
-    end: "#22d3ee",
-    text: "#0e7490",
-    node: "#0891b2",
-  },
-  {
-    start: "#fbcfe8",
-    middle: "#f9a8d4",
-    end: "#f472b6",
-    text: "#be185d",
-    node: "#db2777",
-  },
-  {
-    start: "#d9f99d",
-    middle: "#bef264",
-    end: "#a3e635",
-    text: "#4d7c0f",
-    node: "#65a30d",
-  },
+  { start: "#E7F0CE", middle: "#BFD88A", end: "#7CB342", text: "#52751F", node: "#7CB342" },
+  { start: "#DDEBDD", middle: "#86B889", end: "#2E7D32", text: "#245C28", node: "#2E7D32" },
+  { start: "#F0F5DD", middle: "#C8D98B", end: "#A4C65A", text: "#667A32", node: "#A4C65A" },
+  { start: "#EAD6E0", middle: "#C58AA5", end: "#6D254D", text: "#5C1D40", node: "#6D254D" },
+  { start: "#DFEADF", middle: "#90B296", end: "#4F8A5B", text: "#386542", node: "#4F8A5B" },
+  { start: "#F1DCE4", middle: "#D69AB0", end: "#B65C7A", text: "#8A3D5B", node: "#B65C7A" },
+  { start: "#F5F8E8", middle: "#DCE7AE", end: "#C5D98B", text: "#7D8D4D", node: "#C5D98B" },
+  { start: "#DCE6DE", middle: "#78957E", end: "#365F3C", text: "#28472D", node: "#365F3C" },
 ];
 
-const normalizeHexColor = (value, fallback = "#2563eb") => {
+const normalizeHexColor = (value, fallback = "#7CB342") => {
   const text = String(value || "").trim();
   return /^#[0-9a-fA-F]{6}$/.test(text)
     ? text
@@ -157,7 +110,7 @@ const mixHex = (hex, target, amount) => {
 const getColorSet = (color, fallbackPair) => {
   const base = normalizeHexColor(
     color,
-    fallbackPair?.node || "#2563eb"
+    fallbackPair?.node || "#7CB342"
   );
 
   return {
@@ -288,7 +241,8 @@ function CustomNode(props) {
         y={y + height / 2}
         textAnchor={isSource ? "start" : "end"}
         dominantBaseline="middle"
-        fill={isSource ? "#1e3a8a" : payload?.labelColor || "#334155"}
+        fill="currentColor"
+        className="text-slate-700 dark:text-slate-200"
         fontSize={12}
         fontWeight={800}
       >
@@ -414,7 +368,8 @@ function CustomLink({
           y={(sourceY + targetY) / 2}
           textAnchor="middle"
           dominantBaseline="middle"
-          fill={labelColor}
+          fill="currentColor"
+          className="text-slate-700 dark:text-slate-100"
           fontSize={11}
           fontWeight={900}
         >
@@ -560,14 +515,10 @@ export default function SankeyWidget({
 
   return (
     <div
-      className="
-        sankey-widget
-        flex h-full w-full
-        flex-col overflow-hidden
-        bg-transparent
-        px-4 py-4
-      "
+      className={`${TECH_SURFACE_CLASS} sankey-widget flex h-full w-full flex-col px-4 py-4`}
     >
+      <TechBackdrop />
+      <div className="relative z-10 flex h-full min-h-0 flex-col">
       <style>{`
         @keyframes sankeyLinkFade {
           from {
@@ -591,7 +542,7 @@ export default function SankeyWidget({
         className="
           mb-3 flex shrink-0
           items-center justify-between
-          gap-4
+          gap-4 pr-14
         "
       >
         <div className="min-w-0">
@@ -599,8 +550,8 @@ export default function SankeyWidget({
             className="
               text-[10px] font-black
               uppercase tracking-[0.2em]
-              text-emerald-600
-              dark:text-emerald-400
+              text-[#5F8F25]
+              dark:text-[#A4C65A]
             "
           >
             Sankey flow
@@ -650,21 +601,21 @@ export default function SankeyWidget({
         <div
           className="
             shrink-0 rounded-2xl
-            border border-emerald-200
-            bg-emerald-50
+            border border-[#DDE8C7]
+            bg-[#F5F8E9]
             px-4 py-2.5
             text-right
             shadow-sm
-            dark:border-emerald-900/60
-            dark:bg-emerald-500/10
+            dark:border-[#7CB342]/25
+            dark:bg-[#7CB342]/10
           "
         >
           <p
             className="
               text-[9px] font-black
               uppercase tracking-[0.14em]
-              text-emerald-700
-              dark:text-emerald-300
+              text-[#5F8F25]
+              dark:text-[#C5D98B]
             "
           >
             Total flow
@@ -674,8 +625,8 @@ export default function SankeyWidget({
             className="
               mt-1 text-lg font-black
               leading-none
-              text-emerald-800
-              dark:text-emerald-200
+              text-[#2E7D32]
+              dark:text-[#A4C65A]
             "
           >
             {formatNumber(totalValue)}
@@ -773,6 +724,7 @@ export default function SankeyWidget({
           </ResponsiveContainer>
         </div>
       )}
+      </div>
     </div>
   );
 }

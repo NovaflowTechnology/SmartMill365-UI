@@ -2,6 +2,19 @@ import { useState, useEffect, useRef } from "react";
 import { widgetLibrary } from "../data/widgetLibrary";
 import WidgetRenderer from "../components/WidgetRenderer";
 import { defaultSankeyConfig } from "../widgets/SankeyWidget";
+import {
+  filterMeasurementsByGroup,
+  formatMeasurementLabel,
+  getMeasurementGroup,
+  getMeasurementGroupOptions,
+  groupMeasurements,
+} from "../utils/measurementGroups";
+import {
+  COMPOSITE_PRESETS,
+  DEFAULT_COMPOSITE_CONFIG,
+  getCompositePreset,
+  getCompatibleCompositePresets,
+} from "../data/compositeWidgets";
 
 import {
   AlertCircle,
@@ -15,7 +28,6 @@ import {
   Move,
   Database,
   RefreshCw,
-  ChevronDown,
   ChevronRight,
   Check,
   ScrollText,
@@ -158,7 +170,15 @@ const defaultChartDisplay = {
   yAxisMax: "",
   yAxisTickCount: 5,
   strokeWidth: 2.5,
-  curveType: "monotone",
+  lineWeight: "normal",
+  linePattern: "solid",
+  curveType: "linear",
+
+  // LineWidget now owns both visual styles.
+  // The widget type remains "line".
+  chartStyle: "line", // "line" | "area"
+  areaOpacity: 0.34,
+  areaEndOpacity: 0.025,
 };
 
 const defaultHistoryWindow = "15m";
@@ -266,7 +286,7 @@ const previewData = {
   ch13: 80,
 };
 
-// SAMPLE HISTORY FOR LINE / AREA CHART PREVIEW
+// SAMPLE HISTORY FOR LINE WIDGET PREVIEW (Line / Area styles)
 const previewHistory = Array.from(
   { length: 20 },
   (_, i) => ({
@@ -363,6 +383,7 @@ const InfluxMetadataList = ({
   activeValue = "",
   emptyText,
   onSelect,
+  groupedMeasurements = false,
 }) => (
   <div
     className="
@@ -408,6 +429,76 @@ const InfluxMetadataList = ({
         >
           {emptyText}
         </p>
+      ) : groupedMeasurements ? (
+        groupMeasurements(values).map((group) => (
+          <div key={group.key} className="space-y-1">
+            <div
+              className="
+                sticky top-0 z-[1]
+                flex items-center justify-between
+                rounded-lg bg-slate-100
+                px-2 py-1.5
+                text-[9px] font-black
+                uppercase tracking-[0.08em]
+                text-slate-500
+                dark:bg-slate-800
+                dark:text-slate-400
+              "
+            >
+              <span>{group.label}</span>
+              <span>{group.measurements.length}</span>
+            </div>
+
+            {group.measurements.map((value) => {
+              const selected =
+                String(value) === String(activeValue);
+
+              return (
+                <button
+                  key={String(value)}
+                  type="button"
+                  onClick={() => onSelect?.(value)}
+                  className={`
+                    flex w-full items-center
+                    justify-between gap-2
+                    rounded-xl px-2.5 py-2
+                    text-left text-[11px]
+                    font-semibold transition
+                    ${
+                      selected
+                        ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/40"
+                        : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
+                    }
+                  `}
+                  title={value}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate">
+                      {formatMeasurementLabel(value)}
+                    </span>
+                    <span
+                      className="
+                        block truncate font-mono
+                        text-[9px] font-normal
+                        text-slate-400
+                        dark:text-slate-500
+                      "
+                    >
+                      {value}
+                    </span>
+                  </span>
+
+                  {onSelect && (
+                    <ChevronRight
+                      size={13}
+                      className="shrink-0 opacity-60"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))
       ) : (
         values.map((value) => {
           const selected =
@@ -426,7 +517,7 @@ const InfluxMetadataList = ({
                 font-semibold transition
                 ${
                   selected
-                    ? "bg-blue-100 text-blue-800 ring-1 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:ring-blue-500/40"
+                    ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/40"
                     : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
                 }
               `}
@@ -467,6 +558,13 @@ export default function TemplateDesigner({
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(4);
 
+  // Available viewport space below the builder controls.
+  // Small grids stretch to fill the page; large grids grow and scroll.
+  const [
+    gridViewportHeight,
+    setGridViewportHeight,
+  ] = useState(520);
+
   // STATES
   const [items, setItems] = useState([]);
 
@@ -488,6 +586,23 @@ export default function TemplateDesigner({
   const [showModal, setShowModal] =
     useState(false);
 
+  // RESIZABLE WIDGET STUDIO
+  // Vertical split = preview/source workspace vs widget settings.
+  // Horizontal split = live preview vs data-source configuration.
+  const studioBodyRef = useRef(null);
+  const studioLeftRef = useRef(null);
+
+  const [studioSplit, setStudioSplit] =
+    useState(72);
+
+  const [previewSplit, setPreviewSplit] =
+    useState(58);
+
+  const [
+    studioResizeMode,
+    setStudioResizeMode,
+  ] = useState(null);
+
   // WIDGET SETUP WIZARD
   const [widgetStep, setWidgetStep] =
     useState(1);
@@ -501,6 +616,14 @@ export default function TemplateDesigner({
 
   const [newDataKeys, setNewDataKeys] =
     useState([]);
+
+  // The widget wizard now starts with Data Source.
+  // "Dedicated" is used for widgets such as Logs, Data Status,
+  // Image and Sankey that do not select a normal single Influx field.
+  const [
+    useDedicatedWidgetSource,
+    setUseDedicatedWidgetSource,
+  ] = useState(false);
 
   const [newLabel, setNewLabel] =
     useState("");
@@ -543,6 +666,13 @@ export default function TemplateDesigner({
     setNewHistoryWindow,
   ] = useState(defaultHistoryWindow);
 
+  const [
+    newCompositeConfig,
+    setNewCompositeConfig,
+  ] = useState({
+    ...DEFAULT_COMPOSITE_CONFIG,
+  });
+
   const [customDataOptions, setCustomDataOptions] = useState([]);
 
   const [customDataDraft, setCustomDataDraft] = useState({
@@ -575,7 +705,7 @@ export default function TemplateDesigner({
   const [imageDraft, setImageDraft] = useState(defaultImageDraft);
 
   // =====================================
-  // INFLUX TEMPLATE DATA MAPPING
+  // WIDGET-LEVEL INFLUX SOURCE CONFIGURATION
   // =====================================
   const role = localStorage.getItem("role");
 
@@ -587,11 +717,6 @@ export default function TemplateDesigner({
 
   const canConfigureInflux =
     isSuperadmin || isOrganizationAdmin;
-
-  const [
-    showInfluxMapping,
-    setShowInfluxMapping,
-  ] = useState(true);
 
   const [influxConfig, setInfluxConfig] =
     useState(defaultInfluxConfig);
@@ -609,11 +734,24 @@ export default function TemplateDesigner({
     setSelectedDeviceId,
   ] = useState("");
 
+  // UI-only device type selection derived from measurement groups.
+  // The raw Influx measurement remains the actual saved/query value.
+  const [
+    selectedMeasurementGroup,
+    setSelectedMeasurementGroup,
+  ] = useState("");
+
   const [influxBuckets, setInfluxBuckets] =
     useState([]);
 
   const [influxIds, setInfluxIds] =
     useState([]);
+
+  // Superadmin only:
+  // maps each available ID to the measurements inside the selected
+  // Device Type that actually contain that ID.
+  const [influxIdMeasurementMap, setInfluxIdMeasurementMap] =
+    useState({});
 
   const [influxChannels, setInfluxChannels] =
     useState([]);
@@ -626,6 +764,149 @@ export default function TemplateDesigner({
 
   const [influxError, setInfluxError] =
     useState("");
+
+  const measurementGroupOptions =
+    getMeasurementGroupOptions(influxMeasurements);
+
+  const filteredInfluxMeasurements =
+    filterMeasurementsByGroup(
+      influxMeasurements,
+      selectedMeasurementGroup
+    );
+
+  const measurementsForSelectedInfluxId =
+    influxConfig.tagValue || influxConfig.id
+      ? filteredInfluxMeasurements.filter(
+          (measurement) =>
+            (
+              influxIdMeasurementMap[
+                String(
+                  influxConfig.tagValue ||
+                    influxConfig.id
+                )
+              ] || []
+            ).includes(measurement)
+        )
+      : [];
+
+  // Organization permissions remain one row per
+  // measurement + device ID. For Widget Studio, group those rows
+  // into one logical assigned device so Admin does not see duplicates.
+  const logicalAssignedDevices = (() => {
+    const map = new Map();
+
+    availableDevices.forEach(
+      (device) => {
+        const measurementGroup =
+          getMeasurementGroup(
+            device.measurement_name
+          );
+
+        const key = [
+          measurementGroup.key,
+          device.bucket_name || "",
+          device.tag_key || "id",
+          device.tag_value || "",
+        ].join("::");
+
+        if (!map.has(key)) {
+          map.set(key, {
+            id: key,
+            key,
+            bucket_name:
+              device.bucket_name ||
+              "",
+            tag_key:
+              device.tag_key ||
+              "id",
+            tag_value:
+              device.tag_value ||
+              "",
+            device_name:
+              device.device_name ||
+              `${measurementGroup.label} · ${device.tag_value}`,
+            device_type:
+              measurementGroup.key,
+            device_type_label:
+              measurementGroup.label,
+            measurements: [],
+            permissionRows: [],
+          });
+        }
+
+        const logical =
+          map.get(key);
+
+        if (
+          device.measurement_name &&
+          !logical.measurements.includes(
+            device.measurement_name
+          )
+        ) {
+          logical.measurements.push(
+            device.measurement_name
+          );
+        }
+
+        logical.permissionRows.push(
+          device
+        );
+      }
+    );
+
+    return [
+      ...map.values(),
+    ]
+      .map((logical) => ({
+        ...logical,
+        measurements:
+          [...logical.measurements].sort(),
+      }))
+      .sort((a, b) => {
+        const typeCompare =
+          a.device_type_label.localeCompare(
+            b.device_type_label
+          );
+
+        if (typeCompare) {
+          return typeCompare;
+        }
+
+        return a.tag_value.localeCompare(
+          b.tag_value,
+          undefined,
+          {
+            numeric: true,
+            sensitivity: "base",
+          }
+        );
+      });
+  })();
+
+  const assignedDeviceTypeOptions = [
+    ...new Map(
+      logicalAssignedDevices.map(
+        (device) => [
+          device.device_type,
+          {
+            key:
+              device.device_type,
+            label:
+              device.device_type_label,
+          },
+        ]
+      )
+    ).values(),
+  ];
+
+  const filteredAssignedDevices =
+    selectedMeasurementGroup
+      ? logicalAssignedDevices.filter(
+          (device) =>
+            device.device_type ===
+            selectedMeasurementGroup
+        )
+      : [];
 
   // DRAG & DROP
   const [
@@ -661,6 +942,157 @@ export default function TemplateDesigner({
 
   const resizeStartRef = useRef(null);
 
+  useEffect(() => {
+    if (!studioResizeMode) return undefined;
+
+    const previousUserSelect =
+      document.body.style.userSelect;
+
+    const previousCursor =
+      document.body.style.cursor;
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor =
+      studioResizeMode === "columns"
+        ? "col-resize"
+        : "row-resize";
+
+    const handlePointerMove = (event) => {
+      if (studioResizeMode === "columns") {
+        const element =
+          studioBodyRef.current;
+
+        if (!element) return;
+
+        const rect =
+          element.getBoundingClientRect();
+
+        const dividerSize = 8;
+        const availableWidth =
+          Math.max(
+            1,
+            rect.width - dividerSize
+          );
+
+        const pointerX =
+          event.clientX - rect.left;
+
+        const rawPercent =
+          (pointerX / availableWidth) * 100;
+
+        // Keep both panels usable.
+        const minimumLeftPx = 520;
+        const minimumRightPx = 300;
+
+        const minimumPercent =
+          Math.max(
+            45,
+            (minimumLeftPx /
+              availableWidth) *
+              100
+          );
+
+        const maximumPercent =
+          Math.min(
+            84,
+            ((availableWidth -
+              minimumRightPx) /
+              availableWidth) *
+              100
+          );
+
+        const safeMaximum =
+          Math.max(
+            minimumPercent,
+            maximumPercent
+          );
+
+        setStudioSplit(
+          Math.min(
+            safeMaximum,
+            Math.max(
+              minimumPercent,
+              rawPercent
+            )
+          )
+        );
+
+        return;
+      }
+
+      const element =
+        studioLeftRef.current;
+
+      if (!element) return;
+
+      const rect =
+        element.getBoundingClientRect();
+
+      const dividerSize = 8;
+      const availableHeight =
+        Math.max(
+          1,
+          rect.height - dividerSize
+        );
+
+      const pointerY =
+        event.clientY - rect.top;
+
+      const rawPercent =
+        (pointerY / availableHeight) *
+        100;
+
+      setPreviewSplit(
+        Math.min(
+          76,
+          Math.max(30, rawPercent)
+        )
+      );
+    };
+
+    const stopResize = () => {
+      setStudioResizeMode(null);
+    };
+
+    window.addEventListener(
+      "pointermove",
+      handlePointerMove
+    );
+
+    window.addEventListener(
+      "pointerup",
+      stopResize
+    );
+
+    window.addEventListener(
+      "pointercancel",
+      stopResize
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pointermove",
+        handlePointerMove
+      );
+
+      window.removeEventListener(
+        "pointerup",
+        stopResize
+      );
+
+      window.removeEventListener(
+        "pointercancel",
+        stopResize
+      );
+
+      document.body.style.userSelect =
+        previousUserSelect;
+
+      document.body.style.cursor =
+        previousCursor;
+    };
+  }, [studioResizeMode]);
+
   // CURRENT SELECTED ITEM
   const selectedItem = items.find(
     (i) => i.id === activeItemId
@@ -682,7 +1114,7 @@ export default function TemplateDesigner({
     customDataOptions,
     customWidgetTypes,
     selectedDeviceId,
-    showInfluxMapping,
+    selectedMeasurementGroup,
   });
 
   const restoreDesignerSnapshot = (snapshot, nextItems) => {
@@ -717,7 +1149,14 @@ export default function TemplateDesigner({
         : []
     );
     setSelectedDeviceId(String(snapshot.selectedDeviceId || ""));
-    setShowInfluxMapping(Boolean(snapshot.showInfluxMapping));
+    setSelectedMeasurementGroup(
+      snapshot.selectedMeasurementGroup ||
+        (snapshot.influxConfig?.measurement
+          ? getMeasurementGroup(
+              snapshot.influxConfig.measurement
+            ).key
+          : "")
+    );
   };
 
   useEffect(() => {
@@ -741,16 +1180,117 @@ export default function TemplateDesigner({
 
       setInfluxConfig(savedInflux);
       setSelectedDeviceId(String(savedInflux.deviceId || ""));
+      setSelectedMeasurementGroup(
+        savedInflux.measurement
+          ? getMeasurementGroup(
+              savedInflux.measurement
+            ).key
+          : ""
+      );
 
-      setChannelMap({
+      const savedChannelMap = {
         ...defaultChannelMap,
         ...(layout?.channelMap || {}),
-      });
+      };
 
-      setCustomDataOptions(
+      setChannelMap(savedChannelMap);
+
+      const savedDataSources =
+        layout?.dataSources &&
+        typeof layout.dataSources === "object" &&
+        !Array.isArray(layout.dataSources)
+          ? layout.dataSources
+          : {};
+
+      const savedCustomOptions =
         Array.isArray(layout?.customDataOptions)
           ? layout.customDataOptions
-          : []
+          : [];
+
+      const migratedOptions = [
+        ...savedCustomOptions.map((option) => {
+          if (option?.source?.field) {
+            return option;
+          }
+
+          const sourceFromNewLayout =
+            savedDataSources?.[option?.key];
+
+          if (sourceFromNewLayout?.field) {
+            return {
+              ...option,
+              source: {
+                ...sourceFromNewLayout,
+                channel:
+                  sourceFromNewLayout.channel ||
+                  sourceFromNewLayout.field,
+              },
+            };
+          }
+
+          const legacyField =
+            savedChannelMap?.[option?.key];
+
+          if (
+            legacyField &&
+            savedInflux.bucket &&
+            savedInflux.measurement &&
+            (
+              savedInflux.tagValue ||
+              savedInflux.id
+            )
+          ) {
+            return {
+              ...option,
+              source: {
+                bucket: savedInflux.bucket,
+                measurement:
+                  savedInflux.measurement,
+                tagKey:
+                  savedInflux.tagKey || "id",
+                tagValue:
+                  savedInflux.tagValue ||
+                  savedInflux.id,
+                id:
+                  savedInflux.tagValue ||
+                  savedInflux.id,
+                field: legacyField,
+                channel: legacyField,
+              },
+            };
+          }
+
+          return option;
+        }),
+
+        ...Object.entries(savedDataSources)
+          .filter(
+            ([key]) =>
+              !savedCustomOptions.some(
+                (option) => option?.key === key
+              )
+          )
+          .map(([key, source]) => ({
+            key,
+            label:
+              formatInfluxFieldLabel(key) ||
+              key,
+            unit: "",
+            isCustom: true,
+            source: {
+              ...source,
+              channel:
+                source?.channel ||
+                source?.field ||
+                "",
+            },
+          })),
+      ];
+
+      setCustomDataOptions(
+        deduplicateDataOptions(
+          migratedOptions
+        )
       );
 
       setCustomWidgetTypes(
@@ -769,32 +1309,12 @@ export default function TemplateDesigner({
     }
   }, [isEditingTemplate, selectedTemplate?.id]);
 
-  const influxFieldOptions = influxChannels.map(
-    (field) => ({
-      key: field,
-      label: formatInfluxFieldLabel(field),
-      channel: field,
-      unit: "",
-      isInfluxField: true,
-      source: {
-        bucket: influxConfig.bucket,
-        measurement: influxConfig.measurement,
-        tagKey: influxConfig.tagKey || "id",
-        tagValue:
-          influxConfig.tagValue ||
-          influxConfig.id ||
-          "",
-        field,
-      },
-    })
-  );
-
-  // Influx metadata is now the source of truth.
-  // Custom data sources remain available as optional aliases.
-  const allDataOptions = deduplicateDataOptions([
-    ...customDataOptions,
-    ...influxFieldOptions,
-  ]);
+  // Sources shown in Widget Studio are created explicitly through
+  // "Add Data Source". Each option owns its complete Influx source.
+  const allDataOptions =
+    deduplicateDataOptions(
+      customDataOptions
+    );
 
   const allWidgetOptions = [
     ...widgetLibrary.map((widget) => ({
@@ -811,6 +1331,22 @@ export default function TemplateDesigner({
       isCustomWidgetType: true,
     })),
   ];
+
+  const dedicatedWidgetTypes = [
+    "image",
+    "sankey",
+    "logs",
+    "status",
+  ];
+
+  // Data-bound widgets are shown after selecting one or more process fields.
+  // Dedicated widgets are shown after choosing the "System / Dedicated Widget"
+  // option in Step 1, so Logs and Data Status never ask for a direct field.
+  const wizardWidgetOptions = allWidgetOptions.filter((widget) =>
+    useDedicatedWidgetSource
+      ? dedicatedWidgetTypes.includes(widget.type)
+      : !dedicatedWidgetTypes.includes(widget.type)
+  );
 
   const previewValues = allDataOptions.reduce(
     (values, option, index) => ({
@@ -836,43 +1372,6 @@ export default function TemplateDesigner({
   };
 
   const availableDataOptions = getAvailableDataOptionsForType(newType);
-
-  // Data Mapping is a template-level prerequisite. Widget configuration is
-  // intentionally locked until a source/device has been selected and its
-  // available fields have finished loading.
-  const isTemplateDataMappingReady =
-    !canConfigureInflux ||
-    Boolean(
-      influxConfig.bucket &&
-        influxConfig.measurement &&
-        (influxConfig.tagValue ||
-          influxConfig.id ||
-          selectedDeviceId) &&
-        influxChannels.length > 0
-    );
-
-  const requireTemplateDataMapping = () => {
-    if (isTemplateDataMappingReady) {
-      return true;
-    }
-
-    setShowInfluxMapping(true);
-    showToast(
-      "error",
-      "Complete Data Mapping first. Select a bucket, measurement and device, then wait for the available fields to load."
-    );
-
-    window.setTimeout(() => {
-      document
-        .getElementById("template-data-mapping")
-        ?.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-    }, 80);
-
-    return false;
-  };
 
   const getDataSourceLabel = (key) =>
     allDataOptions.find(
@@ -1109,11 +1608,16 @@ export default function TemplateDesigner({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const isBigNumberCombined =
+    newType === "bignumber" &&
+    newBigNumberDisplay.mode === "combined";
+
   const isMultiDataWidget =
     newType === "line" ||
-    newType === "area" ||
     newType === "bar" ||
-    newType === "pie";
+    newType === "pie" ||
+    newType === "composite" ||
+    isBigNumberCombined;
 
   // DEFAULT LABEL
   const getDefaultWidgetLabel = (type) =>
@@ -1122,11 +1626,85 @@ export default function TemplateDesigner({
       type.slice(1)
     } Widget`;
 
+  const handleCompositePresetChange = (
+    preset
+  ) => {
+    if (!preset) return;
+
+    setNewCompositeConfig({
+      preset: preset.id,
+      layout: preset.defaultLayout,
+      ratio: preset.defaultRatio,
+    });
+  };
+
   // Keep image widgets in landscape dimensions so the diagram is readable
   // in both the canvas and the widget settings preview.
   const handleWidgetTypeChange = (type, customWidgetTypeId = "") => {
+    // Backward compatibility:
+    // old/custom "area" widgets are now Line widgets rendered in Area style.
+    const requestedAreaStyle =
+      type === "area";
+
+    type = requestedAreaStyle
+      ? "line"
+      : type;
+
     setNewType(type);
     setNewWidgetTypeId(customWidgetTypeId);
+
+    const typeUsesDedicatedSource =
+      dedicatedWidgetTypes.includes(type);
+
+    setUseDedicatedWidgetSource(typeUsesDedicatedSource);
+
+    if (typeUsesDedicatedSource) {
+      setNewDataKey("");
+      setNewDataKeys([]);
+    } else if (
+      ["line", "bar", "pie", "composite"].includes(type)
+    ) {
+      setNewDataKeys((current) => {
+        if (current.length) {
+          setNewDataKey(current[0]);
+          return current;
+        }
+
+        return newDataKey ? [newDataKey] : [];
+      });
+    } else if (type === "bignumber") {
+      setNewDataKeys((current) => {
+        const selected = current.length
+          ? current
+          : newDataKey
+          ? [newDataKey]
+          : [];
+
+        // Stat can use one source in Number / Value Mapping mode,
+        // or two sources in Stat + Status mode.
+        const limited = selected.slice(0, 2);
+
+        setNewDataKey(limited[0] || "");
+
+        setNewBigNumberDisplay(
+          (previous) => ({
+            ...previous,
+            statusDataKey:
+              limited[1] ||
+              previous.statusDataKey ||
+              "",
+          })
+        );
+
+        return limited;
+      });
+    } else {
+      const primaryKey =
+        newDataKeys[0] || newDataKey || "";
+
+      setNewDataKey(primaryKey);
+      setNewDataKeys([]);
+    }
 
     const customWidget = customWidgetTypes.find(
       (widget) => widget.id === customWidgetTypeId
@@ -1147,9 +1725,42 @@ export default function TemplateDesigner({
       setSankeyConfig(defaultSankeyConfig);
     }
 
+    if (type === "composite" && !isEdit) {
+      const compatible =
+        getCompatibleCompositePresets(
+          Math.max(
+            1,
+            newDataKeys.length ||
+              (newDataKey ? 1 : 0)
+          )
+        );
+
+      const firstPreset =
+        compatible[0] ||
+        COMPOSITE_PRESETS[0];
+
+      setNewCompositeConfig({
+        preset: firstPreset.id,
+        layout: firstPreset.defaultLayout,
+        ratio: firstPreset.defaultRatio,
+      });
+
+      setNewW(2);
+      setNewH(1);
+    }
+
     if (type === "bignumber" && !isEdit) {
+      const selectedSources = (
+        newDataKeys.length
+          ? newDataKeys
+          : newDataKey
+          ? [newDataKey]
+          : []
+      ).slice(0, 2);
+
       setNewBigNumberDisplay({
         ...defaultBigNumberDisplay,
+        statusDataKey: selectedSources[1] || "",
         mappings:
           defaultBigNumberDisplay.mappings.map(
             (mapping) => ({ ...mapping })
@@ -1170,11 +1781,15 @@ export default function TemplateDesigner({
     }
 
     if (
-      ["line", "area", "bar"].includes(type) &&
+      ["line", "bar"].includes(type) &&
       !isEdit
     ) {
       setNewChartDisplay({
         ...defaultChartDisplay,
+        chartStyle:
+          requestedAreaStyle
+            ? "area"
+            : "line",
       });
       setNewHistoryWindow(
         defaultHistoryWindow
@@ -1302,6 +1917,41 @@ export default function TemplateDesigner({
     return result?.channels || [];
   };
 
+  const fetchInfluxIdsForMeasurement = async (
+    selectedBucket,
+    selectedMeasurement,
+    selectedTagKey,
+    token
+  ) => {
+    const query = new URLSearchParams({
+      bucket: selectedBucket,
+      measurement: selectedMeasurement,
+      tagKey: selectedTagKey || "id",
+    });
+
+    const res = await fetch(
+      `http://localhost:5000/influx/ids?${query.toString()}`,
+      {
+        headers: {
+          Authorization: token,
+        },
+      }
+    );
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        result?.error ||
+          `Failed to load IDs for ${selectedMeasurement}`
+      );
+    }
+
+    return Array.isArray(result?.ids)
+      ? result.ids
+      : [];
+  };
+
   const fetchInfluxIdsAndChannels = async (
     selectedBucket,
     selectedMeasurement,
@@ -1357,33 +2007,142 @@ export default function TemplateDesigner({
     };
   };
 
-  const applySelectedDevice = (deviceId, devices = availableDevices) => {
-    const selectedDevice = devices.find(
-      (device) =>
-        String(device.id) === String(deviceId)
-    );
+  const applySelectedDevice = (
+    logicalDeviceId
+  ) => {
+    const selectedDevice =
+      logicalAssignedDevices.find(
+        (device) =>
+          String(device.id) ===
+          String(
+            logicalDeviceId
+          )
+      );
 
     if (!selectedDevice) {
+      setSelectedDeviceId(
+        ""
+      );
+
+      setInfluxConfig(
+        defaultInfluxConfig
+      );
+
+      setInfluxIds([]);
+
+      setInfluxMeasurements(
+        []
+      );
+
+      setInfluxChannels(
+        []
+      );
+
       return;
     }
 
-    const tagValue = selectedDevice.tag_value || "";
+    const tagValue =
+      selectedDevice.tag_value ||
+      "";
 
-    setSelectedDeviceId(String(selectedDevice.id));
+    setSelectedDeviceId(
+      selectedDevice.id
+    );
+
+    setSelectedMeasurementGroup(
+      selectedDevice.device_type
+    );
 
     setInfluxConfig({
-      bucket: selectedDevice.bucket_name || "",
-      measurement:
-        selectedDevice.measurement_name || "",
-      tagKey: selectedDevice.tag_key || "id",
+      bucket:
+        selectedDevice.bucket_name ||
+        "",
+      measurement: "",
+      tagKey:
+        selectedDevice.tag_key ||
+        "id",
       id: tagValue,
       tagValue,
     });
 
-    setInfluxIds([tagValue].filter(Boolean));
-    setInfluxMeasurements(
-      [selectedDevice.measurement_name].filter(Boolean)
+    setInfluxIds(
+      [tagValue].filter(
+        Boolean
+      )
     );
+
+    // Only measurements explicitly assigned to this organization
+    // are exposed here.
+    setInfluxMeasurements(
+      selectedDevice.measurements
+    );
+
+    setInfluxChannels(
+      []
+    );
+
+    setCustomDataDraft(
+      (current) => ({
+        ...current,
+        channel: "",
+      })
+    );
+  };
+
+  const handleMeasurementGroupChange = (
+    groupKey
+  ) => {
+    setSelectedMeasurementGroup(groupKey);
+
+    if (isOrganizationAdmin) {
+      const currentDevice =
+        logicalAssignedDevices.find(
+          (device) =>
+            String(device.id) ===
+            String(
+              selectedDeviceId
+            )
+        );
+
+      const currentGroupKey =
+        currentDevice
+          ?.device_type || "";
+
+      if (
+        currentGroupKey !==
+        groupKey
+      ) {
+        setSelectedDeviceId(
+          ""
+        );
+
+        setInfluxConfig(
+          defaultInfluxConfig
+        );
+
+        setInfluxMeasurements(
+          []
+        );
+
+        setInfluxIds([]);
+
+        setInfluxChannels(
+          []
+        );
+      }
+
+      return;
+    }
+
+    setInfluxConfig((current) => ({
+      ...current,
+      measurement: "",
+      id: "",
+      tagValue: "",
+    }));
+
+    setInfluxIds([]);
+    setInfluxIdMeasurementMap({});
     setInfluxChannels([]);
   };
 
@@ -1398,41 +2157,59 @@ export default function TemplateDesigner({
 
     try {
       if (isOrganizationAdmin) {
-        const devices = await fetchAllowedDevices(token);
+        const devices =
+          await fetchAllowedDevices(
+            token
+          );
 
-        setAvailableDevices(devices);
+        setAvailableDevices(
+          devices
+        );
 
         setInfluxBuckets(
           [
             ...new Set(
               devices
-                .map((device) => device.bucket_name)
+                .map(
+                  (device) =>
+                    device.bucket_name
+                )
                 .filter(Boolean)
             ),
           ].sort()
         );
 
-        const selectedStillExists = devices.some(
-          (device) =>
-            String(device.id) === String(selectedDeviceId)
-        );
+        if (!devices.length) {
+          setSelectedDeviceId(
+            ""
+          );
 
-        const deviceToUse = selectedStillExists
-          ? selectedDeviceId
-          : devices[0]?.id;
+          setSelectedMeasurementGroup(
+            ""
+          );
 
-        if (!deviceToUse) {
-          setInfluxConfig(defaultInfluxConfig);
+          setInfluxConfig(
+            defaultInfluxConfig
+          );
+
           setInfluxIds([]);
-          setInfluxMeasurements([]);
-          setInfluxChannels([]);
+
+          setInfluxMeasurements(
+            []
+          );
+
+          setInfluxChannels(
+            []
+          );
+
           setInfluxError(
             "No Influx device has been assigned to your organization."
           );
-          return;
         }
 
-        applySelectedDevice(deviceToUse, devices);
+        // Do not automatically preselect a source.
+        // Admin explicitly chooses:
+        // Device Type -> Assigned Device -> Measurement -> Channel.
         return;
       }
 
@@ -1475,20 +2252,69 @@ export default function TemplateDesigner({
       setInfluxMeasurements(measurements);
 
       if (!selectedMeasurement) {
+        setSelectedMeasurementGroup("");
         setInfluxIds([]);
+        setInfluxIdMeasurementMap({});
         setInfluxChannels([]);
         return;
       }
 
-      const { ids, channels } =
-        await fetchInfluxIdsAndChannels(
+      setSelectedMeasurementGroup(
+        getMeasurementGroup(
+          selectedMeasurement
+        ).key
+      );
+
+      const ids =
+        await fetchInfluxIdsForMeasurement(
           selectedBucket,
           selectedMeasurement,
+          influxConfig.tagKey || "id",
           token
         );
 
-      setInfluxIds(ids);
-      setInfluxChannels(channels);
+      const sortedIds = [...ids].sort(
+        (a, b) =>
+          String(a).localeCompare(
+            String(b),
+            undefined,
+            {
+              numeric: true,
+              sensitivity: "base",
+            }
+          )
+      );
+
+      const nextMap = {};
+      sortedIds.forEach((id) => {
+        nextMap[String(id)] = [
+          selectedMeasurement,
+        ];
+      });
+
+      setInfluxIds(sortedIds);
+      setInfluxIdMeasurementMap(nextMap);
+
+      const selectedId = String(
+        influxConfig.tagValue ||
+          influxConfig.id ||
+          ""
+      ).trim();
+
+      if (selectedId) {
+        const channels =
+          await fetchInfluxChannels(
+            selectedBucket,
+            selectedMeasurement,
+            influxConfig.tagKey || "id",
+            selectedId,
+            token
+          );
+
+        setInfluxChannels(channels);
+      } else {
+        setInfluxChannels([]);
+      }
     } catch (err) {
       console.error(
         "❌ Influx metadata error:",
@@ -1506,55 +2332,77 @@ export default function TemplateDesigner({
     }
   };
 
-  // Organization admins receive a device list already filtered by their org.
+  // Organization admins receive measurement-level permission rows
+  // already filtered by their organization. Widget Studio groups these
+  // rows into logical assigned devices for easier selection.
   useEffect(() => {
-    if (!isOrganizationAdmin) return;
+    if (!isOrganizationAdmin) {
+      return;
+    }
 
-    const loadAssignedDevices = async () => {
-      const token =
-        localStorage.getItem("token");
-
-      setInfluxLoading(true);
-      setInfluxError("");
-
-      try {
-        const devices = await fetchAllowedDevices(token);
-
-        setAvailableDevices(devices);
-
-        if (!devices.length) {
-          setInfluxError(
-            "No Influx device has been assigned to your organization."
+    const loadAssignedDevices =
+      async () => {
+        const token =
+          localStorage.getItem(
+            "token"
           );
-          return;
+
+        setInfluxLoading(
+          true
+        );
+
+        setInfluxError("");
+
+        try {
+          const devices =
+            await fetchAllowedDevices(
+              token
+            );
+
+          setAvailableDevices(
+            devices
+          );
+
+          setInfluxBuckets(
+            [
+              ...new Set(
+                devices
+                  .map(
+                    (device) =>
+                      device.bucket_name
+                  )
+                  .filter(
+                    Boolean
+                  )
+              ),
+            ].sort()
+          );
+
+          if (!devices.length) {
+            setInfluxError(
+              "No Influx device has been assigned to your organization."
+            );
+          }
+        } catch (err) {
+          console.error(
+            "❌ Assigned Influx device error:",
+            err
+          );
+
+          setAvailableDevices(
+            []
+          );
+
+          setInfluxError(
+            err.message ||
+              "Failed to load assigned Influx devices."
+          );
+        } finally {
+          setInfluxLoading(
+            false
+          );
         }
-
-        const selectedStillExists = devices.some(
-          (device) =>
-            String(device.id) === String(selectedDeviceId)
-        );
-
-        applySelectedDevice(
-          selectedStillExists
-            ? selectedDeviceId
-            : devices[0].id,
-          devices
-        );
-      } catch (err) {
-        console.error(
-          "❌ Assigned Influx device error:",
-          err
-        );
-
-        setAvailableDevices([]);
-        setInfluxError(
-          err.message ||
-            "Failed to load assigned Influx devices."
-        );
-      } finally {
-        setInfluxLoading(false);
-      }
-    };
+      };
 
     loadAssignedDevices();
   }, [isOrganizationAdmin]);
@@ -1659,7 +2507,8 @@ export default function TemplateDesigner({
     loadMeasurements();
   }, [isSuperadmin, influxConfig.bucket]);
 
-  // Superadmins can browse all IDs and fields for a chosen measurement.
+  // Superadmin: Measurement -> Device Type -> Available IDs.
+  // Device Type is inferred automatically from the selected measurement.
   useEffect(() => {
     if (!isSuperadmin) return;
 
@@ -1669,13 +2518,18 @@ export default function TemplateDesigner({
     const selectedMeasurement =
       influxConfig.measurement.trim();
 
-    if (!selectedBucket || !selectedMeasurement) {
+    if (
+      !selectedBucket ||
+      !selectedMeasurement
+    ) {
       setInfluxIds([]);
-      setInfluxChannels([]);
+      setInfluxIdMeasurementMap({});
       return;
     }
 
-    const loadIdsAndChannels = async () => {
+    let cancelled = false;
+
+    const loadMeasurementIds = async () => {
       const token =
         localStorage.getItem("token");
 
@@ -1683,37 +2537,173 @@ export default function TemplateDesigner({
       setInfluxError("");
 
       try {
-        const { ids, channels } =
-          await fetchInfluxIdsAndChannels(
+        const ids =
+          await fetchInfluxIdsForMeasurement(
             selectedBucket,
             selectedMeasurement,
+            influxConfig.tagKey || "id",
             token
           );
 
-        setInfluxIds(ids);
-        setInfluxChannels(channels);
+        if (cancelled) return;
+
+        const sortedIds = [...ids].sort(
+          (a, b) =>
+            String(a).localeCompare(
+              String(b),
+              undefined,
+              {
+                numeric: true,
+                sensitivity: "base",
+              }
+            )
+        );
+
+        const nextMap = {};
+
+        sortedIds.forEach((id) => {
+          nextMap[String(id)] = [
+            selectedMeasurement,
+          ];
+        });
+
+        setInfluxIdMeasurementMap(nextMap);
+        setInfluxIds(sortedIds);
+
+        const selectedId =
+          String(
+            influxConfig.tagValue ||
+              influxConfig.id ||
+              ""
+          );
+
+        if (
+          selectedId &&
+          !sortedIds.some(
+            (id) =>
+              String(id) === selectedId
+          )
+        ) {
+          setInfluxConfig((current) => ({
+            ...current,
+            id: "",
+            tagValue: "",
+          }));
+          setInfluxChannels([]);
+        }
       } catch (err) {
+        if (cancelled) return;
+
         console.error(
-          "❌ Influx ID/channel error:",
+          "❌ Influx measurement ID error:",
           err
         );
 
         setInfluxIds([]);
-        setInfluxChannels([]);
+        setInfluxIdMeasurementMap({});
         setInfluxError(
           err.message ||
-            "Failed to load Influx IDs and channels."
+            "Failed to load IDs for the selected measurement."
         );
       } finally {
-        setInfluxLoading(false);
+        if (!cancelled) {
+          setInfluxLoading(false);
+        }
       }
     };
 
-    loadIdsAndChannels();
+    loadMeasurementIds();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     isSuperadmin,
     influxConfig.bucket,
     influxConfig.measurement,
+    influxConfig.tagKey,
+  ]);
+
+  // Superadmin: ID -> Measurement -> Fields.
+  useEffect(() => {
+    if (!isSuperadmin) return;
+
+    const selectedBucket =
+      influxConfig.bucket.trim();
+
+    const selectedMeasurement =
+      influxConfig.measurement.trim();
+
+    const selectedId =
+      String(
+        influxConfig.tagValue ||
+          influxConfig.id ||
+          ""
+      ).trim();
+
+    if (
+      !selectedBucket ||
+      !selectedMeasurement ||
+      !selectedId
+    ) {
+      setInfluxChannels([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadChannels = async () => {
+      const token =
+        localStorage.getItem("token");
+
+      setInfluxLoading(true);
+      setInfluxError("");
+
+      try {
+        const channels =
+          await fetchInfluxChannels(
+            selectedBucket,
+            selectedMeasurement,
+            influxConfig.tagKey || "id",
+            selectedId,
+            token
+          );
+
+        if (!cancelled) {
+          setInfluxChannels(channels);
+        }
+      } catch (err) {
+        if (cancelled) return;
+
+        console.error(
+          "❌ Influx channel error:",
+          err
+        );
+
+        setInfluxChannels([]);
+        setInfluxError(
+          err.message ||
+            "Failed to load fields for the selected device."
+        );
+      } finally {
+        if (!cancelled) {
+          setInfluxLoading(false);
+        }
+      }
+    };
+
+    loadChannels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isSuperadmin,
+    influxConfig.bucket,
+    influxConfig.measurement,
+    influxConfig.tagKey,
+    influxConfig.tagValue,
+    influxConfig.id,
   ]);
 
   useEffect(() => {
@@ -1765,24 +2755,9 @@ export default function TemplateDesigner({
     JSON.stringify(influxChannels),
   ]);
 
-  // LOAD DEFAULT DATAKEY WHEN TYPE CHANGES
+  // Keep the Step 1 data selection when the display type changes.
+  // Only reset Bar orientation when leaving the Bar widget.
   useEffect(() => {
-    const availableOptions = getAvailableDataOptionsForType(newType);
-    const firstKey = availableOptions[0]?.key || "";
-
-    if (
-      newType === "line" ||
-      newType === "area" ||
-      newType === "bar" ||
-      newType === "pie"
-    ) {
-      setNewDataKeys(firstKey ? [firstKey] : []);
-      setNewDataKey(firstKey);
-    } else {
-      setNewDataKey(firstKey);
-      setNewDataKeys([]);
-    }
-
     if (newType !== "bar") {
       setNewOrientation("vertical");
     }
@@ -1813,6 +2788,50 @@ export default function TemplateDesigner({
     JSON.stringify(influxChannels),
   ]);
 
+  // Keep the Combined Stat secondary field in sync with the two
+  // data sources selected in Step 1.
+  useEffect(() => {
+    if (
+      newType !== "bignumber" ||
+      newBigNumberDisplay.mode !== "combined"
+    ) {
+      return;
+    }
+
+    const primaryDataKey =
+      newDataKeys[0] || newDataKey || "";
+
+    const secondaryDataKey =
+      newDataKeys.find(
+        (key) => key && key !== primaryDataKey
+      ) || "";
+
+    setNewBigNumberDisplay((previous) => {
+      const currentStatusDataKey =
+        previous.statusDataKey || "";
+
+      const currentIsValid =
+        currentStatusDataKey &&
+        currentStatusDataKey !== primaryDataKey &&
+        newDataKeys.includes(currentStatusDataKey);
+
+      if (currentIsValid) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        statusSource: "mapping",
+        statusDataKey: secondaryDataKey,
+      };
+    });
+  }, [
+    newType,
+    newBigNumberDisplay.mode,
+    newDataKey,
+    JSON.stringify(newDataKeys),
+  ]);
+
   // LOAD A RANGE PRESET WHEN THE USER CHANGES THE DATA SOURCE.
   useEffect(() => {
     if (!newDataKey || !supportsRangeConfiguration(
@@ -1826,6 +2845,10 @@ export default function TemplateDesigner({
 
     setNewRangeConfig({
       ...defaultRangeConfig,
+    });
+
+    setNewCompositeConfig({
+      ...DEFAULT_COMPOSITE_CONFIG,
     });
   }, [newDataKey, newType, selectedItem]);
 
@@ -1894,7 +2917,7 @@ export default function TemplateDesigner({
       });
     }
 
-    setWidgetStep(2);
+    setWidgetStep(3);
     setShowModal(true);
 
     if (typeof setEditingImageWidget === "function") {
@@ -1972,7 +2995,7 @@ export default function TemplateDesigner({
       });
     }
 
-    setWidgetStep(2);
+    setWidgetStep(3);
     setShowModal(true);
 
     if (typeof setEditingSankeyWidget === "function") {
@@ -1984,8 +3007,16 @@ export default function TemplateDesigner({
   useEffect(() => {
     if (!selectedItem) return;
 
-    setNewType(selectedItem.type);
+    const resolvedSelectedType =
+      selectedItem.type === "area"
+        ? "line"
+        : selectedItem.type;
+
+    setNewType(resolvedSelectedType);
     setNewWidgetTypeId(selectedItem.customWidgetTypeId || "");
+    setUseDedicatedWidgetSource(
+      dedicatedWidgetTypes.includes(resolvedSelectedType)
+    );
 
     setNewLabel(selectedItem.label || "");
 
@@ -1994,15 +3025,22 @@ export default function TemplateDesigner({
     );
 
     setNewDataKeys(
-      selectedItem.type === "line" ||
-        selectedItem.type === "area" ||
-        selectedItem.type === "bar" ||
-        selectedItem.type === "pie"
+      resolvedSelectedType === "line" ||
+        resolvedSelectedType === "bar" ||
+        resolvedSelectedType === "pie" ||
+        resolvedSelectedType === "composite"
         ? selectedItem.dataKeys?.length
           ? selectedItem.dataKeys
           : selectedItem.dataKey
           ? [selectedItem.dataKey]
           : []
+        : selectedItem.type === "bignumber" &&
+          selectedItem.bigNumberDisplay?.mode === "combined"
+        ? [
+            selectedItem.dataKey,
+            selectedItem.bigNumberDisplay?.statusDataKey ||
+              selectedItem.dataKeys?.[1],
+          ].filter(Boolean)
         : []
     );
 
@@ -2052,12 +3090,24 @@ export default function TemplateDesigner({
     setNewChartDisplay({
       ...defaultChartDisplay,
       ...(selectedItem.chartDisplay || {}),
+
+      // Migrate old standalone Area widgets into LineWidget Area mode.
+      chartStyle:
+        selectedItem.type === "area"
+          ? "area"
+          : selectedItem.chartDisplay?.chartStyle ||
+            "line",
     });
 
     setNewHistoryWindow(
       selectedItem.historyWindow ||
         defaultHistoryWindow
     );
+
+    setNewCompositeConfig({
+      ...DEFAULT_COMPOSITE_CONFIG,
+      ...(selectedItem.compositeConfig || {}),
+    });
 
     setImageDraftPins(
       selectedItem.type === "image" && Array.isArray(selectedItem.pins)
@@ -2553,6 +3603,45 @@ export default function TemplateDesigner({
     );
   };
 
+  // STEP 1 DATA SOURCE SELECTION
+  // The source is selected before the widget type, so Step 1 always supports
+  // multiple selections. Single-value widgets use the first selected field.
+  const toggleWizardDataSource = (key) => {
+    setUseDedicatedWidgetSource(false);
+
+    if (dedicatedWidgetTypes.includes(newType)) {
+      setNewType(widgetLibrary[0]?.type || "gauge");
+      setNewWidgetTypeId("");
+    }
+
+    setNewDataKeys((previous) => {
+      const next = previous.includes(key)
+        ? previous.filter((item) => item !== key)
+        : [...previous, key];
+
+      setNewDataKey(next[0] || "");
+      return next;
+    });
+  };
+
+  const chooseDedicatedWidgetSource = () => {
+    setUseDedicatedWidgetSource(true);
+    setNewDataKey("");
+    setNewDataKeys([]);
+    setNewWidgetTypeId("");
+
+    if (!dedicatedWidgetTypes.includes(newType)) {
+      const firstDedicatedWidget =
+        widgetLibrary.find((widget) =>
+          dedicatedWidgetTypes.includes(widget.type)
+        );
+
+      if (firstDedicatedWidget) {
+        setNewType(firstDedicatedWidget.type);
+      }
+    }
+  };
+
   // TOGGLE DATA FOR LINE / AREA / BAR / PIE CHART
   const toggleMultiDataKey = (key) => {
     setNewDataKeys((prev) => {
@@ -2574,38 +3663,151 @@ export default function TemplateDesigner({
     });
   };
 
-  const addCustomDataSource = () => {
-    const label = customDataDraft.label.trim();
-    const channel = customDataDraft.channel.trim();
-    const unit = customDataDraft.unit.trim();
+  const openAddDataSourceModal = () => {
+    setCustomDataDraft({
+      label: "",
+      key: "",
+      channel: "",
+      unit: "",
+    });
 
-    if (!label) {
-      showToast("error", "Enter a display name for the new data source.");
+    setInfluxError("");
+    setInfluxChannels([]);
+
+    if (isSuperadmin) {
+      setInfluxConfig(defaultInfluxConfig);
+      setSelectedDeviceId("");
+      setSelectedMeasurementGroup("");
+      setInfluxIds([]);
+      setInfluxIdMeasurementMap({});
+      setInfluxMeasurements([]);
+    }
+
+    if (isOrganizationAdmin) {
+      setSelectedDeviceId("");
+      setSelectedMeasurementGroup("");
+      setInfluxConfig(defaultInfluxConfig);
+      setInfluxChannels([]);
+    }
+
+    setShowCustomDataModal(true);
+  };
+
+  useEffect(() => {
+    if (
+      !showCustomDataModal ||
+      !isSuperadmin
+    ) {
+      return;
+    }
+
+    if (influxBuckets.length === 0) {
+      refreshInfluxMetadata();
+    }
+  }, [
+    showCustomDataModal,
+    isSuperadmin,
+  ]);
+
+  const addCustomDataSource = () => {
+    const label =
+      customDataDraft.label.trim();
+
+    const channel =
+      customDataDraft.channel.trim();
+
+    const unit =
+      customDataDraft.unit.trim();
+
+    const bucketName =
+      influxConfig.bucket.trim();
+
+    const measurementName =
+      influxConfig.measurement.trim();
+
+    const tagKey =
+      (influxConfig.tagKey || "id").trim();
+
+    const tagValue =
+      String(
+        influxConfig.tagValue ||
+          influxConfig.id ||
+          ""
+      ).trim();
+
+    if (!bucketName) {
+      showToast(
+        "error",
+        "Select an Influx bucket."
+      );
+      return;
+    }
+
+    if (!tagValue) {
+      showToast(
+        "error",
+        "Select a device ID."
+      );
+      return;
+    }
+
+    if (!measurementName) {
+      showToast(
+        "error",
+        "Select a measurement."
+      );
       return;
     }
 
     if (!channel) {
-      showToast("error", "Enter or select the Influx channel for the new data source.");
+      showToast(
+        "error",
+        "Select an Influx channel."
+      );
       return;
     }
 
-    const baseKey = createSafeDataKey(
-      customDataDraft.key || label
-    );
+    const resolvedLabel =
+      label ||
+      formatInfluxFieldLabel(channel);
 
-    const key = getUniqueDataKey(baseKey, allDataOptions);
+    const baseKey =
+      createSafeDataKey(
+        customDataDraft.key ||
+          resolvedLabel ||
+          channel
+      );
+
+    const key =
+      getUniqueDataKey(
+        baseKey,
+        allDataOptions
+      );
+
+    const source = {
+      bucket: bucketName,
+      measurement: measurementName,
+      tagKey: tagKey || "id",
+      tagValue,
+      id: tagValue,
+      field: channel,
+      channel,
+    };
 
     const newOption = {
       key,
-      label,
+      label: resolvedLabel,
       unit,
       isCustom: true,
+      source,
     };
 
-    setCustomDataOptions((previousOptions) => [
-      ...previousOptions,
-      newOption,
-    ]);
+    setCustomDataOptions(
+      (previousOptions) => [
+        ...previousOptions,
+        newOption,
+      ]
+    );
 
     setChannelMap((previousMap) => ({
       ...previousMap,
@@ -2614,14 +3816,17 @@ export default function TemplateDesigner({
 
     if (isMultiDataWidget) {
       setNewDataKeys((previousKeys) => [
-        ...new Set([...previousKeys, key]),
+        ...new Set([
+          ...previousKeys,
+          key,
+        ]),
       ]);
     } else {
       setNewDataKey(key);
     }
 
     if (!newLabel.trim()) {
-      setNewLabel(label);
+      setNewLabel(resolvedLabel);
     }
 
     setCustomDataDraft({
@@ -2632,7 +3837,11 @@ export default function TemplateDesigner({
     });
 
     setShowCustomDataModal(false);
-    showToast("success", "Custom data source added.");
+
+    showToast(
+      "success",
+      "Data source added and selected."
+    );
   };
 
   const deleteCustomDataSource = (key) => {
@@ -2811,11 +4020,96 @@ export default function TemplateDesigner({
     return true;
   };
 
+  const validateBigNumberDataSources = () => {
+    if (
+      newType !== "bignumber" ||
+      newBigNumberDisplay.mode !== "combined"
+    ) {
+      return true;
+    }
+
+    const primaryDataKey =
+      newDataKeys[0] || newDataKey || "";
+
+    const configuredStatusDataKey =
+      newBigNumberDisplay.statusDataKey || "";
+
+    const statusDataKey =
+      configuredStatusDataKey &&
+      configuredStatusDataKey !== primaryDataKey &&
+      newDataKeys.includes(configuredStatusDataKey)
+        ? configuredStatusDataKey
+        : newDataKeys.find(
+            (key) => key && key !== primaryDataKey
+          ) || "";
+
+    if (!primaryDataKey) {
+      showToast(
+        "error",
+        "Select a numeric data source for the Stat value."
+      );
+      return false;
+    }
+
+    if (!statusDataKey) {
+      showToast(
+        "error",
+        "Stat + Status requires a second data source for the machine status. Go back to Data Source and select two fields."
+      );
+      return false;
+    }
+
+    if (primaryDataKey === statusDataKey) {
+      showToast(
+        "error",
+        "The numeric Stat and machine Status must use two different data sources."
+      );
+      return false;
+    }
+
+    return true;
+  };
+
+  const getPreparedBigNumberDisplay = () => {
+    if (newType !== "bignumber") {
+      return undefined;
+    }
+
+    if (newBigNumberDisplay.mode !== "combined") {
+      return {
+        ...newBigNumberDisplay,
+        statusDataKey: "",
+      };
+    }
+
+    const primaryDataKey =
+      newDataKeys[0] || newDataKey || "";
+
+    const configuredStatusDataKey =
+      newBigNumberDisplay.statusDataKey || "";
+
+    const statusDataKey =
+      configuredStatusDataKey &&
+      configuredStatusDataKey !== primaryDataKey &&
+      newDataKeys.includes(configuredStatusDataKey)
+        ? configuredStatusDataKey
+        : newDataKeys.find(
+            (key) => key && key !== primaryDataKey
+          ) || "";
+
+    return {
+      ...newBigNumberDisplay,
+      statusSource: "mapping",
+      statusDataKey,
+    };
+  };
+
   // ADD WIDGET
   const addWidget = () => {
     if (!activeCell) return;
 
     if (!validateRangeConfig()) return;
+    if (!validateBigNumberDataSources()) return;
 
     if (
       isMultiDataWidget &&
@@ -2885,6 +4179,11 @@ export default function TemplateDesigner({
       dataKeys:
         newType === "sankey"
           ? sankeyDataKeys
+          : isBigNumberCombined
+          ? [
+              newDataKeys[0] || newDataKey,
+              getPreparedBigNumberDisplay()?.statusDataKey,
+            ].filter(Boolean)
           : isMultiDataWidget
           ? newDataKeys
           : undefined,
@@ -2895,15 +4194,20 @@ export default function TemplateDesigner({
           : undefined,
 
       chartDisplay:
-        ["line", "area", "bar"].includes(
+        ["line", "bar", "composite"].includes(
           newType
         )
           ? { ...newChartDisplay }
           : undefined,
 
       historyWindow:
-        ["line", "area"].includes(newType)
+        ["line", "composite"].includes(newType)
           ? newHistoryWindow
+          : undefined,
+
+      compositeConfig:
+        newType === "composite"
+          ? { ...newCompositeConfig }
           : undefined,
 
       x: activeCell.col,
@@ -2914,7 +4218,7 @@ export default function TemplateDesigner({
 
       bigNumberDisplay:
         newType === "bignumber"
-          ? { ...newBigNumberDisplay }
+          ? getPreparedBigNumberDisplay()
           : undefined,
 
       logDisplay:
@@ -2985,6 +4289,10 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
 
+    setNewCompositeConfig({
+      ...DEFAULT_COMPOSITE_CONFIG,
+    });
+
     setNewLogDisplay({
       ...defaultLogDisplay,
       levelFilter: [
@@ -2998,6 +4306,7 @@ export default function TemplateDesigner({
     if (!selectedItem) return;
 
     if (!validateRangeConfig()) return;
+    if (!validateBigNumberDataSources()) return;
 
     if (
       isMultiDataWidget &&
@@ -3084,6 +4393,11 @@ export default function TemplateDesigner({
             dataKeys:
               newType === "sankey"
                 ? sankeyDataKeys
+                : isBigNumberCombined
+                ? [
+                    newDataKeys[0] || newDataKey,
+                    getPreparedBigNumberDisplay()?.statusDataKey,
+                  ].filter(Boolean)
                 : isMultiDataWidget
                 ? newDataKeys
                 : undefined,
@@ -3094,17 +4408,22 @@ export default function TemplateDesigner({
                 : undefined,
 
             chartDisplay:
-              ["line", "area", "bar"].includes(
+              ["line", "bar", "composite"].includes(
                 newType
               )
                 ? { ...newChartDisplay }
                 : undefined,
 
             historyWindow:
-              ["line", "area"].includes(
+              ["line", "composite"].includes(
                 newType
               )
                 ? newHistoryWindow
+                : undefined,
+
+            compositeConfig:
+              newType === "composite"
+                ? { ...newCompositeConfig }
                 : undefined,
 
             w: newW,
@@ -3112,7 +4431,7 @@ export default function TemplateDesigner({
 
             bigNumberDisplay:
               newType === "bignumber"
-                ? { ...newBigNumberDisplay }
+                ? getPreparedBigNumberDisplay()
                 : undefined,
 
             logDisplay:
@@ -3175,6 +4494,10 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
 
+    setNewCompositeConfig({
+      ...DEFAULT_COMPOSITE_CONFIG,
+    });
+
     setNewLogDisplay({
       ...defaultLogDisplay,
       levelFilter: [
@@ -3219,23 +4542,46 @@ export default function TemplateDesigner({
     const token =
       localStorage.getItem("token");
 
-    if (
-      canConfigureInflux &&
-      (!influxConfig.bucket.trim() ||
-        !influxConfig.measurement.trim() ||
-        !(influxConfig.tagValue || influxConfig.id))
-    ) {
-      setShowInfluxMapping(true);
+    const dataSources =
+      customDataOptions.reduce(
+        (result, option) => {
+          const source = option?.source;
 
-      showToast(
-        "error",
-        `Configure the Influx bucket, measurement, and device ID before ${
-          isEditingTemplate ? "updating" : "creating"
-        } this template.`
+          if (
+            option?.key &&
+            source?.bucket &&
+            source?.measurement &&
+            (
+              source?.tagValue ||
+              source?.id
+            ) &&
+            (
+              source?.field ||
+              source?.channel
+            )
+          ) {
+            result[option.key] = {
+              bucket: source.bucket,
+              measurement:
+                source.measurement,
+              tagKey:
+                source.tagKey || "id",
+              tagValue:
+                source.tagValue ||
+                source.id,
+              id:
+                source.tagValue ||
+                source.id,
+              field:
+                source.field ||
+                source.channel,
+            };
+          }
+
+          return result;
+        },
+        {}
       );
-
-      return;
-    }
 
     try {
       const endpoint = isEditingTemplate
@@ -3260,17 +4606,19 @@ export default function TemplateDesigner({
               rows,
               cols,
 
-              influx: {
-                bucket: influxConfig.bucket.trim(),
-                measurement:
-                  influxConfig.measurement.trim(),
-                tagKey: influxConfig.tagKey || "id",
-                tagValue:
-                  influxConfig.tagValue ||
-                  influxConfig.id,
-                id: influxConfig.tagValue || influxConfig.id,
-                deviceId: selectedDeviceId || undefined,
-              },
+              // Preferred architecture:
+              // every dashboard data key owns a complete source.
+              dataSources,
+
+              // Compatibility fallback for older runtime code.
+              influx:
+                Object.values(dataSources)[0]
+                  ? {
+                      ...Object.values(
+                        dataSources
+                      )[0],
+                    }
+                  : undefined,
 
               channelMap,
               customDataOptions,
@@ -3343,6 +4691,11 @@ export default function TemplateDesigner({
         dataKeys:
           newType === "sankey"
             ? getSankeyDataKeys(getPreparedSankeyConfig())
+            : isBigNumberCombined
+            ? [
+                newDataKeys[0] || newDataKey,
+                getPreparedBigNumberDisplay()?.statusDataKey,
+              ].filter(Boolean)
             : isMultiDataWidget
             ? newDataKeys
             : undefined,
@@ -3353,14 +4706,14 @@ export default function TemplateDesigner({
             : undefined,
 
         chartDisplay:
-          ["line", "area", "bar"].includes(
+          ["line", "bar"].includes(
             newType
           )
             ? { ...newChartDisplay }
             : undefined,
 
         historyWindow:
-          ["line", "area"].includes(newType)
+          newType === "line"
             ? newHistoryWindow
             : undefined,
 
@@ -3369,7 +4722,7 @@ export default function TemplateDesigner({
 
         bigNumberDisplay:
           newType === "bignumber"
-            ? { ...newBigNumberDisplay }
+            ? getPreparedBigNumberDisplay()
             : undefined,
 
         logDisplay:
@@ -3403,8 +4756,7 @@ export default function TemplateDesigner({
     !["image", "sankey", "logs", "status"].includes(newType);
 
   // Data Status and Logs are fully configured after Appearance.
-  // They still require the template-level Data Mapping to be completed first,
-  // but they do not have a widget-level Data Source step.
+  // They do not require a direct field selection in Step 1.
   const skipsWidgetDataSourceStep =
     ["status", "logs"].includes(newType);
 
@@ -3414,6 +4766,42 @@ export default function TemplateDesigner({
       : isMultiDataWidget
       ? newDataKeys.length > 0
       : Boolean(newDataKey);
+
+  const selectedSourceCount =
+    newType === "sankey"
+      ? getConfiguredSankeyOutputs().length
+      : isMultiDataWidget
+      ? newDataKeys.filter(Boolean).length
+      : newDataKey
+      ? 1
+      : 0;
+
+  const selectedWidgetTypeLabel =
+    allWidgetOptions.find((option) =>
+      option.isCustomWidgetType
+        ? option.optionId === newWidgetTypeId
+        : !newWidgetTypeId &&
+          option.type === newType
+    )?.label ||
+    getDefaultWidgetLabel(newType).replace(
+      / Widget$/,
+      ""
+    );
+
+  const widgetSummarySourceText =
+    newType === "image"
+      ? "Image / pin configuration"
+      : newType === "status"
+      ? "Dedicated status source"
+      : newType === "logs"
+      ? "Dedicated log source"
+      : newType === "sankey"
+      ? `${selectedSourceCount} configured output${
+          selectedSourceCount === 1 ? "" : "s"
+        }`
+      : `${selectedSourceCount} source${
+          selectedSourceCount === 1 ? "" : "s"
+        }`;
 
   const selectedPreviewKeys = isMultiDataWidget
     ? newDataKeys
@@ -3437,23 +4825,133 @@ export default function TemplateDesigner({
     !hasPositivePreviewValue;
 
   const goToNextWidgetStep = () => {
-    if (!isTemplateDataMappingReady) {
-      setShowModal(false);
-      requireTemplateDataMapping();
-      return;
-    }
-
     if (
-      widgetStep === 3 &&
-      isDataSourceRequired &&
-      !hasSelectedDataSource
+      widgetStep === 1 &&
+      !useDedicatedWidgetSource &&
+      newDataKeys.length === 0 &&
+      !newDataKey
     ) {
-      showToast("error", "Please select a data source before continuing.");
+      showToast(
+        "error",
+        "Select at least one data source before choosing a widget type."
+      );
       return;
     }
 
     setWidgetStep((step) => Math.min(step + 1, 3));
   };
+
+  useEffect(() => {
+    let frameId = null;
+
+    const updateGridViewportHeight = () => {
+      frameId = window.requestAnimationFrame(
+        () => {
+          const rect =
+            gridRef.current?.getBoundingClientRect();
+
+          if (!rect) return;
+
+          const bottomGap = 12;
+
+          setGridViewportHeight(
+            Math.max(
+              280,
+              Math.floor(
+                window.innerHeight -
+                  rect.top -
+                  bottomGap
+              )
+            )
+          );
+        }
+      );
+    };
+
+    updateGridViewportHeight();
+
+    window.addEventListener(
+      "resize",
+      updateGridViewportHeight
+    );
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(
+            updateGridViewportHeight
+          )
+        : null;
+
+    const parent =
+      gridRef.current?.parentElement;
+
+    if (parent && resizeObserver) {
+      resizeObserver.observe(parent);
+    }
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      window.removeEventListener(
+        "resize",
+        updateGridViewportHeight
+      );
+
+      resizeObserver?.disconnect();
+    };
+  }, [rows, cols]);
+
+  const gridGapPx = 12;
+
+  // Keep widget rows visually consistent when the template grows.
+  //
+  // The 3-row layout is treated as the normal dashboard baseline.
+  // Rows 4, 5, 6... keep the SAME row height instead of shrinking
+  // to squeeze everything into one viewport.
+  //
+  // The grid simply becomes taller and the builder scrolls naturally.
+  const baselineVisibleRows = 3;
+  const minimumGridRowHeight = 150;
+
+  const baselineRowHeight =
+    Math.max(
+      minimumGridRowHeight,
+      Math.floor(
+        (
+          gridViewportHeight -
+          Math.max(
+            0,
+            baselineVisibleRows - 1
+          ) *
+            gridGapPx
+        ) /
+          baselineVisibleRows
+      )
+    );
+
+  // For 1-3 rows, continue using the available page height nicely.
+  // For >3 rows, lock each row to the normal 3-row height.
+  const fittedGridRowHeight =
+    rows <= baselineVisibleRows
+      ? Math.max(
+          baselineRowHeight,
+          Math.floor(
+            (
+              gridViewportHeight -
+              Math.max(0, rows - 1) *
+                gridGapPx
+            ) /
+              rows
+          )
+        )
+      : baselineRowHeight;
+
+  const fittedGridHeight =
+    rows * fittedGridRowHeight +
+    Math.max(0, rows - 1) *
+      gridGapPx;
 
   if (isEditingTemplate && !selectedTemplate) {
     return (
@@ -3464,7 +4962,7 @@ export default function TemplateDesigner({
   }
 
   return (
-    <div className="template-builder relative h-full overflow-auto bg-transparent p-6 text-gray-900 dark:bg-[#050a1e] dark:text-slate-100">
+    <div className="template-builder relative h-full overflow-auto bg-transparent p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <style>{`
         .dark .template-builder {
           color: #e2e8f0;
@@ -3597,606 +5095,335 @@ export default function TemplateDesigner({
         "
       />
 
-      {/* HEADER */}
+      {/* COMPACT BUILDER HEADER */}
       <div
         className="
           sticky top-0 z-20
-          bg-white dark:bg-slate-900/80
-          backdrop-blur-xl
-          rounded-3xl
-          border border-gray-200 dark:border-slate-700
-          p-6 mb-6
-          shadow-lg
+          mb-2 rounded-2xl
+          border border-slate-200
+          bg-white p-3
+          shadow-[0_3px_12px_rgba(15,23,42,0.05)]
+          dark:border-slate-800
+          dark:bg-slate-900
+          dark:shadow-none
         "
       >
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold dark:text-white flex items-center gap-3">
-              <LayoutGrid className="w-8 h-8 text-emerald-500" />
-              {isEditingTemplate ? "Template Editor" : "Template Builder"}
-            </h1>
+        {/* TITLE / MAIN ACTION */}
+        <div
+          className="
+            flex items-center
+            justify-between gap-3
+          "
+        >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div
+              className="
+                flex h-8 w-8 shrink-0
+                items-center justify-center
+                rounded-lg bg-emerald-50
+                text-emerald-600
+                dark:bg-emerald-500/10
+                dark:text-emerald-300
+              "
+            >
+              <LayoutGrid size={16} />
+            </div>
 
-            <p className="text-gray-500 dark:text-slate-300 mt-1">
-              {isEditingTemplate
-                ? "Edit industrial dashboard layouts. Drag widgets to reposition them."
-                : "Design industrial dashboard layouts. Drag widgets to reposition them."}
-            </p>
+            <div className="min-w-0">
+              <h1
+                className="
+                  truncate text-xl
+                  font-bold tracking-tight
+                  text-slate-950
+                  dark:text-white
+                "
+              >
+                {isEditingTemplate
+                  ? "Template Editor"
+                  : "Template Builder"}
+              </h1>
+
+              <p
+                className="
+                  hidden text-[11px]
+                  text-slate-500
+                  dark:text-slate-400
+                  md:block
+                "
+              >
+                {isEditingTemplate
+                  ? "Edit dashboard layout and widgets."
+                  : "Design dashboard layout and widgets."}
+              </p>
+            </div>
           </div>
 
           <button
             onClick={saveTemplate}
             className="
-              flex items-center gap-2
-              bg-emerald-600 hover:bg-emerald-700
-              text-white
-              px-5 py-3
-              rounded-2xl
-              shadow-lg
-              transition-all duration-200
-              hover:-translate-y-1
+              inline-flex h-8 shrink-0
+              items-center justify-center
+              gap-1.5 rounded-lg
+              bg-emerald-600 px-3
+              text-xs font-semibold
+              text-white shadow-sm
+              transition-colors
+              hover:bg-emerald-700
             "
           >
-            <Save size={18} />
-            {isEditingTemplate ? "Update Template" : "Create Template"}
+            <Save size={14} />
+
+            <span className="hidden sm:inline">
+              {isEditingTemplate
+                ? "Update Template"
+                : "Create Template"}
+            </span>
+
+            <span className="sm:hidden">
+              {isEditingTemplate
+                ? "Update"
+                : "Create"}
+            </span>
           </button>
         </div>
 
-        {/* TEMPLATE NAME */}
-        <div className="mt-5">
-          <input
-            type="text"
-            placeholder="Template Name..."
-            value={templateName}
-            onChange={(e) =>
-              setTemplateName(e.target.value)
-            }
-            className="
-              w-full
-              rounded-2xl
-              border border-gray-300 dark:border-slate-600
-              bg-white dark:bg-slate-900
-              dark:text-white
-              px-4 py-3
-              outline-none
-              focus:ring-2 focus:ring-emerald-500
-            "
-          />
-        </div>
-
-        {/* GRID SIZE SETTINGS */}
+        {/* NAME + COMPACT GRID CONTROLS */}
         <div
           className="
-            mt-5
-            rounded-3xl
-            border border-gray-200 dark:border-slate-700
-            bg-gray-50 dark:bg-slate-950/80
-            p-5
+            mt-2 grid
+            grid-cols-1 gap-2
+            xl:grid-cols-[minmax(260px,1fr)_auto]
+            xl:items-end
           "
         >
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="font-bold dark:text-white flex items-center gap-2">
-                <LayoutGrid size={18} className="text-emerald-500" />
-                Dashboard Grid Size
-              </h2>
-
-              <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
-                Increase the number of rows or columns when this template needs more widget space.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                  Rows
-                </label>
-
-                <div className="mt-2 flex items-center overflow-hidden rounded-2xl border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900">
-                  <button
-                    type="button"
-                    onClick={() => updateGridRows(rows - 1)}
-                    className="px-4 py-3 text-lg font-bold text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-gray-800"
-                  >
-                    −
-                  </button>
-
-                  <input
-                    type="number"
-                    min={GRID_MIN_ROWS}
-                    max={GRID_MAX_ROWS}
-                    value={rows}
-                    onChange={(event) => updateGridRows(event.target.value)}
-                    className="w-20 border-0 bg-transparent px-3 py-3 text-center font-bold outline-none focus:ring-0 dark:text-white"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => updateGridRows(rows + 1)}
-                    className="px-4 py-3 text-lg font-bold text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-gray-800"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                  Columns
-                </label>
-
-                <div className="mt-2 flex items-center overflow-hidden rounded-2xl border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900">
-                  <button
-                    type="button"
-                    onClick={() => updateGridCols(cols - 1)}
-                    className="px-4 py-3 text-lg font-bold text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-gray-800"
-                  >
-                    −
-                  </button>
-
-                  <input
-                    type="number"
-                    min={GRID_MIN_COLS}
-                    max={GRID_MAX_COLS}
-                    value={cols}
-                    onChange={(event) => updateGridCols(event.target.value)}
-                    className="w-20 border-0 bg-transparent px-3 py-3 text-center font-bold outline-none focus:ring-0 dark:text-white"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => updateGridCols(cols + 1)}
-                    className="px-4 py-3 text-lg font-bold text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-gray-800"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-3 text-xs text-gray-400 dark:text-slate-400">
-            Current layout: {rows} × {cols}. Maximum supported layout: {GRID_MAX_ROWS} × {GRID_MAX_COLS}.
-          </p>
-        </div>
-
-        {/* INFLUX DATA MAPPING */}
-        {canConfigureInflux && (
-          <div
-            id="template-data-mapping"
-            className={`
-              mt-5 overflow-hidden
-              rounded-3xl border
-              ${
-                isTemplateDataMappingReady
-                  ? "border-emerald-200 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-950/10"
-                  : "border-amber-200 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-950/10"
-              }
-            `}
-          >
-            <button
-              type="button"
-              onClick={() =>
-                setShowInfluxMapping(
-                  !showInfluxMapping
-                )
-              }
+          {/* TEMPLATE NAME */}
+          <div>
+            <label
               className="
-                data-mapping-toggle
-                flex w-full items-center
-                justify-between gap-4
-                p-5 text-left
-                transition-colors duration-200
+                mb-1 block
+                text-[10px] font-semibold
+                uppercase tracking-[0.08em]
+                text-slate-400
               "
             >
-              <div className="flex items-center gap-3">
-                <div
-                  className="
-                    w-10 h-10
-                    rounded-2xl
-                    bg-emerald-100 dark:bg-emerald-900/30
-                    text-emerald-600 dark:text-emerald-300
-                    flex items-center justify-center
-                  "
-                >
-                  <Database size={19} />
-                </div>
+              Template Name
+            </label>
 
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-bold dark:text-white">
-                      Data Mapping
-                    </h2>
+            <input
+              type="text"
+              placeholder="Template Name..."
+              value={templateName}
+              onChange={(e) =>
+                setTemplateName(e.target.value)
+              }
+              className="
+                h-8 w-full rounded-lg
+                border border-slate-300
+                bg-white px-3
+                text-sm text-slate-900
+                outline-none transition
+                focus:border-emerald-500
+                focus:ring-2
+                focus:ring-emerald-500/15
+                dark:border-slate-700
+                dark:bg-slate-950
+                dark:text-white
+              "
+            />
+          </div>
 
-                    <span
-                      className={`
-                        rounded-full px-2.5 py-1
-                        text-[10px] font-black uppercase tracking-wider
-                        ${
-                          isTemplateDataMappingReady
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-                        }
-                      `}
-                    >
-                      {isTemplateDataMappingReady
-                        ? "Ready"
-                        : "Required First"}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-gray-500 dark:text-slate-300 mt-1">
-                    Complete this mapping before adding or editing widgets. Select the Influx source/device and wait for its available fields to load.
-                  </p>
-                </div>
-              </div>
-
-              <ChevronDown
-                size={20}
-                className={`
-                  text-gray-400 dark:text-slate-400
-                  transition-transform
-
-                  ${
-                    showInfluxMapping
-                      ? "rotate-180"
-                      : ""
-                  }
-                `}
-              />
-            </button>
-
-            {showInfluxMapping && (
-              <div
+          {/* GRID SIZE */}
+          <div>
+            <div
+              className="
+                mb-1 flex items-center
+                justify-between gap-3
+              "
+            >
+              <label
                 className="
-                  border-t border-gray-200 dark:border-slate-700
-                  p-5
+                  text-[10px] font-semibold
+                  uppercase tracking-[0.08em]
+                  text-slate-400
                 "
               >
-                {isOrganizationAdmin ? (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                        Assigned Sterilizer / Device
-                      </label>
+                Grid Size
+              </label>
 
-                      <select
-                        value={selectedDeviceId}
-                        onChange={(e) =>
-                          applySelectedDevice(
-                            e.target.value
-                          )
-                        }
-                        disabled={
-                          influxLoading ||
-                          availableDevices.length === 0
-                        }
-                        className="
-                          mt-2 w-full
-                          rounded-2xl
-                          border border-gray-300 dark:border-slate-600
-                          bg-white dark:bg-slate-900
-                          dark:text-white
-                          px-4 py-3
-                          outline-none
-                          focus:ring-2 focus:ring-emerald-500
-                          disabled:opacity-60
-                          disabled:cursor-not-allowed
-                        "
-                      >
-                        <option value="">
-                          Select assigned device
-                        </option>
+              <span
+                className="
+                  text-[10px]
+                  text-slate-400
+                  dark:text-slate-500
+                "
+              >
+                {rows} × {cols}
+              </span>
+            </div>
 
-                        {availableDevices.map((device) => (
-                          <option
-                            key={device.id}
-                            value={device.id}
-                          >
-                            {device.device_name ||
-                              device.tag_value}{" "}
-                            — {device.measurement_name} (
-                            {device.tag_key}={device.tag_value})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* ROWS */}
+              <div
+                className="
+                  flex h-8 items-center
+                  overflow-hidden rounded-lg
+                  border border-slate-300
+                  bg-white
+                  dark:border-slate-700
+                  dark:bg-slate-950
+                "
+                title={`Rows · allowed ${GRID_MIN_ROWS}–${GRID_MAX_ROWS}`}
+              >
+                <span
+                  className="
+                    border-r border-slate-200
+                    px-2 text-[10px]
+                    font-semibold text-slate-400
+                    dark:border-slate-700
+                  "
+                >
+                  R
+                </span>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
-                          Bucket
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-slate-100 break-all">
-                          {influxConfig.bucket || "—"}
-                        </p>
-                      </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateGridRows(rows - 1)
+                  }
+                  className="
+                    h-full w-7
+                    text-sm font-bold
+                    text-slate-500
+                    transition
+                    hover:bg-slate-100
+                    dark:text-slate-300
+                    dark:hover:bg-slate-800
+                  "
+                >
+                  −
+                </button>
 
-                      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
-                          Measurement
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-slate-100 break-all">
-                          {influxConfig.measurement || "—"}
-                        </p>
-                      </div>
+                <input
+                  type="number"
+                  min={GRID_MIN_ROWS}
+                  max={GRID_MAX_ROWS}
+                  value={rows}
+                  onChange={(event) =>
+                    updateGridRows(
+                      event.target.value
+                    )
+                  }
+                  className="
+                    h-full w-9 border-0
+                    bg-transparent px-0
+                    text-center text-xs
+                    font-bold outline-none
+                    focus:ring-0
+                    dark:text-white
+                  "
+                />
 
-                      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
-                          Device Tag
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-gray-800 dark:text-slate-100 break-all">
-                          {influxConfig.tagKey || "id"}=
-                          {influxConfig.tagValue ||
-                            influxConfig.id ||
-                            "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-gray-500 dark:text-slate-300">
-                      Only devices assigned to your organization are available for mapping.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                        Bucket
-                      </label>
-
-                      <input
-                        type="text"
-                        value={influxConfig.bucket}
-                        onChange={(e) => {
-                          const bucket = e.target.value;
-
-                          setInfluxConfig((prev) => ({
-                            ...prev,
-                            bucket,
-                            measurement: "",
-                            tagKey: "id",
-                            id: "",
-                            tagValue: "",
-                          }));
-
-                          setInfluxMeasurements([]);
-                          setInfluxIds([]);
-                          setInfluxChannels([]);
-                        }}
-                        placeholder="Mill"
-                        className="
-                          mt-2 w-full
-                          rounded-2xl
-                          border border-gray-300 dark:border-slate-600
-                          bg-white dark:bg-slate-900
-                          dark:text-white
-                          px-4 py-3
-                          outline-none
-                          focus:ring-2 focus:ring-emerald-500
-                        "
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                        Measurement
-                      </label>
-
-                      <select
-                        value={influxConfig.measurement}
-                        onChange={(e) => {
-                          const measurement = e.target.value;
-
-                          setInfluxConfig((prev) => ({
-                            ...prev,
-                            measurement,
-                            tagKey: "id",
-                            id: "",
-                            tagValue: "",
-                          }));
-
-                          setInfluxIds([]);
-                          setInfluxChannels([]);
-                        }}
-                        disabled={
-                          influxLoading ||
-                          !influxConfig.bucket.trim()
-                        }
-                        className="
-                          mt-2 w-full
-                          rounded-2xl
-                          border border-gray-300 dark:border-slate-600
-                          bg-white dark:bg-slate-900
-                          dark:text-white
-                          px-4 py-3
-                          outline-none
-                          focus:ring-2 focus:ring-emerald-500
-                          disabled:opacity-60
-                          disabled:cursor-not-allowed
-                        "
-                      >
-                        <option value="">
-                          Select measurement
-                        </option>
-
-                        {influxMeasurements.map(
-                          (measurement) => (
-                            <option
-                              key={measurement}
-                              value={measurement}
-                            >
-                              {measurement}
-                            </option>
-                          )
-                        )}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-gray-500 dark:text-slate-300">
-                        Device ID
-                      </label>
-
-                      <select
-                        value={influxConfig.id}
-                        onChange={(e) =>
-                          setInfluxConfig((prev) => ({
-                            ...prev,
-                            id: e.target.value,
-                            tagValue: e.target.value,
-                          }))
-                        }
-                        disabled={
-                          influxLoading ||
-                          !influxConfig.measurement
-                        }
-                        className="
-                          mt-2 w-full
-                          rounded-2xl
-                          border border-gray-300 dark:border-slate-600
-                          bg-white dark:bg-slate-900
-                          dark:text-white
-                          px-4 py-3
-                          outline-none
-                          focus:ring-2 focus:ring-emerald-500
-                          disabled:opacity-60
-                          disabled:cursor-not-allowed
-                        "
-                      >
-                        <option value="">
-                          Select available ID
-                        </option>
-
-                        {influxIds.map((id) => (
-                          <option
-                            key={id}
-                            value={id}
-                          >
-                            {id}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3 mt-4">
-                  <button
-                    type="button"
-                    onClick={refreshInfluxMetadata}
-                    disabled={influxLoading}
-                    className="
-                      inline-flex items-center gap-2
-                      rounded-2xl
-                      bg-slate-800 hover:bg-slate-700
-                      disabled:opacity-50
-                      disabled:cursor-not-allowed
-                      text-white
-                      px-4 py-2.5
-                      text-sm font-semibold
-                      transition
-                    "
-                  >
-                    <RefreshCw
-                      size={16}
-                      className={
-                        influxLoading
-                          ? "animate-spin"
-                          : ""
-                      }
-                    />
-
-                    {influxLoading
-                      ? "Loading..."
-                      : "Reload Measurements, IDs & Channels"}
-                  </button>
-
-                  <span className="text-xs text-gray-500 dark:text-slate-300">
-                    {influxMeasurements.length} measurement(s) ·{" "}
-                    {influxIds.length} device ID(s) ·{" "}
-                    {influxChannels.length} channel(s) found
-                  </span>
-
-                  {influxError && (
-                    <span className="text-xs text-red-500">
-                      {influxError}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-6">
-                  <div className="mb-3">
-                    <h3 className="font-bold dark:text-white">
-                      Channel Mapping
-                    </h3>
-
-                    <p className="text-xs text-gray-500 dark:text-slate-300 mt-1">
-                      Select the Influx channel that supplies each dashboard data key.
-                    </p>
-                  </div>
-
-                  <datalist id="influx-channel-options">
-                    {influxChannels.map((channel) => (
-                      <option
-                        key={channel}
-                        value={channel}
-                      />
-                    ))}
-                  </datalist>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {allDataOptions.map((option) => (
-                      <div
-                        key={option.key}
-                        className="
-                          rounded-2xl
-                          border border-gray-200 dark:border-slate-700
-                          bg-white dark:bg-slate-900
-                          p-3
-                        "
-                      >
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-slate-300 truncate">
-                          {option.label}
-                        </label>
-
-                        <p className="text-[11px] text-gray-400 dark:text-slate-400 mt-1 truncate">
-                          Dashboard key: {option.key}
-                        </p>
-
-                        <input
-                          type="text"
-                          list="influx-channel-options"
-                          value={
-                            channelMap[option.key] ||
-                            ""
-                          }
-                          onChange={(e) =>
-                            updateChannelMapping(
-                              option.key,
-                              e.target.value
-                            )
-                          }
-                          placeholder="Select or type channel"
-                          className="
-                            mt-3 w-full
-                            rounded-xl
-                            border border-gray-300 dark:border-slate-600
-                            bg-gray-50 dark:bg-slate-950 dark:bg-gray-800
-                            dark:text-white
-                            px-3 py-2.5
-                            text-sm
-                            outline-none
-                            focus:ring-2 focus:ring-emerald-500
-                          "
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateGridRows(rows + 1)
+                  }
+                  className="
+                    h-full w-7
+                    text-sm font-bold
+                    text-slate-500
+                    transition
+                    hover:bg-slate-100
+                    dark:text-slate-300
+                    dark:hover:bg-slate-800
+                  "
+                >
+                  +
+                </button>
               </div>
-            )}
+
+              {/* COLUMNS */}
+              <div
+                className="
+                  flex h-8 items-center
+                  overflow-hidden rounded-lg
+                  border border-slate-300
+                  bg-white
+                  dark:border-slate-700
+                  dark:bg-slate-950
+                "
+                title={`Columns · allowed ${GRID_MIN_COLS}–${GRID_MAX_COLS}`}
+              >
+                <span
+                  className="
+                    border-r border-slate-200
+                    px-2 text-[10px]
+                    font-semibold text-slate-400
+                    dark:border-slate-700
+                  "
+                >
+                  C
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateGridCols(cols - 1)
+                  }
+                  className="
+                    h-full w-7
+                    text-sm font-bold
+                    text-slate-500
+                    transition
+                    hover:bg-slate-100
+                    dark:text-slate-300
+                    dark:hover:bg-slate-800
+                  "
+                >
+                  −
+                </button>
+
+                <input
+                  type="number"
+                  min={GRID_MIN_COLS}
+                  max={GRID_MAX_COLS}
+                  value={cols}
+                  onChange={(event) =>
+                    updateGridCols(
+                      event.target.value
+                    )
+                  }
+                  className="
+                    h-full w-9 border-0
+                    bg-transparent px-0
+                    text-center text-xs
+                    font-bold outline-none
+                    focus:ring-0
+                    dark:text-white
+                  "
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateGridCols(cols + 1)
+                  }
+                  className="
+                    h-full w-7
+                    text-sm font-bold
+                    text-slate-500
+                    transition
+                    hover:bg-slate-100
+                    dark:text-slate-300
+                    dark:hover:bg-slate-800
+                  "
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* DELETE DROP ZONE */}
@@ -4289,9 +5516,10 @@ export default function TemplateDesigner({
         }}
         className="grid gap-3 relative z-10"
         style={{
-          gridTemplateColumns: `repeat(${cols}, 1fr)`,
-          gridTemplateRows: `repeat(${rows}, minmax(180px, 1fr))`,
-          minHeight: "75vh",
+          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${rows}, ${fittedGridRowHeight}px)`,
+          height: `${fittedGridHeight}px`,
+          minWidth: 0,
         }}
       >
         {dragPreview && (
@@ -4351,10 +5579,6 @@ export default function TemplateDesigner({
                 gridRow: `${r + 1}`,
               }}
               onClick={() => {
-                if (!requireTemplateDataMapping()) {
-                  return;
-                }
-
                 setActiveCell({
                   row: r,
                   col: c,
@@ -4373,7 +5597,7 @@ export default function TemplateDesigner({
                 setShowModal(true);
               }}
               className={`
-                rounded-3xl
+                rounded-2xl
                 border-2 border-dashed
                 bg-white dark:bg-slate-900/40 dark:bg-gray-800/30
                 backdrop-blur-sm
@@ -4408,23 +5632,13 @@ export default function TemplateDesigner({
                   </>
                 ) : (
                   <>
-                    {isTemplateDataMappingReady ? (
-                      <>
-                        <Plus className="mx-auto mb-2 text-gray-400 dark:text-slate-400" />
+                    <>
+                      <Plus className="mx-auto mb-2 text-gray-400 dark:text-slate-400" />
 
-                        <p className="text-sm text-gray-400 dark:text-slate-400">
-                          Add Widget
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <Database className="mx-auto mb-2 text-amber-500 dark:text-amber-300" />
-
-                        <p className="text-sm font-semibold text-amber-600 dark:text-amber-300">
-                          Map Data First
-                        </p>
-                      </>
-                    )}
+                      <p className="text-sm text-gray-400 dark:text-slate-400">
+                        Add Widget
+                      </p>
+                    </>
                   </>
                 )}
               </div>
@@ -4476,10 +5690,6 @@ export default function TemplateDesigner({
 
               if (didDrag) return;
 
-              if (!requireTemplateDataMapping()) {
-                return;
-              }
-
               setActiveItemId(item.id);
               setActiveCell(null);
               setWidgetStep(1);
@@ -4517,34 +5727,11 @@ export default function TemplateDesigner({
               gridRow: `${item.y + 1} / span ${item.h}`,
             }}
           >
-            {/* WIDGET LABEL BADGE */}
-            <div
-              className="
-                absolute top-3 left-3
-                z-10
-                max-w-[70%]
-                text-xs
-                font-semibold
-                text-gray-700 dark:text-slate-200
-                dark:text-white
-                bg-white dark:bg-slate-900/90
-                dark:bg-gray-900/90
-                border border-gray-200 dark:border-slate-700
-                dark:border-gray-700
-                px-3 py-1
-                rounded-xl
-                shadow-sm
-                truncate
-              "
-            >
-              {item.label || item.type}
-            </div>
-
             {/* DRAG BADGE */}
             <div
               className="
                 absolute top-3 right-3
-                z-10
+                z-20
                 w-8 h-8
                 rounded-xl
                 bg-white dark:bg-slate-900/90
@@ -4755,86 +5942,205 @@ export default function TemplateDesigner({
       {showModal && base && (
         <div
           className="
-            fixed inset-0
-            bg-black/60
-            backdrop-blur-sm
-            flex items-center justify-center
-            z-50
-            p-6
+            fixed inset-0 z-50
+            bg-slate-100
+            dark:bg-slate-950
           "
-          onClick={() => setShowModal(false)}
         >
           <div
             className="
-              bg-white dark:bg-slate-900
-              w-[1450px]
-              max-w-[96vw]
-              max-h-[92vh]
-              rounded-3xl
-              shadow-2xl
+              h-screen w-screen
               overflow-hidden
-              border border-gray-200 dark:border-slate-700
+              bg-white dark:bg-slate-900
               flex flex-col
             "
-            onClick={(e) =>
-              e.stopPropagation()
-            }
           >
             {/* HEADER */}
             <div
               className="
-                flex justify-between items-center
+                flex shrink-0 items-center
+                justify-between gap-3
                 border-b border-gray-200 dark:border-slate-700
-                px-8 py-6
+                px-4 py-2.5 sm:px-5 sm:py-3
                 bg-white dark:bg-slate-900
               "
             >
-              <div>
-                <h2 className="text-2xl font-bold dark:text-white">
-                  {isEdit
-                    ? "Edit Widget"
-                    : "Widget Settings"}
-                </h2>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className="
+                      flex h-9 w-9 items-center justify-center
+                      rounded-xl bg-emerald-50 text-emerald-600
+                      dark:bg-emerald-500/10 dark:text-emerald-300
+                    "
+                  >
+                    <LayoutGrid size={18} />
+                  </div>
 
-                <p className="text-gray-500 dark:text-slate-300 mt-1">
-                  Configure widget type, appearance, size and data source
-                </p>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-bold dark:text-white sm:text-lg">
+                      {isEdit
+                        ? "Edit Widget"
+                        : "Add Widget"}
+                    </h2>
+
+                    <p className="mt-0.5 hidden truncate text-xs text-gray-500 dark:text-slate-400 md:block">
+                      Preview the widget, configure its source, and adjust display settings in one workspace.
+                    </p>
+                  </div>
+                </div>
+
+
               </div>
 
-              <button
-                onClick={() => setShowModal(false)}
-                className="
-                  w-10 h-10
-                  rounded-xl
-                  hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800
-                  flex items-center justify-center
-                  dark:text-white
-                "
-              >
-                <X />
-              </button>
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <span
+                  className="
+                    mr-1 hidden rounded-full
+                    border border-slate-200
+                    bg-slate-50 px-2.5 py-1
+                    text-[10px] text-slate-400
+                    dark:border-slate-700
+                    dark:bg-slate-800
+                    xl:inline-flex
+                  "
+                >
+                  Drag dividers to resize
+                </span>
+
+                {isEdit && selectedItem && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Delete this widget from the template?"
+                        )
+                      ) {
+                        removeWidget(
+                          selectedItem.id
+                        );
+                      }
+                    }}
+                    className="
+                      inline-flex h-9
+                      items-center justify-center
+                      gap-1.5 rounded-lg
+                      border border-red-200
+                      bg-red-50 px-3
+                      text-xs font-semibold
+                      text-red-600
+                      transition-colors
+                      hover:bg-red-100
+                      focus:outline-none
+                      focus:ring-2
+                      focus:ring-red-400/30
+                      dark:border-red-500/30
+                      dark:bg-red-500/10
+                      dark:text-red-300
+                      dark:hover:bg-red-500/20
+                    "
+                  >
+                    <Trash2 size={14} />
+
+                    <span className="hidden sm:inline">
+                      Delete
+                    </span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={
+                    isEdit
+                      ? updateWidget
+                      : addWidget
+                  }
+                  className="
+                    inline-flex h-9
+                    min-w-[106px]
+                    items-center justify-center
+                    gap-1.5 rounded-lg
+                    bg-emerald-600 px-3
+                    text-xs font-semibold
+                    text-white shadow-sm
+                    transition-colors
+                    hover:bg-emerald-700
+                    focus:outline-none
+                    focus:ring-2
+                    focus:ring-emerald-500/30
+                  "
+                >
+                  <Save size={14} />
+
+                  <span>
+                    {isEdit
+                      ? "Save Changes"
+                      : "Add Widget"}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowModal(false)
+                  }
+                  className="
+                    flex h-9 w-9
+                    items-center justify-center
+                    rounded-lg
+                    border border-slate-200
+                    bg-white text-slate-500
+                    transition-colors
+                    hover:bg-slate-100
+                    hover:text-slate-800
+                    focus:outline-none
+                    focus:ring-2
+                    focus:ring-slate-300/50
+                    dark:border-slate-700
+                    dark:bg-slate-900
+                    dark:text-slate-300
+                    dark:hover:bg-slate-800
+                    dark:hover:text-white
+                  "
+                  aria-label="Close Widget Studio"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* BODY */}
-            <div className="grid grid-cols-[1fr_520px] flex-1 overflow-hidden">
+            <div
+              ref={studioBodyRef}
+              className="
+                grid min-h-0 flex-1
+                overflow-hidden
+              "
+              style={{
+                gridTemplateColumns:
+                  `minmax(0, ${studioSplit}fr) 8px minmax(300px, ${100 - studioSplit}fr)`,
+              }}
+            >
               {/* LEFT PREVIEW */}
               <div
+                ref={studioLeftRef}
                 className="
-                  bg-gray-100 dark:bg-[#050a1e]
-                  p-8
-                  border-r border-gray-200 dark:border-slate-700
+                  grid min-h-0
                   overflow-hidden
+                  bg-slate-100
+                  dark:bg-[#050a1e]
                 "
+                style={{
+                  gridTemplateRows:
+                    `minmax(220px, ${previewSplit}fr) 8px minmax(190px, ${100 - previewSplit}fr)`,
+                }}
               >
                 <div
                   className="
-                    h-full
-                    rounded-3xl
-                    border border-dashed
-                    border-gray-300 dark:border-slate-600
-                    bg-white dark:bg-slate-900
-                    overflow-hidden
-                    p-6
+                    min-h-0 overflow-hidden
+                    px-4 pb-3 pt-3
                     pointer-events-none
                     flex flex-col
                   "
@@ -4912,34 +6218,30 @@ export default function TemplateDesigner({
 
                   <div
                     className="
-                      flex-1
+                      min-h-0 flex-1
                       flex items-center justify-center
-                      rounded-2xl
-                      bg-gray-50 dark:bg-slate-950
                       overflow-hidden
                     "
                   >
                     <div
                       className={
                         newType === "image"
-                          ? "aspect-video w-full max-w-full overflow-hidden rounded-2xl bg-gray-200 dark:bg-gray-950"
+                          ? "aspect-video h-full w-full max-w-full overflow-hidden rounded-xl bg-gray-200 dark:bg-gray-950"
                           : "h-full w-full"
                       }
                     >
                       {showEmptyLivePreview || showNoValuesLivePreview ? (
                         <button
                           type="button"
-                          onClick={() => setWidgetStep(3)}
+                          onClick={() => {}}
                           className="
                             group flex h-full w-full
                             flex-col items-center justify-center
-                            overflow-hidden rounded-2xl
-                            border border-dashed
-                            border-gray-300 dark:border-slate-600
-                            bg-gray-50 dark:bg-slate-950
+                            overflow-hidden rounded-xl
+                            bg-slate-50/70 dark:bg-slate-950
                             px-8 py-10
                             text-center
-                            transition-all duration-200
+                            transition-colors duration-150
                             hover:border-emerald-400
                             hover:bg-emerald-50/60
                             dark:hover:border-emerald-500
@@ -4967,7 +6269,7 @@ export default function TemplateDesigner({
 
                           <p
                             className="
-                              mt-5 text-base font-bold
+                              mt-4 text-base font-bold
                               text-gray-900 dark:text-white
                             "
                           >
@@ -4985,13 +6287,11 @@ export default function TemplateDesigner({
                           >
                             {showNoValuesLivePreview
                               ? "The selected pie-chart sources currently contain zero or invalid preview values. Choose another source or wait for positive live data."
-                              : `Choose one or more data sources in Step 3 to display the live ${
+                              : `Choose one or more data sources below to display the live ${
                                   newType === "pie"
                                     ? "pie chart"
                                     : newType === "line"
                                     ? "line chart"
-                                    : newType === "area"
-                                    ? "area chart"
                                     : newType === "bar"
                                     ? "bar chart"
                                     : "widget"
@@ -5061,7 +6361,12 @@ export default function TemplateDesigner({
                                 newDataKey
                               : newDataKey,
 
-                            dataKeys: isMultiDataWidget
+                            dataKeys: isBigNumberCombined
+                              ? [
+                                  newDataKeys[0] || newDataKey,
+                                  getPreparedBigNumberDisplay()?.statusDataKey,
+                                ].filter(Boolean)
+                              : isMultiDataWidget
                               ? newDataKeys
                               : undefined,
 
@@ -5071,17 +6376,24 @@ export default function TemplateDesigner({
                                 : undefined,
 
                             chartDisplay:
-                              ["line", "area", "bar"].includes(
+                              ["line", "bar", "composite"].includes(
                                 newType
                               )
                                 ? { ...newChartDisplay }
                                 : undefined,
 
                             historyWindow:
-                              ["line", "area"].includes(
+                              ["line", "composite"].includes(
                                 newType
                               )
                                 ? newHistoryWindow
+                                : undefined,
+
+                            compositeConfig:
+                              newType === "composite"
+                                ? {
+                                    ...newCompositeConfig,
+                                  }
                                 : undefined,
 
                             w: newW,
@@ -5089,7 +6401,7 @@ export default function TemplateDesigner({
 
                             bigNumberDisplay:
                               newType === "bignumber"
-                                ? { ...newBigNumberDisplay }
+                                ? getPreparedBigNumberDisplay()
                                 : undefined,
 
                             logDisplay:
@@ -5145,151 +6457,1624 @@ export default function TemplateDesigner({
                     </div>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  aria-label="Resize live preview and data source panels"
+                  title="Drag to resize preview and data source"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    setStudioResizeMode("rows");
+                  }}
+                  className="
+                    group relative z-20
+                    flex h-2 w-full
+                    cursor-row-resize
+                    items-center justify-center
+                    border-y border-slate-200
+                    bg-slate-100
+                    transition-colors
+                    hover:bg-emerald-50
+                    dark:border-slate-700
+                    dark:bg-slate-800
+                    dark:hover:bg-emerald-500/10
+                  "
+                >
+                  <span
+                    className="
+                      h-1 w-12 rounded-full
+                      bg-slate-300
+                      transition-colors
+                      group-hover:bg-emerald-400
+                      dark:bg-slate-600
+                      dark:group-hover:bg-emerald-500
+                    "
+                  />
+                </button>
+
+                <div
+                  className="
+                    min-h-0 overflow-y-auto
+                    bg-white p-4
+                    dark:bg-slate-900
+                  "
+                >
+                  <div
+                    className="
+                      mb-3 flex items-center
+                      justify-between gap-3
+                    "
+                  >
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        Data Source
+                      </h3>
+
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {useDedicatedWidgetSource
+                          ? "This widget uses its own dedicated configuration."
+                          : allDataOptions.length
+                          ? "Choose the source this widget should read, or connect another source."
+                          : "Connect the process data this widget should read."}
+                      </p>
+                    </div>
+
+                    <span
+                      className="
+                        rounded-full
+                        bg-emerald-50 px-2.5 py-1
+                        text-[10px] font-bold
+                        text-emerald-700
+                        dark:bg-emerald-500/10
+                        dark:text-emerald-300
+                      "
+                    >
+                      {useDedicatedWidgetSource
+                        ? "Dedicated"
+                        : `${allDataOptions.length} Source${
+                            allDataOptions.length === 1
+                              ? ""
+                              : "s"
+                          }`}
+                    </span>
+                  </div>
+
+                {/* STEP 1: DATA SOURCE */}
+                {true && (
+                  <>
+                    <div className="space-y-3">
+                      {useDedicatedWidgetSource ? (
+                        <div
+                          className="
+                            rounded-2xl border
+                            border-slate-200 bg-white
+                            p-4
+                            dark:border-slate-700
+                            dark:bg-slate-900
+                          "
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="
+                                flex h-10 w-10 shrink-0
+                                items-center justify-center
+                                rounded-xl bg-emerald-50
+                                text-emerald-600
+                                dark:bg-emerald-500/10
+                                dark:text-emerald-300
+                              "
+                            >
+                              <CheckCircle2 size={18} />
+                            </div>
+
+                            <div className="min-w-0">
+                              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                No process source required
+                              </h4>
+
+                              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                {newType === "logs"
+                                  ? "Logs reads event and activity data through its own log configuration."
+                                  : newType === "status"
+                                  ? "Data Status derives connection health and data freshness through its dedicated status configuration."
+                                  : newType === "image"
+                                  ? "Image widgets configure live sensor pins inside the image editor."
+                                  : newType === "sankey"
+                                  ? "Sankey widgets configure their input and output flows inside the Sankey editor."
+                                  : "This widget manages its data through a dedicated configuration."}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : allDataOptions.length === 0 &&
+                        !showCustomDataModal ? (
+                        <div
+                          className="
+                            rounded-2xl border
+                            border-slate-200 bg-white
+                            p-5
+                            shadow-[0_4px_18px_rgba(15,23,42,0.04)]
+                            dark:border-slate-700
+                            dark:bg-slate-900
+                            dark:shadow-none
+                          "
+                        >
+                          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="
+                                    flex h-11 w-11 shrink-0
+                                    items-center justify-center
+                                    rounded-2xl bg-emerald-50
+                                    text-emerald-600
+                                    dark:bg-emerald-500/10
+                                    dark:text-emerald-300
+                                  "
+                                >
+                                  <Database size={20} />
+                                </div>
+
+                                <div>
+                                  <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                                    Connect your first data source
+                                  </h4>
+
+                                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                    Nothing is preconfigured. Choose the exact Influx data this widget should use.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="mt-4 flex flex-wrap items-center gap-1.5">
+                                {[
+                                  "Bucket",
+                                  "Measurement",
+                                  "Device Type",
+                                  "Device ID",
+                                  "Channel",
+                                ].map((step, index, steps) => (
+                                  <div
+                                    key={step}
+                                    className="flex items-center gap-1.5"
+                                  >
+                                    <span
+                                      className="
+                                        rounded-lg bg-slate-100
+                                        px-2 py-1
+                                        text-[10px] font-semibold
+                                        text-slate-600
+                                        dark:bg-slate-800
+                                        dark:text-slate-300
+                                      "
+                                    >
+                                      {step}
+                                    </span>
+
+                                    {index <
+                                      steps.length - 1 && (
+                                      <ChevronRight
+                                        size={12}
+                                        className="text-slate-300 dark:text-slate-600"
+                                      />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={openAddDataSourceModal}
+                              className="
+                                inline-flex shrink-0
+                                items-center justify-center
+                                gap-2 rounded-xl
+                                bg-emerald-600
+                                px-5 py-3
+                                text-sm font-semibold
+                                text-white
+                                shadow-sm
+                                transition-colors
+                                hover:bg-emerald-700
+                              "
+                            >
+                              <Plus size={16} />
+                              Connect Data Source
+                            </button>
+                          </div>
+                        </div>
+                      ) : allDataOptions.length > 0 ? (
+                        <div
+                          className="
+                            rounded-2xl border
+                            border-slate-200 bg-white
+                            p-4
+                            dark:border-slate-700
+                            dark:bg-slate-900
+                          "
+                        >
+                          <div
+                            className="
+                              mb-3 flex flex-col gap-3
+                              sm:flex-row sm:items-center
+                              sm:justify-between
+                            "
+                          >
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                  Connected Sources
+                                </h4>
+
+                                <span
+                                  className="
+                                    rounded-full bg-slate-100
+                                    px-2 py-0.5
+                                    text-[10px] font-bold
+                                    text-slate-500
+                                    dark:bg-slate-800
+                                    dark:text-slate-300
+                                  "
+                                >
+                                  {allDataOptions.length}
+                                </span>
+                              </div>
+
+                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                {isMultiDataWidget
+                                  ? "Select one or more sources for this widget."
+                                  : "Select the source this widget should display."}
+                              </p>
+                            </div>
+
+                            {!showCustomDataModal && (
+                              <button
+                                type="button"
+                                onClick={openAddDataSourceModal}
+                                className="
+                                  inline-flex shrink-0
+                                  items-center justify-center
+                                  gap-2 rounded-xl
+                                  border border-emerald-200
+                                  bg-emerald-50
+                                  px-3 py-2
+                                  text-xs font-semibold
+                                  text-emerald-700
+                                  transition-colors
+                                  hover:bg-emerald-100
+                                  dark:border-emerald-500/20
+                                  dark:bg-emerald-500/10
+                                  dark:text-emerald-300
+                                  dark:hover:bg-emerald-500/15
+                                "
+                              >
+                                <Plus size={14} />
+                                Add Source
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                            {allDataOptions.map((dataOption) => {
+                              const selected =
+                                newDataKeys.includes(
+                                  dataOption.key
+                                ) ||
+                                (!newDataKeys.length &&
+                                  newDataKey ===
+                                    dataOption.key);
+
+                              return (
+                                <button
+                                  key={dataOption.key}
+                                  type="button"
+                                  onClick={() =>
+                                    toggleWizardDataSource(
+                                      dataOption.key
+                                    )
+                                  }
+                                  className={`
+                                    group/source relative
+                                    flex min-w-0 w-full
+                                    items-start gap-3
+                                    rounded-xl border
+                                    p-3 text-left
+                                    transition-colors
+                                    ${
+                                      selected
+                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                        : "border-slate-200 bg-slate-50/60 hover:border-emerald-300 hover:bg-emerald-50/40 dark:border-slate-700 dark:bg-slate-950/50 dark:hover:border-emerald-500/40"
+                                    }
+                                  `}
+                                >
+                                  <span
+                                    className={`
+                                      mt-0.5 flex h-5 w-5
+                                      shrink-0 items-center
+                                      justify-center rounded-full
+                                      border
+                                      ${
+                                        selected
+                                          ? "border-emerald-500 bg-emerald-600 text-white"
+                                          : "border-slate-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-900"
+                                      }
+                                    `}
+                                  >
+                                    <Check size={11} />
+                                  </span>
+
+                                  <span className="min-w-0 flex-1 pr-6">
+                                    <span className="block truncate text-sm font-bold text-slate-800 dark:text-white">
+                                      {dataOption.label}
+                                    </span>
+
+                                    {dataOption.source ? (
+                                      <span className="mt-1 grid grid-cols-1 gap-0.5">
+                                        <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                          {getMeasurementGroup(
+                                            dataOption.source
+                                              .measurement
+                                          ).label}
+                                          {" · "}
+                                          {dataOption.source
+                                            .tagValue ||
+                                            dataOption.source.id ||
+                                            "No ID"}
+                                        </span>
+
+                                        <span className="truncate font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                                          {
+                                            dataOption.source
+                                              .measurement
+                                          }
+                                          {" · "}
+                                          {dataOption.source
+                                            .field ||
+                                            dataOption.source
+                                              .channel}
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      <span className="mt-1 block text-[10px] text-slate-400">
+                                        Legacy source
+                                      </span>
+                                    )}
+                                  </span>
+
+                                  {dataOption.isCustom && (
+                                    <span
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        deleteCustomDataSource(
+                                          dataOption.key
+                                        );
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (
+                                          event.key ===
+                                          "Enter"
+                                        ) {
+                                          event.stopPropagation();
+                                          deleteCustomDataSource(
+                                            dataOption.key
+                                          );
+                                        }
+                                      }}
+                                      className="
+                                        absolute right-2 top-2
+                                        rounded-lg p-1
+                                        text-slate-400
+                                        transition-colors
+                                        hover:bg-red-50
+                                        hover:text-red-500
+                                        dark:hover:bg-red-950/40
+                                      "
+                                      title="Delete data source"
+                                    >
+                                      <X size={13} />
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {(newDataKeys.length > 0 ||
+                            newDataKey) && (
+                            <div
+                              className="
+                                mt-3 flex items-center
+                                gap-2 rounded-xl
+                                bg-emerald-50
+                                px-3 py-2
+                                text-[11px]
+                                text-emerald-700
+                                dark:bg-emerald-500/10
+                                dark:text-emerald-300
+                              "
+                            >
+                              <CheckCircle2
+                                size={14}
+                                className="shrink-0"
+                              />
+
+                              <span className="min-w-0 truncate font-semibold">
+                                Selected:{" "}
+                                {(newDataKeys.length
+                                  ? newDataKeys
+                                  : [newDataKey]
+                                )
+                                  .filter(Boolean)
+                                  .map(
+                                    getDataSourceLabel
+                                  )
+                                  .join(", ")}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+      {showCustomDataModal &&
+        !useDedicatedWidgetSource && (
+        <div
+          className="
+            mt-4
+            rounded-2xl
+            bg-slate-50/80
+            p-2
+            dark:bg-slate-950/80
+          "
+        >
+          <div
+            className="
+              w-full overflow-hidden
+              rounded-2xl border
+              border-slate-200 bg-white
+              shadow-[0_4px_16px_rgba(15,23,42,0.05)]
+              dark:border-slate-700
+              dark:bg-slate-900
+              dark:shadow-none
+            "
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            {/* HEADER */}
+            <div
+              className="
+                flex shrink-0
+                items-center justify-between
+                border-b border-slate-200
+                px-3 py-2.5
+                dark:border-slate-700
+              "
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="
+                    flex h-9 w-9
+                    shrink-0 items-center
+                    justify-center rounded-2xl
+                    bg-emerald-100 text-emerald-600
+                    dark:bg-emerald-500/15
+                    dark:text-emerald-300
+                  "
+                >
+                  <Database size={17} />
+                </div>
+
+                <div>
+                  <h3
+                    className="
+                      text-base font-bold
+                      text-slate-900
+                      dark:text-white
+                    "
+                  >
+                    Add Data Source
+                  </h3>
+
+                  <p
+                    className="
+                      mt-1 text-sm
+                      text-slate-500
+                      dark:text-slate-300
+                    "
+                  >
+                    Configure the Influx source directly for this widget, then give it a dashboard name.
+                  </p>
+                </div>
               </div>
 
-              {/* RIGHT SETTINGS / SETUP WIZARD */}
-              <div
+              <button
+                type="button"
+                onClick={() =>
+                  setShowCustomDataModal(false)
+                }
                 className="
-                  p-8
-                  overflow-y-auto
-                  bg-white dark:bg-slate-900
-                  flex flex-col
+                  rounded-xl p-2
+                  text-slate-400 transition
+                  hover:bg-slate-100
+                  hover:text-slate-700
+                  dark:hover:bg-slate-800
+                  dark:hover:text-white
                 "
+                aria-label="Close custom data source form"
               >
-                {/* NUMBERED STEP INDICATOR */}
-                <div className="mb-7">
-                  <div className="flex items-center justify-between gap-2">
-                    {(skipsWidgetDataSourceStep
-                      ? [
-                          { number: 1, label: "Widget Type" },
-                          { number: 2, label: "Appearance" },
-                        ]
-                      : [
-                          { number: 1, label: "Widget Type" },
-                          { number: 2, label: "Appearance" },
-                          {
-                            number: 3,
-                            label:
-                              newType === "image" || newType === "sankey"
-                                ? "Configuration"
-                                : "Data Source",
-                          },
-                        ]
-                    ).map((step, index) => {
-                      const isCurrent = widgetStep === step.number;
-                      const isComplete = widgetStep > step.number;
-                      const canReturn = step.number < widgetStep;
+                <X size={20} />
+              </button>
+            </div>
 
-                      return (
+            {/* SCROLLABLE BODY */}
+            <div className="p-4">
+              <div className="space-y-4">
+                {/* SOURCE FORM */}
+                <div
+                  className="
+                    p-4
+                  "
+                >
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h4
+                        className="
+                          text-sm font-black
+                          text-slate-900
+                          dark:text-white
+                        "
+                      >
+                        Source Path
+                      </h4>
+
+                      <p
+                        className="
+                          mt-1 text-xs
+                          text-slate-500
+                          dark:text-slate-400
+                        "
+                      >
+                        Follow the source path from InfluxDB to the exact field this widget should read.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={refreshInfluxMetadata}
+                      disabled={influxLoading}
+                      className="
+                        inline-flex items-center
+                        justify-center gap-2
+                        rounded-xl bg-slate-800
+                        px-4 py-2.5
+                        text-xs font-black
+                        text-white transition
+                        hover:bg-slate-700
+                        disabled:cursor-not-allowed
+                        disabled:opacity-60
+                        dark:bg-slate-700
+                        dark:hover:bg-slate-600
+                      "
+                    >
+                      <RefreshCw
+                        size={14}
+                        className={
+                          influxLoading
+                            ? "animate-spin"
+                            : ""
+                        }
+                      />
+                      Refresh
+                    </button>
+                  </div>
+
+                  {isOrganizationAdmin ? (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                            Organization Source Path
+                          </p>
+
+                          <p className="text-[10px] text-slate-400">
+                            Only assigned measurement permissions are available
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                          {/* DEVICE TYPE */}
+                          <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="mb-2 flex items-center gap-2">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                1
+                              </span>
+
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Device Type
+                              </span>
+                            </div>
+
+                            <select
+                              value={selectedMeasurementGroup}
+                              onChange={(event) =>
+                                handleMeasurementGroupChange(
+                                  event.target.value
+                                )
+                              }
+                              disabled={
+                                influxLoading ||
+                                assignedDeviceTypeOptions.length ===
+                                  0
+                              }
+                              className="
+                                w-full rounded-lg
+                                border border-slate-300
+                                bg-white px-2.5 py-2
+                                text-xs text-slate-900
+                                outline-none
+                                focus:ring-2
+                                focus:ring-emerald-500/20
+                                disabled:opacity-60
+                                dark:border-slate-600
+                                dark:bg-slate-950
+                                dark:text-white
+                              "
+                            >
+                              <option value="">
+                                Select device type
+                              </option>
+
+                              {assignedDeviceTypeOptions.map(
+                                (option) => (
+                                  <option
+                                    key={option.key}
+                                    value={option.key}
+                                  >
+                                    {option.label}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+
+                          {/* ASSIGNED LOGICAL DEVICE */}
+                          <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="mb-2 flex items-center gap-2">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                2
+                              </span>
+
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Assigned Device
+                              </span>
+                            </div>
+
+                            <select
+                              value={selectedDeviceId}
+                              onChange={(event) =>
+                                applySelectedDevice(
+                                  event.target.value
+                                )
+                              }
+                              disabled={
+                                influxLoading ||
+                                !selectedMeasurementGroup
+                              }
+                              className="
+                                w-full rounded-lg
+                                border border-slate-300
+                                bg-white px-2.5 py-2
+                                text-xs text-slate-900
+                                outline-none
+                                focus:ring-2
+                                focus:ring-emerald-500/20
+                                disabled:opacity-60
+                                dark:border-slate-600
+                                dark:bg-slate-950
+                                dark:text-white
+                              "
+                            >
+                              <option value="">
+                                Select assigned device
+                              </option>
+
+                              {filteredAssignedDevices.map(
+                                (device) => (
+                                  <option
+                                    key={device.id}
+                                    value={device.id}
+                                  >
+                                    {device.device_name ||
+                                      device.tag_value}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+
+                          {/* ASSIGNED MEASUREMENT */}
+                          <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="mb-2 flex items-center gap-2">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                3
+                              </span>
+
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Measurement
+                              </span>
+                            </div>
+
+                            <select
+                              value={influxConfig.measurement}
+                              onChange={(event) => {
+                                const measurement =
+                                  event.target.value;
+
+                                setInfluxConfig(
+                                  (current) => ({
+                                    ...current,
+                                    measurement,
+                                  })
+                                );
+
+                                setInfluxChannels(
+                                  []
+                                );
+
+                                setCustomDataDraft(
+                                  (current) => ({
+                                    ...current,
+                                    channel: "",
+                                  })
+                                );
+                              }}
+                              disabled={
+                                influxLoading ||
+                                !selectedDeviceId
+                              }
+                              className="
+                                w-full rounded-lg
+                                border border-slate-300
+                                bg-white px-2.5 py-2
+                                font-mono text-xs
+                                text-slate-900
+                                outline-none
+                                focus:ring-2
+                                focus:ring-emerald-500/20
+                                disabled:opacity-60
+                                dark:border-slate-600
+                                dark:bg-slate-950
+                                dark:text-white
+                              "
+                            >
+                              <option value="">
+                                Select measurement
+                              </option>
+
+                              {influxMeasurements.map(
+                                (measurement) => (
+                                  <option
+                                    key={measurement}
+                                    value={measurement}
+                                  >
+                                    {measurement}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+
+                          {/* CHANNEL */}
+                          <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="mb-2 flex items-center gap-2">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                4
+                              </span>
+
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Channel
+                              </span>
+                            </div>
+
+                            <select
+                              value={customDataDraft.channel}
+                              onChange={(event) =>
+                                setCustomDataDraft(
+                                  (current) => ({
+                                    ...current,
+                                    channel:
+                                      event.target.value,
+                                  })
+                                )
+                              }
+                              disabled={
+                                influxLoading ||
+                                !influxConfig.measurement
+                              }
+                              className="
+                                w-full rounded-lg
+                                border border-slate-300
+                                bg-white px-2.5 py-2
+                                font-mono text-xs
+                                text-slate-900
+                                outline-none
+                                focus:ring-2
+                                focus:ring-emerald-500/20
+                                disabled:opacity-60
+                                dark:border-slate-600
+                                dark:bg-slate-950
+                                dark:text-white
+                              "
+                            >
+                              <option value="">
+                                Select channel
+                              </option>
+
+                              {influxChannels.map(
+                                (channel) => (
+                                  <option
+                                    key={channel}
+                                    value={channel}
+                                  >
+                                    {channel}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+
+                      {selectedDeviceId && (
                         <div
-                          key={step.number}
-                          className="flex min-w-0 flex-1 items-center"
+                          className="
+                            flex flex-wrap
+                            items-center
+                            gap-x-4 gap-y-1
+                            rounded-xl
+                            bg-slate-50
+                            px-3 py-2
+                            text-[10px]
+                            text-slate-500
+                            dark:bg-slate-950
+                            dark:text-slate-400
+                          "
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (canReturn) setWidgetStep(step.number);
+                          <span>
+                            Bucket:{" "}
+                            <strong className="font-mono text-slate-700 dark:text-slate-200">
+                              {influxConfig.bucket}
+                            </strong>
+                          </span>
+
+                          <span>
+                            Device ID:{" "}
+                            <strong className="font-mono text-slate-700 dark:text-slate-200">
+                              {influxConfig.tagValue ||
+                                influxConfig.id}
+                            </strong>
+                          </span>
+
+                          <span>
+                            {influxMeasurements.length} assigned measurement(s)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                          Source Path
+                        </p>
+
+                        <p className="text-[10px] text-slate-400">
+                          Follow the source from database to field
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                        <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              1
+                            </span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Bucket
+                            </span>
+                          </div>
+
+                          <select
+                            value={influxConfig.bucket}
+                            disabled={influxLoading}
+                            onChange={(event) => {
+                              setSelectedMeasurementGroup("");
+
+                              setInfluxConfig((current) => ({
+                                ...current,
+                                bucket: event.target.value,
+                                measurement: "",
+                                id: "",
+                                tagValue: "",
+                              }));
+
+                              setInfluxIds([]);
+                              setInfluxIdMeasurementMap({});
+                              setInfluxChannels([]);
+                              setCustomDataDraft(
+                                (current) => ({
+                                  ...current,
+                                  channel: "",
+                                })
+                              );
                             }}
-                            disabled={!canReturn && !isCurrent}
+                            className="
+                              w-full rounded-lg border
+                              border-slate-300 bg-white
+                              px-2.5 py-2
+                              font-mono text-xs
+                              text-slate-900 outline-none
+                              focus:ring-2
+                              focus:ring-emerald-500/20
+                              disabled:cursor-not-allowed
+                              disabled:opacity-60
+                              dark:border-slate-600
+                              dark:bg-slate-950
+                              dark:text-white
+                            "
+                          >
+                            <option value="">
+                              Select bucket
+                            </option>
+
+                            {influxBuckets.map(
+                              (bucketName) => (
+                                <option
+                                  key={bucketName}
+                                  value={bucketName}
+                                >
+                                  {bucketName}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+
+                        <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              2
+                            </span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Measurement
+                            </span>
+                          </div>
+
+                          <select
+                            value={influxConfig.measurement}
+                            disabled={
+                              influxLoading ||
+                              !influxConfig.bucket
+                            }
+                            onChange={(event) => {
+                              const measurement =
+                                event.target.value;
+
+                              setSelectedMeasurementGroup(
+                                measurement
+                                  ? getMeasurementGroup(
+                                      measurement
+                                    ).key
+                                  : ""
+                              );
+
+                              setInfluxConfig(
+                                (current) => ({
+                                  ...current,
+                                  measurement,
+                                  id: "",
+                                  tagValue: "",
+                                })
+                              );
+
+                              setInfluxIds([]);
+                              setInfluxIdMeasurementMap({});
+                              setInfluxChannels([]);
+                              setCustomDataDraft(
+                                (current) => ({
+                                  ...current,
+                                  channel: "",
+                                })
+                              );
+                            }}
+                            className="
+                              w-full rounded-lg border
+                              border-slate-300 bg-white
+                              px-2.5 py-2
+                              font-mono text-xs
+                              text-slate-900 outline-none
+                              focus:ring-2
+                              focus:ring-emerald-500/20
+                              disabled:cursor-not-allowed
+                              disabled:opacity-60
+                              dark:border-slate-600
+                              dark:bg-slate-950
+                              dark:text-white
+                            "
+                          >
+                            <option value="">
+                              {influxConfig.bucket
+                                ? "Select measurement"
+                                : "Select bucket first"}
+                            </option>
+
+                            {influxMeasurements.map(
+                              (measurement) => (
+                                <option
+                                  key={measurement}
+                                  value={measurement}
+                                >
+                                  {measurement}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+
+                        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              3
+                            </span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Device Type
+                            </span>
+                          </div>
+
+                          <div
                             className={`
-                              flex min-w-0 items-center gap-2 text-left transition
+                              flex min-h-[34px] items-center
+                              rounded-lg px-2.5 py-2
+                              text-xs font-semibold
                               ${
-                                canReturn || isCurrent
-                                  ? "cursor-pointer"
-                                  : "cursor-not-allowed"
+                                influxConfig.measurement
+                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                  : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
                               }
                             `}
                           >
-                            <span
-                              className={`
-                                flex h-7 w-7 shrink-0 items-center justify-center
-                                rounded-full text-xs font-bold transition
-                                ${
-                                  isCurrent
-                                    ? "bg-emerald-600 text-white shadow"
-                                    : isComplete
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                                    : "bg-gray-200 text-gray-500 dark:text-slate-300 dark:bg-gray-800 dark:text-gray-400 dark:text-slate-400"
-                                }
-                              `}
-                            >
-                              {isComplete ? (
-                                <Check size={15} strokeWidth={3} />
-                              ) : (
-                                step.number
-                              )}
-                            </span>
-
-                            <span
-                              className={`
-                                hidden text-[11px] font-semibold sm:block whitespace-nowrap
-                                ${
-                                  isCurrent
-                                    ? "text-emerald-700 dark:text-emerald-300"
-                                    : isComplete
-                                    ? "text-slate-600 dark:text-slate-300"
-                                    : "text-gray-400 dark:text-slate-400"
-                                }
-                              `}
-                            >
-                              {step.label}
-                            </span>
-                          </button>
-
-                          {index < 2 && (
-                            <div
-                              className={`
-                                mx-2 h-px flex-1 transition
-                                ${
-                                  widgetStep > step.number
-                                    ? "bg-emerald-400"
-                                    : "bg-gray-200 dark:bg-gray-700"
-                                }
-                              `}
-                            />
-                          )}
+                            {influxConfig.measurement
+                              ? getMeasurementGroup(
+                                  influxConfig.measurement
+                                ).label
+                              : "Detected after measurement"}
+                          </div>
                         </div>
-                      );
-                    })}
+
+                        <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              4
+                            </span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Device ID
+                            </span>
+                          </div>
+
+                          <select
+                            value={
+                              influxConfig.tagValue ||
+                              influxConfig.id
+                            }
+                            disabled={
+                              influxLoading ||
+                              !influxConfig.measurement
+                            }
+                            onChange={(event) => {
+                              const deviceId =
+                                event.target.value;
+
+                              setInfluxConfig(
+                                (current) => ({
+                                  ...current,
+                                  id: deviceId,
+                                  tagValue: deviceId,
+                                })
+                              );
+
+                              setInfluxChannels([]);
+                              setCustomDataDraft(
+                                (current) => ({
+                                  ...current,
+                                  channel: "",
+                                })
+                              );
+                            }}
+                            className="
+                              w-full rounded-lg border
+                              border-slate-300 bg-white
+                              px-2.5 py-2
+                              font-mono text-xs
+                              text-slate-900 outline-none
+                              focus:ring-2
+                              focus:ring-emerald-500/20
+                              disabled:cursor-not-allowed
+                              disabled:opacity-60
+                              dark:border-slate-600
+                              dark:bg-slate-950
+                              dark:text-white
+                            "
+                          >
+                            <option value="">
+                              {influxConfig.measurement
+                                ? "Select device ID"
+                                : "Select measurement first"}
+                            </option>
+
+                            {influxIds.map((id) => (
+                              <option
+                                key={id}
+                                value={id}
+                              >
+                                {id}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              5
+                            </span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Channel
+                            </span>
+                          </div>
+
+                          <select
+                            value={customDataDraft.channel}
+                            disabled={
+                              influxLoading ||
+                              !influxConfig.measurement ||
+                              !(
+                                influxConfig.tagValue ||
+                                influxConfig.id
+                              )
+                            }
+                            onChange={(event) =>
+                              setCustomDataDraft(
+                                (current) => ({
+                                  ...current,
+                                  channel:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                            className="
+                              w-full rounded-lg border
+                              border-slate-300 bg-white
+                              px-2.5 py-2
+                              font-mono text-xs
+                              text-slate-900 outline-none
+                              focus:ring-2
+                              focus:ring-emerald-500/20
+                              disabled:cursor-not-allowed
+                              disabled:opacity-60
+                              dark:border-slate-600
+                              dark:bg-slate-950
+                              dark:text-white
+                            "
+                          >
+                            <option value="">
+                              {influxConfig.tagValue ||
+                              influxConfig.id
+                                ? "Select channel"
+                                : "Select device ID first"}
+                            </option>
+
+                            {influxChannels.map(
+                              (channel) => (
+                                <option
+                                  key={channel}
+                                  value={channel}
+                                >
+                                  {channel}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    className="
+                      mt-3 rounded-xl
+                      bg-slate-50 px-3 py-2
+                      text-[10px] text-slate-500
+                      dark:bg-slate-950
+                      dark:text-slate-400
+                    "
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold">
+                        {influxLoading
+                          ? "Loading available Influx metadata..."
+                          : `${influxBuckets.length} bucket(s) · ${influxMeasurements.length} measurement(s) · ${influxIds.length} device ID(s) · ${influxChannels.length} channel(s)`}
+                      </span>
+
+                      {influxError && (
+                        <span className="font-semibold text-red-500 dark:text-red-300">
+                          {influxError}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* STEP 1: WIDGET TYPE */}
-                {widgetStep === 1 && (
+                {/* DASHBOARD SETTINGS */}
+                <div
+                  className="
+                    border-t border-slate-200
+                    p-4
+                    dark:border-slate-700
+                  "
+                >
+                  <div className="mb-4">
+                    <h4
+                      className="
+                        text-sm font-black
+                        text-slate-900
+                        dark:text-white
+                      "
+                    >
+                      Source Details
+                    </h4>
+
+                    <p
+                      className="
+                        mt-1 text-xs
+                        text-slate-500
+                        dark:text-slate-400
+                      "
+                    >
+                      Give this source a readable name and optional unit.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          uppercase tracking-wider
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Dashboard display name
+                      </span>
+
+                      <input
+                        type="text"
+                        value={customDataDraft.label}
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              label:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="e.g. Sterilizer Door Pressure"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-3 py-2.5
+                          text-sm text-slate-900
+                          outline-none
+                          focus:ring-2
+                          focus:ring-emerald-500
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      />
+                    </label>
+
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          uppercase tracking-wider
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Dashboard key
+                      </span>
+
+                      <input
+                        type="text"
+                        value={customDataDraft.key}
+                        list="dashboard-key-options"
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              key: event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Auto generated if empty"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-3 py-2.5
+                          text-sm text-slate-900
+                          outline-none
+                          focus:ring-2
+                          focus:ring-emerald-500
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      />
+
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Example: doorPressure, sterilizerTemp, oilFlowrate.
+                      </p>
+                    </label>
+
+                    <label>
+                      <span
+                        className="
+                          text-xs font-semibold
+                          uppercase tracking-wider
+                          text-slate-500
+                          dark:text-slate-300
+                        "
+                      >
+                        Unit
+                      </span>
+
+                      <input
+                        type="text"
+                        value={customDataDraft.unit}
+                        list="unit-options"
+                        onChange={(event) =>
+                          setCustomDataDraft(
+                            (current) => ({
+                              ...current,
+                              unit:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Optional, e.g. bar / °C / %"
+                        className="
+                          mt-2 w-full rounded-2xl
+                          border border-slate-300
+                          bg-white px-3 py-2.5
+                          text-sm text-slate-900
+                          outline-none
+                          focus:ring-2
+                          focus:ring-emerald-500
+                          dark:border-slate-600
+                          dark:bg-slate-950
+                          dark:text-white
+                        "
+                      />
+                    </label>
+
+                    <div
+                      className="
+                        rounded-2xl border
+                        border-emerald-100
+                        bg-emerald-50 p-4
+                        text-sm text-emerald-800
+                        dark:border-emerald-900/60
+                        dark:bg-emerald-950/30
+                        dark:text-emerald-200
+                      "
+                    >
+                      After adding, this source becomes available to the current widget.
+                    </div>
+                  </div>
+                </div>
+
+                <datalist id="dashboard-key-options">
+                  {allDataOptions.map((option) => (
+                    <option
+                      key={option.key}
+                      value={option.key}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                </datalist>
+
+                <datalist id="unit-options">
+                  {commonUnitOptions.map((unit) => (
+                    <option
+                      key={unit || "none"}
+                      value={unit}
+                    />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+
+            {/* FOOTER */}
+            <div
+              className="
+                flex shrink-0
+                items-center justify-end gap-3
+                border-t border-slate-200
+                bg-slate-50/70 px-3 py-2.5
+                dark:border-slate-700
+                dark:bg-slate-950/40
+              "
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setShowCustomDataModal(false)
+                }
+                className="
+                  rounded-2xl border
+                  border-slate-300 bg-white
+                  px-5 py-3 text-sm
+                  font-semibold text-slate-700
+                  transition hover:bg-slate-100
+                  dark:border-slate-600
+                  dark:bg-slate-800
+                  dark:text-white
+                  dark:hover:bg-slate-700
+                "
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={addCustomDataSource}
+                className="
+                  inline-flex items-center gap-2
+                  rounded-2xl bg-emerald-600
+                  px-5 py-3 text-sm
+                  font-semibold text-white
+                  shadow-lg shadow-emerald-600/20
+                  transition hover:bg-emerald-700
+                "
+              >
+                <Plus size={17} />
+                Connect & Select
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+                    </div>
+
+                  </>
+                )}
+
+
+                </div>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Resize workspace and widget settings panels"
+                title="Drag to resize workspace and widget settings"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setStudioResizeMode("columns");
+                }}
+                className="
+                  group relative z-30
+                  flex h-full w-2
+                  cursor-col-resize
+                  items-center justify-center
+                  border-x border-slate-200
+                  bg-slate-100
+                  transition-colors
+                  hover:bg-emerald-50
+                  dark:border-slate-700
+                  dark:bg-slate-800
+                  dark:hover:bg-emerald-500/10
+                "
+              >
+                <span
+                  className="
+                    h-12 w-1 rounded-full
+                    bg-slate-300
+                    transition-colors
+                    group-hover:bg-emerald-400
+                    dark:bg-slate-600
+                    dark:group-hover:bg-emerald-500
+                  "
+                />
+              </button>
+
+              {/* RIGHT SETTINGS / WIDGET CONFIGURATION */}
+              <div
+                className="
+                  relative min-h-0
+                  overflow-y-auto overflow-x-hidden
+                  overscroll-contain
+                  bg-slate-50/70
+                  px-3.5 pt-3.5 pb-0
+                  dark:bg-slate-950/60
+                  flex flex-col
+                "
+              >
+                <div className="mb-3 px-1">
+                  <p className="text-base font-bold text-slate-900 dark:text-white">
+                    Widget Settings
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    Choose the visualization, configure its display, then review the size before saving.
+                  </p>
+                </div>
+
+                {/* WIDGET TYPE */}
+                {true && (
                   <>
                     <div
                       className="
                         bg-gray-50 dark:bg-slate-950
                         border border-gray-200 dark:border-slate-700
-                        rounded-3xl
-                        p-5
+                        rounded-2xl
+                        p-4
                       "
                     >
-                      <div className="mb-5">
-                        <h3 className="font-bold dark:text-white">
-                          1. Choose Widget Type
-                        </h3>
-                        <p className="text-sm text-gray-500 dark:text-slate-300 mt-1">
-                          Select how this data should be displayed.
-                        </p>
-                      </div>
-
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <p className="text-xs text-gray-500 dark:text-slate-300">
-                          Built-in widgets and your custom widget presets are shown below.
-                        </p>
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-bold dark:text-white">
+                            Widget Type
+                          </h3>
+                          <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-300">
+                            Pick the visualization first. Only settings that apply to it will appear below.
+                          </p>
+                        </div>
 
                         <button
                           type="button"
                           onClick={() => setShowCustomWidgetModal(true)}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-700"
+                          className="
+                            inline-flex shrink-0
+                            items-center justify-center
+                            gap-1.5 rounded-xl
+                            border border-slate-200
+                            bg-white px-2.5 py-2
+                            text-[11px] font-semibold
+                            text-slate-600 transition
+                            hover:border-emerald-300
+                            hover:text-emerald-700
+                            dark:border-slate-700
+                            dark:bg-slate-900
+                            dark:text-slate-300
+                          "
+                          title="Add custom widget type"
                         >
-                          <Plus size={15} />
-                          Add Widget Type
+                          <Plus size={14} />
+                          <span className="hidden xl:inline">
+                            Custom
+                          </span>
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-2 gap-2">
                         {allWidgetOptions.map((w) => {
                           const Icon = w.icon || LayoutGrid;
                           const selected = w.isCustomWidgetType
@@ -5308,12 +8093,12 @@ export default function TemplateDesigner({
                               }
                               className={`
                                 relative
-                                min-h-28
-                                p-4 rounded-2xl border transition-all text-center
+                                min-h-[60px]
+                                p-2.5 rounded-xl border transition-colors text-center
 
                                 ${
                                   selected
-                                    ? "bg-emerald-600 text-white border-emerald-600 shadow-lg scale-[1.02]"
+                                    ? "bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-500/20"
                                     : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                 }
                               `}
@@ -5334,7 +8119,7 @@ export default function TemplateDesigner({
                                   }}
                                   className={`absolute right-2 top-2 rounded-lg p-1 transition ${
                                     selected
-                                      ? "text-white hover:bg-white/15"
+                                      ? "text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/15"
                                       : "text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
                                   }`}
                                   title="Delete custom widget type"
@@ -5343,15 +8128,15 @@ export default function TemplateDesigner({
                                 </span>
                               )}
 
-                              <Icon className="mx-auto mb-2 w-6 h-6" />
+                              <Icon className="mx-auto mb-1.5 w-5 h-5" />
 
-                              <div className="text-sm font-semibold">
+                              <div className="text-xs font-semibold">
                                 {w.label}
                               </div>
 
                               <div
                                 className={`
-                                  text-[10px] mt-1 leading-tight
+                                  hidden
                                   ${
                                     selected
                                       ? "text-emerald-50"
@@ -5367,14 +8152,14 @@ export default function TemplateDesigner({
                                   ? "Progress meter"
                                   : w.type === "line"
                                   ? "Trend over time"
-                                  : w.type === "area"
-                                  ? "Filled trend chart"
                                   : w.type === "image"
                                   ? "Mimic diagram"
                                   : w.type === "bar"
                                   ? "Bar comparison"
                                   : w.type === "bignumber"
                                   ? "KPI number"
+                                  : w.type === "composite"
+                                  ? "Two compatible views in one card"
                                   : w.type === "alarm"
                                   ? "Status warning"
                                   : w.type === "pie"
@@ -5389,7 +8174,230 @@ export default function TemplateDesigner({
                       </div>
                     </div>
 
-                    <div className="mt-auto pt-6 flex justify-end">
+                    {newType === "composite" && (
+                      <div
+                        className="
+                          mt-4 rounded-2xl border
+                          border-gray-200 bg-gray-50
+                          p-4
+                          dark:border-slate-700
+                          dark:bg-slate-950
+                        "
+                      >
+                        <div className="mb-4">
+                          <h3 className="font-bold text-gray-900 dark:text-white">
+                            Composite Layout
+                          </h3>
+
+                          <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                            Choose the two views to combine. The live preview updates immediately when you select a preset.
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {getCompatibleCompositePresets(
+                            Math.max(
+                              1,
+                              newDataKeys.length ||
+                                (newDataKey ? 1 : 0)
+                            )
+                          ).map((preset) => {
+                            const selected =
+                              newCompositeConfig.preset ===
+                              preset.id;
+
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() =>
+                                  handleCompositePresetChange(
+                                    preset
+                                  )
+                                }
+                                className={`
+                                  rounded-2xl border p-4
+                                  text-left transition-all
+                                  ${
+                                    selected
+                                      ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-300 dark:bg-emerald-500/10 dark:ring-emerald-500/30"
+                                      : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                                  }
+                                `}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-bold text-gray-900 dark:text-white">
+                                      {preset.label}
+                                    </div>
+
+                                    <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                                      {preset.description}
+                                    </p>
+                                  </div>
+
+                                  {selected && (
+                                    <CheckCircle2
+                                      size={17}
+                                      className="shrink-0 text-emerald-600 dark:text-emerald-300"
+                                    />
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                              Arrangement
+                            </label>
+
+                            <select
+                              value={newCompositeConfig.layout}
+                              onChange={(event) =>
+                                setNewCompositeConfig(
+                                  (previous) => ({
+                                    ...previous,
+                                    layout:
+                                      event.target.value,
+                                  })
+                                )
+                              }
+                              className="
+                                w-full rounded-2xl
+                                border border-gray-300
+                                bg-white px-4 py-2.5
+                                text-gray-900 outline-none
+                                focus:ring-2 focus:ring-emerald-500
+                                dark:border-slate-600
+                                dark:bg-slate-900
+                                dark:text-white
+                              "
+                            >
+                              <option value="horizontal">
+                                Side by Side
+                              </option>
+                              <option value="vertical">
+                                KPI / Chart Stacked
+                              </option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-2 flex items-center justify-between text-sm font-semibold text-gray-800 dark:text-white">
+                              <span>Primary Size</span>
+                              <span className="text-xs text-gray-400">
+                                {newCompositeConfig.ratio}%
+                              </span>
+                            </label>
+
+                            <input
+                              type="range"
+                              min="25"
+                              max="70"
+                              step="1"
+                              value={newCompositeConfig.ratio}
+                              onChange={(event) =>
+                                setNewCompositeConfig(
+                                  (previous) => ({
+                                    ...previous,
+                                    ratio: Number(
+                                      event.target.value
+                                    ),
+                                  })
+                                )
+                              }
+                              className="w-full accent-emerald-600"
+                            />
+                          </div>
+                        </div>
+
+                        <div
+                          className="
+                            mt-4 overflow-hidden
+                            rounded-2xl border
+                            border-gray-200 bg-white
+                            dark:border-slate-700
+                            dark:bg-slate-900
+                          "
+                        >
+                          <div
+                            className={
+                              newCompositeConfig.layout ===
+                              "horizontal"
+                                ? "flex h-28"
+                                : "flex h-36 flex-col"
+                            }
+                          >
+                            <div
+                              className="
+                                flex items-center justify-center
+                                border-gray-200
+                                bg-blue-50 text-xs
+                                font-bold text-blue-700
+                                dark:bg-blue-500/10
+                                dark:text-blue-300
+                              "
+                              style={{
+                                ...(newCompositeConfig.layout ===
+                                "horizontal"
+                                  ? {
+                                      width: `${newCompositeConfig.ratio}%`,
+                                      borderRightWidth: 1,
+                                    }
+                                  : {
+                                      height: `${newCompositeConfig.ratio}%`,
+                                      borderBottomWidth: 1,
+                                    }),
+                              }}
+                            >
+                              {
+                                getCompositePreset(
+                                  newCompositeConfig.preset
+                                ).label.split(" + ")[0]
+                              }
+                            </div>
+
+                            <div
+                              className="
+                                flex flex-1 items-center
+                                justify-center text-xs
+                                font-bold text-slate-500
+                                dark:text-slate-300
+                              "
+                            >
+                              {
+                                getCompositePreset(
+                                  newCompositeConfig.preset
+                                ).label.split(" + ")[1]
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="hidden">
+                      <button
+                        type="button"
+                        onClick={() => setWidgetStep(1)}
+                        className="
+                          rounded-2xl border
+                          border-gray-300 bg-white
+                          px-5 py-3 font-semibold
+                          text-gray-700 transition
+                          hover:bg-gray-100
+                          dark:border-slate-600
+                          dark:bg-slate-900
+                          dark:text-white
+                          dark:hover:bg-slate-800
+                        "
+                      >
+                        Back
+                      </button>
+
                       <button
                         type="button"
                         onClick={goToNextWidgetStep}
@@ -5408,21 +8416,27 @@ export default function TemplateDesigner({
                   </>
                 )}
 
-                {/* STEP 2: APPEARANCE AND SIZE */}
-                {widgetStep === 2 && (
+
+                {/* WIDGET DETAILS / SIZE */}
+                {true && (
                   <>
-                    <div className="space-y-5">
+                    <div className="space-y-4">
                       <div
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
-                          rounded-3xl
-                          p-5
+                          rounded-2xl
+                          p-4
                         "
                       >
-                        <h3 className="font-bold mb-4 dark:text-white">
-                          2. Configure Appearance
-                        </h3>
+                        <div className="mb-4">
+                          <h3 className="font-bold dark:text-white">
+                            Widget Details
+                          </h3>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                            Give the widget a clear label for the dashboard.
+                          </p>
+                        </div>
 
                         <label className="block text-sm font-semibold dark:text-white mb-2">
                           Widget Label
@@ -5453,14 +8467,14 @@ export default function TemplateDesigner({
                       {newType === "logs" && (
                         <div
                           className="
-                            rounded-3xl border
+                            rounded-2xl border
                             border-gray-200 bg-gray-50
-                            p-5
+                            p-4
                             dark:border-slate-700
                             dark:bg-slate-950
                           "
                         >
-                          <div className="mb-5 flex items-start gap-3">
+                          <div className="mb-4 flex items-start gap-3">
                             <div
                               className="
                                 flex h-10 w-10
@@ -5571,7 +8585,7 @@ export default function TemplateDesigner({
                             </div>
                           </div>
 
-                          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {[
                               {
                                 key: "showTimestamp",
@@ -5633,7 +8647,7 @@ export default function TemplateDesigner({
                             ))}
                           </div>
 
-                          <div className="mt-5">
+                          <div className="mt-4">
                             <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
                               Visible Log Levels
                             </label>
@@ -5705,7 +8719,7 @@ export default function TemplateDesigner({
 
                           <div
                             className="
-                              mt-5 rounded-2xl
+                              mt-4 rounded-2xl
                               border border-blue-100
                               bg-blue-50 p-4
                               text-xs leading-relaxed
@@ -5724,14 +8738,14 @@ export default function TemplateDesigner({
                       {newType === "bignumber" && (
                         <div
                           className="
-                            rounded-3xl border
+                            rounded-2xl border
                             border-gray-200 bg-gray-50
-                            p-5
+                            p-4
                             dark:border-slate-700
                             dark:bg-slate-950
                           "
                         >
-                          <div className="mb-5">
+                          <div className="mb-4">
                             <h3 className="font-bold text-gray-900 dark:text-white">
                               Stat Display
                             </h3>
@@ -5787,6 +8801,24 @@ export default function TemplateDesigner({
                                             ? {
                                                 showTrend: false,
                                                 showUnit: false,
+                                                statusDataKey: "",
+                                              }
+                                            : {}),
+
+                                          ...(option.value ===
+                                          "combined"
+                                            ? {
+                                                statusSource: "mapping",
+                                                statusDataKey:
+                                                  previous.statusDataKey ||
+                                                  newDataKeys.find(
+                                                    (key) =>
+                                                      key &&
+                                                      key !==
+                                                        (newDataKeys[0] ||
+                                                          newDataKey)
+                                                  ) ||
+                                                  "",
                                               }
                                             : {}),
                                         })
@@ -5826,7 +8858,7 @@ export default function TemplateDesigner({
                           </div>
 
                           {/* COMMON STAT SETTINGS */}
-                          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                               <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
                                 Alignment
@@ -5917,7 +8949,7 @@ export default function TemplateDesigner({
 
                           <label
                             className="
-                              mt-5 flex items-center
+                              mt-4 flex items-center
                               justify-between gap-3
                               rounded-2xl border
                               border-gray-200 bg-white
@@ -5951,7 +8983,7 @@ export default function TemplateDesigner({
                           {/* NUMBER MODE */}
                           {newBigNumberDisplay.mode ===
                             "number" && (
-                            <div className="mt-5 space-y-5">
+                            <div className="mt-4 space-y-4">
                               <div>
                                 <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
                                   Display Style
@@ -6268,65 +9300,54 @@ export default function TemplateDesigner({
                             "combined" && (
                             <div
                               className="
-                                mt-5 rounded-2xl border
-                                border-cyan-200 bg-cyan-50/60
+                                mt-4 rounded-2xl border
+                                border-emerald-200 bg-emerald-50/60
                                 p-4
-                                dark:border-cyan-500/25
-                                dark:bg-cyan-500/[0.05]
+                                dark:border-emerald-500/25
+                                dark:bg-emerald-500/[0.05]
                               "
                             >
                               <div className="mb-4">
                                 <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                                  Machine Status
+                                  Stat + Status Data
                                 </h4>
+
                                 <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                  Combine the primary numeric stat with a status field or derive status from warning/danger thresholds.
+                                  This display uses two different data sources: one numeric field for the Stat value and one field for the machine status.
                                 </p>
                               </div>
 
                               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 <div>
                                   <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Status Source
+                                    Numeric Stat Data
                                   </label>
-                                  <select
-                                    value={
-                                      newBigNumberDisplay.statusSource ||
-                                      "mapping"
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          statusSource:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
+
+                                  <div
                                     className="
-                                      w-full rounded-2xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 text-gray-900
-                                      outline-none focus:ring-2
-                                      focus:ring-cyan-500
-                                      dark:border-slate-600
+                                      min-h-[48px] rounded-2xl border
+                                      border-gray-200 bg-white
+                                      px-4 py-3 text-sm font-semibold
+                                      text-gray-800
+                                      dark:border-slate-700
                                       dark:bg-slate-900
                                       dark:text-white
                                     "
                                   >
-                                    <option value="mapping">
-                                      Value Mapping
-                                    </option>
-                                    <option value="threshold">
-                                      Warning / Danger Threshold
-                                    </option>
-                                  </select>
+                                    {newDataKeys[0] || newDataKey
+                                      ? getDataSourceLabel(
+                                          newDataKeys[0] ||
+                                            newDataKey
+                                        )
+                                      : "No numeric source selected"}
+                                  </div>
                                 </div>
 
                                 <div>
                                   <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Status Data Field
+                                    Status Data
                                   </label>
+
                                   <select
                                     value={
                                       newBigNumberDisplay.statusDataKey ||
@@ -6336,54 +9357,53 @@ export default function TemplateDesigner({
                                       setNewBigNumberDisplay(
                                         (previous) => ({
                                           ...previous,
+                                          statusSource: "mapping",
                                           statusDataKey:
                                             event.target.value,
                                         })
                                       )
-                                    }
-                                    disabled={
-                                      newBigNumberDisplay.statusSource ===
-                                      "threshold"
                                     }
                                     className="
                                       w-full rounded-2xl border
                                       border-gray-300 bg-white
                                       px-4 py-3 text-gray-900
                                       outline-none focus:ring-2
-                                      focus:ring-cyan-500
-                                      disabled:cursor-not-allowed
-                                      disabled:opacity-50
+                                      focus:ring-emerald-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
                                     "
                                   >
                                     <option value="">
-                                      Use primary value
+                                      Select second data source
                                     </option>
-                                    {allDataOptions.map(
-                                      (option) => (
-                                        <option
-                                          key={
-                                            option.key
-                                          }
-                                          value={
-                                            option.key
-                                          }
-                                        >
-                                          {
-                                            option.label
-                                          }
-                                        </option>
+
+                                    {newDataKeys
+                                      .filter(
+                                        (key) =>
+                                          key &&
+                                          key !==
+                                            (newDataKeys[0] ||
+                                              newDataKey)
                                       )
-                                    )}
+                                      .map((key) => (
+                                        <option
+                                          key={key}
+                                          value={key}
+                                        >
+                                          {getDataSourceLabel(
+                                            key
+                                          )}
+                                        </option>
+                                      ))}
                                   </select>
                                 </div>
 
-                                <div>
+                                <div className="sm:col-span-2">
                                   <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
                                     Status Label
                                   </label>
+
                                   <input
                                     type="text"
                                     value={
@@ -6405,53 +9425,37 @@ export default function TemplateDesigner({
                                       border-gray-300 bg-white
                                       px-4 py-3 text-gray-900
                                       outline-none focus:ring-2
-                                      focus:ring-cyan-500
+                                      focus:ring-emerald-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
                                     "
                                   />
                                 </div>
+                              </div>
 
-                                <label
+                              {newDataKeys.length < 2 && (
+                                <div
                                   className="
-                                    flex items-center gap-3
-                                    rounded-2xl border
-                                    border-gray-200 bg-white
-                                    px-4 py-3
-                                    dark:border-slate-700
-                                    dark:bg-slate-900
+                                    mt-4 rounded-xl border
+                                    border-amber-200 bg-amber-50
+                                    px-3 py-2 text-xs
+                                    text-amber-700
+                                    dark:border-amber-500/25
+                                    dark:bg-amber-500/10
+                                    dark:text-amber-300
                                   "
                                 >
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      newBigNumberDisplay.showProgress !==
-                                      false
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          showProgress:
-                                            event.target.checked,
-                                        })
-                                      )
-                                    }
-                                  />
-                                  <span className="text-sm font-semibold text-gray-700 dark:text-white">
-                                    Show range progress
-                                  </span>
-                                </label>
-                              </div>
+                                  Select two data sources in Step 1 to use Stat + Status.
+                                </div>
+                              )}
                             </div>
                           )}
 
-                          {/* VALUE MAPPING MODE */}
                           {["valueMapping", "combined"].includes(
                             newBigNumberDisplay.mode
                           ) && (
-                            <div className="mt-5 space-y-4">
+                            <div className="mt-4 space-y-4">
                               <div>
                                 <h4 className="text-sm font-bold text-gray-900 dark:text-white">
                                   Value Mappings
@@ -6875,8 +9879,8 @@ export default function TemplateDesigner({
                           className="
                             bg-gray-50 dark:bg-slate-950
                             border border-gray-200 dark:border-slate-700
-                            rounded-3xl
-                            p-5
+                            rounded-2xl
+                            p-4
                           "
                         >
                           <h3 className="font-bold mb-4 dark:text-white">
@@ -6909,17 +9913,17 @@ export default function TemplateDesigner({
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
-                          rounded-3xl
-                          p-5
+                          rounded-2xl
+                          p-4
                         "
                       >
                         <div className="mb-4 flex flex-col gap-1">
                           <h3 className="font-bold dark:text-white">
-                            Widget Size
+                            Size & Layout
                           </h3>
 
                           <p className="text-xs text-gray-500 dark:text-slate-400">
-                            Choose a preset size or enter custom grid dimensions. Drag-resize on the canvas updates the same width and height values.
+                            Choose a dashboard grid size. You can still drag-resize the widget later on the canvas.
                           </p>
                         </div>
 
@@ -6957,8 +9961,8 @@ export default function TemplateDesigner({
 
                         <div
                           className="
-                            mt-5
-                            rounded-3xl
+                            mt-4
+                            rounded-2xl
                             border border-gray-200 dark:border-slate-700
                             bg-white dark:bg-slate-900
                             p-4
@@ -7052,107 +10056,85 @@ export default function TemplateDesigner({
                         </div>
                       </div>
 
-                      <div
-                        className="
-                          rounded-3xl
-                          border border-emerald-200 dark:border-emerald-900
-                          bg-emerald-50 dark:bg-emerald-900/15
-                          p-4
-                        "
-                      >
-                        <p className="text-xs uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
-                          Ready to {isEdit ? "update" : "add"}
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-700 dark:text-white">
-                          {newLabel.trim() || getFallbackWidgetLabel(newType, isMultiDataWidget ? newDataKeys[0] || newDataKey : newDataKey)}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          {newW}×{newH} · ${
-                            newType === "sankey"
-                              ? `${getConfiguredSankeyOutputs().length} configured output(s)`
-                              : newType === "status"
-                              ? "Device health / connection status"
-                              : newType === "logs"
-                              ? "System log feed"
-                              : isMultiDataWidget
-                              ? `${newDataKeys.length} data source(s)`
-                              : newDataKey || "No data source"
-                          }
-                        </p>
+                    </div>
+
+                    {skipsWidgetDataSourceStep && (
+                    <div
+                      className="
+                        mt-3 rounded-xl border
+                        border-slate-200 bg-white
+                        px-3 py-3
+                        dark:border-slate-700
+                        dark:bg-slate-900
+                      "
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
+                          className="
+                            mt-0.5 flex h-7 w-7
+                            shrink-0 items-center
+                            justify-center rounded-lg
+                            bg-emerald-50
+                            text-emerald-600
+                            dark:bg-emerald-500/10
+                            dark:text-emerald-300
+                          "
+                        >
+                          <CheckCircle2 size={15} />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                            Widget Summary
+                          </p>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="max-w-full truncate text-sm font-bold text-slate-800 dark:text-white">
+                              {newLabel.trim() ||
+                                getFallbackWidgetLabel(
+                                  newType,
+                                  isMultiDataWidget
+                                    ? newDataKeys[0] ||
+                                      newDataKey
+                                    : newDataKey
+                                )}
+                            </span>
+
+                            <span className="text-[10px] text-slate-400">
+                              {selectedWidgetTypeLabel}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {newW} × {newH}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {widgetSummarySourceText}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="mt-auto pt-6 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setWidgetStep(1)}
-                          className="
-                            rounded-2xl
-                            border border-gray-300 dark:border-slate-600
-                            bg-white dark:bg-slate-900
-                            dark:text-white
-                            px-5 py-3
-                            font-semibold
-                            hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-700
-                            transition
-                          "
-                        >
-                          Back
-                        </button>
+                    )}
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (skipsWidgetDataSourceStep) {
-                              if (!isTemplateDataMappingReady) {
-                                setShowModal(false);
-                                requireTemplateDataMapping();
-                                return;
-                              }
-
-                              if (isEdit) {
-                                updateWidget();
-                              } else {
-                                addWidget();
-                              }
-
-                              return;
-                            }
-
-                            goToNextWidgetStep();
-                          }}
-                          className="
-                            flex-1
-                            bg-emerald-600 hover:bg-emerald-700
-                            text-white
-                            py-3
-                            rounded-2xl
-                            font-semibold
-                            shadow-lg
-                            transition-all
-                          "
-                        >
-                          {skipsWidgetDataSourceStep
-                            ? isEdit
-                              ? "Save Changes"
-                              : "Add Widget"
-                            : newType === "image" || newType === "sankey"
-                            ? "Next: Configuration"
-                            : "Next: Data Source"}
-                        </button>
-                      </div>
-
-                    </div>
                   </>
                 )}
-                {/* STEP 3: DATA / IMAGE CONFIG */}
-                {widgetStep === 3 && !skipsWidgetDataSourceStep && (
+                {/* TYPE-SPECIFIC DISPLAY / DATA SETTINGS */}
+                {!skipsWidgetDataSourceStep && (
                   <>
                     {newType === "image" ? (
                       <div
                         className="
-                          rounded-3xl border p-5
+                          rounded-2xl border p-4
                           border-purple-200 bg-purple-50
                           dark:border-purple-500/40
                           dark:bg-slate-900
@@ -7164,11 +10146,11 @@ export default function TemplateDesigner({
                             text-slate-900 dark:text-white
                           "
                         >
-                          3. Configure Image Widget
+                          Image Configuration
                         </h3>
 
                         <p
-                          className="mb-5 text-sm leading-5"
+                          className="mb-4 text-sm leading-5"
                           style={{
                             color: document.documentElement.classList.contains("dark")
                               ? "#334155"
@@ -7180,7 +10162,7 @@ export default function TemplateDesigner({
 
                         <div
                           className="
-                            mb-5 rounded-2xl border
+                            mb-4 rounded-2xl border
                             border-dashed border-purple-300
                             bg-white p-4
                             dark:border-purple-400/50
@@ -7330,133 +10312,37 @@ export default function TemplateDesigner({
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
-                          rounded-3xl
-                          p-5
+                          rounded-2xl
+                          p-4
                         "
                       >
-                        <div className="flex items-center justify-between gap-3 mb-5">
-                          <div>
-                            <h3 className="font-bold dark:text-white">
-                              3. Choose Data Source
-                            </h3>
-                            <p className="text-sm text-gray-500 dark:text-slate-300 mt-1">
-                              Choose the dashboard value this widget should display.
-                            </p>
-                          </div>
+                        <div className="mb-4">
+                          <h3 className="font-bold text-gray-900 dark:text-white">
+                            Display & Data Settings
+                          </h3>
+                          <p className="mt-1 text-sm text-gray-500 dark:text-slate-300">
+                            Fine-tune the options that apply to this widget type.
+                          </p>
 
-                          {isMultiDataWidget && (
-                            <span className="text-xs text-gray-400 dark:text-slate-400 whitespace-nowrap">
-                              Select multiple
-                            </span>
-                          )}
                         </div>
 
-                        {isDataSourceRequired ? (
-                          <div className="flex flex-wrap gap-3">
-                            {availableDataOptions
-                              .map((d) => {
-                                const selected = isMultiDataWidget
-                                  ? newDataKeys.includes(d.key)
-                                  : newDataKey === d.key;
-
-                                return (
-                                  <button
-                                    key={d.key}
-                                    type="button"
-                                    onClick={() => {
-                                      if (isMultiDataWidget) {
-                                        toggleMultiDataKey(d.key);
-                                      } else {
-                                        setNewDataKey(d.key);
-                                      }
-                                    }}
-                                    className={`
-                                      group/source relative
-                                      px-4 py-3 rounded-2xl text-sm font-medium transition-all border
-                                      ${
-                                        selected
-                                          ? "bg-emerald-600 text-white border-emerald-600 shadow"
-                                          : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 hover:border-emerald-400 dark:text-white"
-                                      }
-                                    `}
-                                  >
-                                    <span className={d.isCustom ? "pr-5 inline-block" : ""}>
-                                      {d.label}
-                                    </span>
-
-                                    {d.isCustom && (
-                                      <span
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          deleteCustomDataSource(d.key);
-                                        }}
-                                        onKeyDown={(event) => {
-                                          if (event.key === "Enter") {
-                                            event.stopPropagation();
-                                            deleteCustomDataSource(d.key);
-                                          }
-                                        }}
-                                        className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-0.5 transition ${
-                                          selected
-                                            ? "text-white hover:bg-white/15"
-                                            : "text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                                        }`}
-                                        title="Delete custom data source"
-                                      >
-                                        <X size={14} />
-                                      </span>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                          </div>
-                        ) : (
-                          <div className="rounded-2xl border border-dashed border-gray-300 dark:border-slate-600 p-5 text-sm text-gray-500 dark:text-slate-300">
-                            Template Data Mapping is already configured. This widget uses its dedicated configuration flow, so no additional single-field selection is required on this step.
-                          </div>
-                        )}
-
-                        <div className="mt-5 rounded-3xl border border-dashed border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 p-4">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <h4 className="text-sm font-bold text-gray-800 dark:text-white">
-                                Need another data source?
-                              </h4>
-                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
-                                Create an optional friendly dashboard alias for an available Influx field.
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setShowCustomDataModal(true)}
-                              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                            >
-                              <Plus size={16} />
-                              Add Data Source
-                            </button>
-                          </div>
-                        </div>
-
-                        {["line", "area", "bar"].includes(
+                        {["line", "bar"].includes(
                           newType
                         ) && (
                           <div
                             className="
-                              mt-5 rounded-3xl border
+                              mt-4 rounded-2xl border
                               border-cyan-200/80
                               bg-gradient-to-br
                               from-cyan-50/70 via-white
-                              to-blue-50/60 p-5
+                              to-blue-50/60 p-4
                               dark:border-cyan-500/20
                               dark:from-cyan-950/20
                               dark:via-slate-950
                               dark:to-blue-950/20
                             "
                           >
-                            <div className="mb-5">
+                            <div className="mb-4">
                               <h3 className="font-bold text-gray-900 dark:text-white">
                                 Chart Display
                               </h3>
@@ -7465,10 +10351,72 @@ export default function TemplateDesigner({
                               </p>
                             </div>
 
-                            {["line", "area"].includes(
-                              newType
-                            ) && (
+                            {newType === "line" && (
                               <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div className="sm:col-span-2">
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Chart Style
+                                  </label>
+
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                      {
+                                        value: "line",
+                                        label: "Line",
+                                      },
+                                      {
+                                        value: "area",
+                                        label: "Area",
+                                      },
+                                    ].map((option) => {
+                                      const selected =
+                                        (newChartDisplay.chartStyle ||
+                                          "line") === option.value;
+
+                                      return (
+                                        <button
+                                          key={option.value}
+                                          type="button"
+                                          onClick={() =>
+                                            setNewChartDisplay(
+                                              (previous) => ({
+                                                ...previous,
+                                                chartStyle:
+                                                  option.value,
+                                                curveType:
+                                                  previous.curveType ||
+                                                  "linear",
+                                                lineWeight:
+                                                  previous.lineWeight ||
+                                                  "normal",
+                                                linePattern:
+                                                  previous.linePattern ||
+                                                  "solid",
+                                                strokeWidth:
+                                                  previous.strokeWidth ||
+                                                  2.5,
+                                              })
+                                            )
+                                          }
+                                          className={`
+                                            rounded-xl border
+                                            px-3 py-2.5
+                                            text-sm font-semibold
+                                            transition-colors
+                                            ${
+                                              selected
+                                                ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20"
+                                                : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                            }
+                                          `}
+                                        >
+                                          {option.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
                                 <div>
                                   <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
                                     Time Window
@@ -7610,16 +10558,40 @@ export default function TemplateDesigner({
                                     dark:bg-slate-900
                                   "
                                 >
-                                  <option value="range">
-                                    Use widget range
-                                  </option>
                                   <option value="auto">
-                                    Auto fit data
+                                    Automatic · visible data
+                                  </option>
+                                  <option value="range">
+                                    Data Range · widget min/max
                                   </option>
                                   <option value="custom">
-                                    Custom axis
+                                    Custom · axis min/max
                                   </option>
                                 </select>
+
+                                <div
+                                  className={`
+                                    mt-2 rounded-xl px-3 py-2
+                                    text-[10px] leading-4
+                                    ${
+                                      newChartDisplay.yAxisMode ===
+                                      "auto"
+                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+                                        : newChartDisplay.yAxisMode ===
+                                          "range"
+                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+                                    }
+                                  `}
+                                >
+                                  {newChartDisplay.yAxisMode ===
+                                  "auto"
+                                    ? "Uses only the visible chart data. Data Range minimum and maximum do not control the Y-axis while data is available."
+                                    : newChartDisplay.yAxisMode ===
+                                      "range"
+                                    ? "Uses the widget Data Range minimum and maximum below."
+                                    : "Uses the Axis Minimum and Axis Maximum entered here."}
+                                </div>
                               </div>
 
                               <div>
@@ -7715,71 +10687,384 @@ export default function TemplateDesigner({
                               </div>
                             )}
 
-                            {["line", "area"].includes(
-                              newType
-                            ) && (
+                            {newType === "line" && (
                               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
+                                <div className="sm:col-span-2">
                                   <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Curve
+                                    {newChartDisplay.chartStyle ===
+                                    "area"
+                                      ? "Edge Type"
+                                      : "Line Type"}
                                   </label>
-                                  <select
-                                    value={
-                                      newChartDisplay.curveType
-                                    }
-                                    onChange={(event) =>
-                                      setNewChartDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          curveType:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-2xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  >
-                                    <option value="monotone">Smooth</option>
-                                    <option value="linear">Linear</option>
-                                    <option value="stepAfter">Step</option>
-                                  </select>
+
+                                  <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                      {
+                                        value: "linear",
+                                        label: "Normal",
+                                        description:
+                                          "Straight",
+                                        preview:
+                                          "M2 15 L12 8 L22 12 L34 3",
+                                      },
+                                      {
+                                        value: "monotone",
+                                        label: "Smooth",
+                                        description:
+                                          "Curved",
+                                        preview:
+                                          "M2 15 C8 15 8 8 14 8 C21 8 23 12 28 10 C32 8 32 3 34 3",
+                                      },
+                                      {
+                                        value: "step",
+                                        label: "Step",
+                                        description:
+                                          "Stepped",
+                                        preview:
+                                          "M2 15 H12 V8 H23 V12 H29 V3 H34",
+                                      },
+                                    ].map((option) => {
+                                      const selected =
+                                        (newChartDisplay.curveType ||
+                                          "linear") === option.value;
+
+                                      return (
+                                        <button
+                                          key={option.value}
+                                          type="button"
+                                          onClick={() =>
+                                            setNewChartDisplay(
+                                              (previous) => ({
+                                                ...previous,
+                                                curveType:
+                                                  option.value,
+                                              })
+                                            )
+                                          }
+                                          className={`
+                                            rounded-xl border p-2.5
+                                            text-left transition-colors
+                                            ${
+                                              selected
+                                                ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                                : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                                            }
+                                          `}
+                                        >
+                                          <svg
+                                            viewBox="0 0 36 18"
+                                            className="mb-1.5 h-5 w-full"
+                                            aria-hidden="true"
+                                          >
+                                            <path
+                                              d={option.preview}
+                                              fill="none"
+                                              stroke="currentColor"
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              className={
+                                                selected
+                                                  ? "text-emerald-600 dark:text-emerald-300"
+                                                  : "text-slate-400"
+                                              }
+                                            />
+                                          </svg>
+
+                                          <div
+                                            className={`text-xs font-bold ${
+                                              selected
+                                                ? "text-emerald-700 dark:text-emerald-300"
+                                                : "text-slate-700 dark:text-slate-200"
+                                            }`}
+                                          >
+                                            {option.label}
+                                          </div>
+
+                                          <div className="mt-0.5 text-[10px] text-slate-400">
+                                            {option.description}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
 
-                                <div>
+                                <div className="sm:col-span-2">
                                   <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Line Thickness
+                                    {newChartDisplay.chartStyle ===
+                                    "area"
+                                      ? "Edge Weight"
+                                      : "Line Weight"}
                                   </label>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max="6"
-                                    step="0.5"
-                                    value={
-                                      newChartDisplay.strokeWidth
-                                    }
-                                    onChange={(event) =>
-                                      setNewChartDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          strokeWidth:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-2xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  />
+
+                                  <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                      {
+                                        value: "thin",
+                                        label: "Thin",
+                                        width: 1.5,
+                                      },
+                                      {
+                                        value: "normal",
+                                        label: "Normal",
+                                        width: 2.5,
+                                      },
+                                      {
+                                        value: "bold",
+                                        label: "Bold",
+                                        width: 4,
+                                      },
+                                    ].map((option) => {
+                                      const selected =
+                                        (newChartDisplay.lineWeight ||
+                                          "normal") === option.value;
+
+                                      return (
+                                        <button
+                                          key={option.value}
+                                          type="button"
+                                          onClick={() =>
+                                            setNewChartDisplay(
+                                              (previous) => ({
+                                                ...previous,
+                                                lineWeight:
+                                                  option.value,
+                                                strokeWidth:
+                                                  option.width,
+                                              })
+                                            )
+                                          }
+                                          className={`
+                                            rounded-xl border
+                                            px-3 py-2.5
+                                            transition-colors
+                                            ${
+                                              selected
+                                                ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                                : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                                            }
+                                          `}
+                                        >
+                                          <div className="mb-2 flex h-4 items-center">
+                                            <span
+                                              className={`block w-full rounded-full ${
+                                                selected
+                                                  ? "bg-emerald-600 dark:bg-emerald-400"
+                                                  : "bg-slate-400 dark:bg-slate-500"
+                                              }`}
+                                              style={{
+                                                height:
+                                                  `${option.width}px`,
+                                              }}
+                                            />
+                                          </div>
+
+                                          <div
+                                            className={`text-xs font-bold ${
+                                              selected
+                                                ? "text-emerald-700 dark:text-emerald-300"
+                                                : "text-slate-700 dark:text-slate-200"
+                                            }`}
+                                          >
+                                            {option.label}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  <p className="mt-2 text-[10px] text-slate-400">
+                                    Normal is the default.
+                                  </p>
                                 </div>
+
+                                {newChartDisplay.chartStyle !==
+                                  "area" && (
+                                  <div className="sm:col-span-2">
+                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                      Line Pattern
+                                    </label>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                      {[
+                                        {
+                                          value: "solid",
+                                          label: "Solid",
+                                          dash: "",
+                                        },
+                                        {
+                                          value: "dashed",
+                                          label: "Dashed",
+                                          dash: "8 5",
+                                        },
+                                        {
+                                          value: "dotted",
+                                          label: "Dotted",
+                                          dash: "2 5",
+                                        },
+                                      ].map((option) => {
+                                        const selected =
+                                          (newChartDisplay.linePattern ||
+                                            "solid") ===
+                                          option.value;
+
+                                        return (
+                                          <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() =>
+                                              setNewChartDisplay(
+                                                (previous) => ({
+                                                  ...previous,
+                                                  linePattern:
+                                                    option.value,
+                                                })
+                                              )
+                                            }
+                                            className={`
+                                              rounded-xl border
+                                              px-3 py-2.5
+                                              transition-colors
+                                              ${
+                                                selected
+                                                  ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                                  : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                                              }
+                                            `}
+                                          >
+                                            <svg
+                                              viewBox="0 0 64 12"
+                                              className="mb-2 h-3 w-full"
+                                              aria-hidden="true"
+                                            >
+                                              <line
+                                                x1="2"
+                                                y1="6"
+                                                x2="62"
+                                                y2="6"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2.5"
+                                                strokeLinecap="round"
+                                                strokeDasharray={
+                                                  option.dash ||
+                                                  undefined
+                                                }
+                                                className={
+                                                  selected
+                                                    ? "text-emerald-600 dark:text-emerald-300"
+                                                    : "text-slate-400"
+                                                }
+                                              />
+                                            </svg>
+
+                                            <div
+                                              className={`text-xs font-bold ${
+                                                selected
+                                                  ? "text-emerald-700 dark:text-emerald-300"
+                                                  : "text-slate-700 dark:text-slate-200"
+                                              }`}
+                                            >
+                                              {option.label}
+                                            </div>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    <p className="mt-2 text-[10px] text-slate-400">
+                                      Solid is the default.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {newChartDisplay.chartStyle ===
+                                  "area" && (
+                                  <>
+                                    <div>
+                                      <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                        Area Opacity
+                                      </label>
+
+                                      <div className="flex items-center gap-3">
+                                        <input
+                                          type="range"
+                                          min="0.05"
+                                          max="0.9"
+                                          step="0.05"
+                                          value={
+                                            Number(
+                                              newChartDisplay.areaOpacity
+                                            ) || 0.34
+                                          }
+                                          onChange={(event) =>
+                                            setNewChartDisplay(
+                                              (previous) => ({
+                                                ...previous,
+                                                areaOpacity:
+                                                  Number(
+                                                    event.target.value
+                                                  ),
+                                              })
+                                            )
+                                          }
+                                          className="min-w-0 flex-1 accent-emerald-600"
+                                        />
+
+                                        <span className="w-12 text-right text-xs font-semibold text-gray-500 dark:text-slate-400">
+                                          {Math.round(
+                                            (Number(
+                                              newChartDisplay.areaOpacity
+                                            ) || 0.34) * 100
+                                          )}
+                                          %
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                        Fade End
+                                      </label>
+
+                                      <div className="flex items-center gap-3">
+                                        <input
+                                          type="range"
+                                          min="0"
+                                          max="0.4"
+                                          step="0.025"
+                                          value={
+                                            Number(
+                                              newChartDisplay.areaEndOpacity
+                                            ) || 0.025
+                                          }
+                                          onChange={(event) =>
+                                            setNewChartDisplay(
+                                              (previous) => ({
+                                                ...previous,
+                                                areaEndOpacity:
+                                                  Number(
+                                                    event.target.value
+                                                  ),
+                                              })
+                                            )
+                                          }
+                                          className="min-w-0 flex-1 accent-emerald-600"
+                                        />
+
+                                        <span className="w-12 text-right text-xs font-semibold text-gray-500 dark:text-slate-400">
+                                          {Math.round(
+                                            (Number(
+                                              newChartDisplay.areaEndOpacity
+                                            ) || 0.025) * 100
+                                          )}
+                                          %
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
@@ -7790,16 +11075,24 @@ export default function TemplateDesigner({
       newBigNumberDisplay.mode
     ) &&
                           hasSelectedDataSource && (
-                            <div className="mt-5 rounded-3xl border border-gray-200 bg-gray-50 p-5 dark:border-slate-700 dark:bg-slate-950">
-                              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                   <h3 className="font-bold dark:text-white">
                                     Data Range and Thresholds
                                   </h3>
 
                                   <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                    Configure the unit, range, and thresholds for this widget. These values are stored in the template.
+                                    Configure the unit, expected operating range, and thresholds for this widget.
                                   </p>
+
+                                  {newType === "line" &&
+                                    newChartDisplay.yAxisMode ===
+                                      "auto" && (
+                                      <p className="mt-2 text-[10px] font-medium leading-4 text-blue-600 dark:text-blue-300">
+                                        Automatic Y-axis is active: Minimum and Maximum remain saved as the widget's expected range, but they do not control the chart Y-axis while live/history data is available.
+                                      </p>
+                                    )}
                                 </div>
 
 
@@ -7877,7 +11170,7 @@ export default function TemplateDesigner({
                         {newType === "sankey" && (
                           <div
                             className="
-                              mt-5 rounded-3xl border p-5
+                              mt-4 rounded-2xl border p-4
                               border-emerald-200 bg-emerald-50
                               dark:border-emerald-500/40
                               dark:bg-slate-900
@@ -7970,82 +11263,74 @@ export default function TemplateDesigner({
                         )}
 
 
-                        {(isMultiDataWidget || newType === "sankey") && (
-                          <p className="text-xs text-gray-400 dark:text-slate-400 mt-4">
-                            Selected: {newType === "sankey"
-                              ? getSankeyOutputSummary()
-                              : newDataKeys.length
-                              ? newDataKeys.map(getDataSourceLabel).join(", ")
-                              : "None"}
-                          </p>
-                        )}
                       </div>
                     )}
 
-                    <div className="mt-auto pt-6 border-t border-gray-200 dark:border-slate-700">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setWidgetStep(2)}
-                            className="
-                              inline-flex items-center justify-center
-                              rounded-2xl
-                              border border-gray-300 dark:border-slate-600
-                              bg-white dark:bg-slate-900
-                              px-5 py-3
-                              text-sm font-semibold text-gray-700 dark:text-slate-100
-                              transition-all duration-200
-                              hover:-translate-y-0.5 hover:bg-gray-50 dark:hover:bg-slate-800
-                            "
-                          >
-                            Back
-                          </button>
-
-                          {isEdit && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (window.confirm("Delete this widget from the template?")) {
-                                  removeWidget(selectedItem.id);
-                                }
-                              }}
-                              className="
-                                inline-flex items-center justify-center gap-2
-                                rounded-2xl
-                                border border-red-200 dark:border-red-500/30
-                                bg-red-50 dark:bg-red-500/10
-                                px-4 py-3
-                                text-sm font-semibold text-red-600 dark:text-red-300
-                                transition-all duration-200
-                                hover:-translate-y-0.5 hover:bg-red-100 dark:hover:bg-red-500/20
-                              "
-                            >
-                              <Trash2 size={16} />
-                              Delete
-                            </button>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={isEdit ? updateWidget : addWidget}
+                    <div
+                      className="
+                        mt-3 rounded-xl border
+                        border-slate-200 bg-white
+                        px-3 py-3
+                        dark:border-slate-700
+                        dark:bg-slate-900
+                      "
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
                           className="
-                            inline-flex min-w-[180px] items-center justify-center gap-2
-                            rounded-2xl
-                            bg-emerald-600 px-6 py-3.5
-                            text-sm font-semibold text-white
-                            shadow-lg shadow-emerald-600/20
-                            transition-all duration-200
-                            hover:-translate-y-0.5 hover:bg-emerald-700 hover:shadow-xl hover:shadow-emerald-600/30
-                            focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900
+                            mt-0.5 flex h-7 w-7
+                            shrink-0 items-center
+                            justify-center rounded-lg
+                            bg-emerald-50
+                            text-emerald-600
+                            dark:bg-emerald-500/10
+                            dark:text-emerald-300
                           "
                         >
-                          <Save size={16} />
-                          {isEdit ? "Save Changes" : "Add Widget"}
-                        </button>
+                          <CheckCircle2 size={15} />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                            Widget Summary
+                          </p>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="max-w-full truncate text-sm font-bold text-slate-800 dark:text-white">
+                              {newLabel.trim() ||
+                                getFallbackWidgetLabel(
+                                  newType,
+                                  isMultiDataWidget
+                                    ? newDataKeys[0] ||
+                                      newDataKey
+                                    : newDataKey
+                                )}
+                            </span>
+
+                            <span className="text-[10px] text-slate-400">
+                              {selectedWidgetTypeLabel}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {newW} × {newH}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {widgetSummarySourceText}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
+
                   </>
                 )}
 
@@ -8061,7 +11346,7 @@ export default function TemplateDesigner({
           onClick={() => setShowCustomWidgetModal(false)}
         >
           <div
-            className="w-[min(680px,96vw)] max-h-[90vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            className="w-[min(620px,94vw)] max-h-[90vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 dark:border-slate-700">
@@ -8172,809 +11457,6 @@ export default function TemplateDesigner({
         </div>
       )}
 
-      {showCustomDataModal && (
-        <div
-          className="
-            fixed inset-0 z-[70]
-            flex items-center justify-center
-            bg-black/65 p-6
-            backdrop-blur-sm
-          "
-          onClick={() =>
-            setShowCustomDataModal(false)
-          }
-        >
-          <div
-            className="
-              flex max-h-[92vh]
-              w-[min(980px,96vw)]
-              flex-col overflow-hidden
-              rounded-3xl border
-              border-slate-200 bg-white
-              shadow-2xl
-              dark:border-slate-700
-              dark:bg-slate-900
-            "
-            onClick={(event) =>
-              event.stopPropagation()
-            }
-          >
-            {/* HEADER */}
-            <div
-              className="
-                flex shrink-0
-                items-center justify-between
-                border-b border-slate-200
-                px-7 py-6
-                dark:border-slate-700
-              "
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="
-                    flex h-11 w-11
-                    shrink-0 items-center
-                    justify-center rounded-2xl
-                    bg-blue-100 text-blue-600
-                    dark:bg-blue-500/15
-                    dark:text-blue-300
-                  "
-                >
-                  <Database size={21} />
-                </div>
-
-                <div>
-                  <h3
-                    className="
-                      text-xl font-bold
-                      text-slate-900
-                      dark:text-white
-                    "
-                  >
-                    Add Custom Data Source
-                  </h3>
-
-                  <p
-                    className="
-                      mt-1 text-sm
-                      text-slate-500
-                      dark:text-slate-300
-                    "
-                  >
-                    Choose a real Influx source, then define how it should appear in the dashboard.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setShowCustomDataModal(false)
-                }
-                className="
-                  rounded-xl p-2
-                  text-slate-400 transition
-                  hover:bg-slate-100
-                  hover:text-slate-700
-                  dark:hover:bg-slate-800
-                  dark:hover:text-white
-                "
-                aria-label="Close custom data source form"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* SCROLLABLE BODY */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-7">
-              <div className="space-y-5">
-                {/* SOURCE FORM */}
-                <div
-                  className="
-                    rounded-3xl border
-                    border-slate-200 bg-white
-                    p-5 shadow-sm
-                    dark:border-slate-700
-                    dark:bg-slate-900
-                  "
-                >
-                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h4
-                        className="
-                          text-sm font-black
-                          text-slate-900
-                          dark:text-white
-                        "
-                      >
-                        Influx Source
-                      </h4>
-
-                      <p
-                        className="
-                          mt-1 text-xs
-                          text-slate-500
-                          dark:text-slate-400
-                        "
-                      >
-                        Select a bucket, measurement, device ID, and channel.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={refreshInfluxMetadata}
-                      disabled={influxLoading}
-                      className="
-                        inline-flex items-center
-                        justify-center gap-2
-                        rounded-xl bg-slate-800
-                        px-4 py-2.5
-                        text-xs font-black
-                        text-white transition
-                        hover:bg-slate-700
-                        disabled:cursor-not-allowed
-                        disabled:opacity-60
-                        dark:bg-slate-700
-                        dark:hover:bg-slate-600
-                      "
-                    >
-                      <RefreshCw
-                        size={14}
-                        className={
-                          influxLoading
-                            ? "animate-spin"
-                            : ""
-                        }
-                      />
-                      Refresh metadata
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Bucket
-                      </span>
-
-                      <select
-                        value={influxConfig.bucket}
-                        disabled={
-                          isOrganizationAdmin ||
-                          influxLoading
-                        }
-                        onChange={(event) =>
-                          setInfluxConfig((current) => ({
-                            ...current,
-                            bucket: event.target.value,
-                            measurement: "",
-                            id: "",
-                            tagValue: "",
-                          }))
-                        }
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          font-mono text-sm
-                          text-slate-900 outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          disabled:cursor-not-allowed
-                          disabled:opacity-70
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      >
-                        <option value="">
-                          Select available bucket
-                        </option>
-
-                        {influxBuckets.map((bucket) => (
-                          <option
-                            key={bucket}
-                            value={bucket}
-                          >
-                            {bucket}
-                          </option>
-                        ))}
-
-                        {influxConfig.bucket &&
-                          !influxBuckets.includes(
-                            influxConfig.bucket
-                          ) && (
-                            <option
-                              value={influxConfig.bucket}
-                            >
-                              {influxConfig.bucket}
-                            </option>
-                          )}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Measurement
-                      </span>
-
-                      <select
-                        value={influxConfig.measurement}
-                        disabled={
-                          isOrganizationAdmin ||
-                          influxLoading ||
-                          !influxConfig.bucket
-                        }
-                        onChange={(event) =>
-                          setInfluxConfig((current) => ({
-                            ...current,
-                            measurement:
-                              event.target.value,
-                            id: "",
-                            tagValue: "",
-                          }))
-                        }
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          font-mono text-sm
-                          text-slate-900 outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          disabled:cursor-not-allowed
-                          disabled:opacity-70
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      >
-                        <option value="">
-                          Select available measurement
-                        </option>
-
-                        {influxMeasurements.map(
-                          (measurement) => (
-                            <option
-                              key={measurement}
-                              value={measurement}
-                            >
-                              {measurement}
-                            </option>
-                          )
-                        )}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Device ID
-                      </span>
-
-                      <select
-                        value={
-                          influxConfig.tagValue ||
-                          influxConfig.id
-                        }
-                        disabled={
-                          isOrganizationAdmin ||
-                          influxLoading ||
-                          !influxConfig.measurement
-                        }
-                        onChange={(event) =>
-                          setInfluxConfig((current) => ({
-                            ...current,
-                            id: event.target.value,
-                            tagValue:
-                              event.target.value,
-                          }))
-                        }
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          font-mono text-sm
-                          text-slate-900 outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          disabled:cursor-not-allowed
-                          disabled:opacity-70
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      >
-                        <option value="">
-                          Select available device ID
-                        </option>
-
-                        {influxIds.map((id) => (
-                          <option key={id} value={id}>
-                            {id}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Influx Channel
-                      </span>
-
-                      <select
-                        value={customDataDraft.channel}
-                        disabled={
-                          influxLoading ||
-                          !influxConfig.measurement
-                        }
-                        onChange={(event) =>
-                          setCustomDataDraft(
-                            (current) => ({
-                              ...current,
-                              channel:
-                                event.target.value,
-                            })
-                          )
-                        }
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          font-mono text-sm
-                          text-slate-900 outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          disabled:cursor-not-allowed
-                          disabled:opacity-70
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      >
-                        <option value="">
-                          Select available channel
-                        </option>
-
-                        {influxChannels.map(
-                          (channel) => (
-                            <option
-                              key={channel}
-                              value={channel}
-                            >
-                              {channel}
-                            </option>
-                          )
-                        )}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div
-                    className="
-                      mt-5 rounded-2xl
-                      border border-blue-100
-                      bg-blue-50 px-4 py-3
-                      text-xs text-blue-700
-                      dark:border-blue-900/70
-                      dark:bg-blue-950/35
-                      dark:text-blue-200
-                    "
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-semibold">
-                        {influxLoading
-                          ? "Loading available Influx metadata..."
-                          : `${influxBuckets.length} bucket(s) · ${influxMeasurements.length} measurement(s) · ${influxIds.length} device ID(s) · ${influxChannels.length} channel(s)`}
-                      </span>
-
-                      {influxError && (
-                        <span className="font-semibold text-red-500 dark:text-red-300">
-                          {influxError}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* METADATA BROWSER */}
-                <div
-                  className="
-                    rounded-3xl border
-                    border-slate-200 bg-white
-                    p-5 shadow-sm
-                    dark:border-slate-700
-                    dark:bg-slate-900
-                  "
-                >
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <h4
-                        className="
-                          text-sm font-black
-                          text-slate-900
-                          dark:text-white
-                        "
-                      >
-                        Available Influx Sources
-                      </h4>
-
-                      <p
-                        className="
-                          mt-1 text-xs
-                          text-slate-500
-                          dark:text-slate-400
-                        "
-                      >
-                        Browse the metadata detected in InfluxDB. Selecting an item updates the source fields above.
-                      </p>
-                    </div>
-
-                    <Database
-                      size={18}
-                      className="shrink-0 text-blue-500"
-                    />
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <InfluxMetadataList
-                      title="Buckets"
-                      values={influxBuckets}
-                      activeValue={
-                        influxConfig.bucket
-                      }
-                      emptyText="No buckets found"
-                      onSelect={(value) =>
-                        setInfluxConfig(
-                          (current) => ({
-                            ...current,
-                            bucket: value,
-                            measurement: "",
-                            id: "",
-                            tagValue: "",
-                          })
-                        )
-                      }
-                    />
-
-                    <InfluxMetadataList
-                      title="Measurements"
-                      values={influxMeasurements}
-                      activeValue={
-                        influxConfig.measurement
-                      }
-                      emptyText={
-                        influxConfig.bucket
-                          ? "No measurements found"
-                          : "Select a bucket first"
-                      }
-                      onSelect={(value) =>
-                        setInfluxConfig(
-                          (current) => ({
-                            ...current,
-                            measurement: value,
-                            id: "",
-                            tagValue: "",
-                          })
-                        )
-                      }
-                    />
-
-                    <InfluxMetadataList
-                      title="Device IDs"
-                      values={influxIds}
-                      activeValue={
-                        influxConfig.tagValue ||
-                        influxConfig.id
-                      }
-                      emptyText={
-                        influxConfig.measurement
-                          ? "No device IDs found"
-                          : "Select a measurement first"
-                      }
-                      onSelect={(value) =>
-                        setInfluxConfig(
-                          (current) => ({
-                            ...current,
-                            id: value,
-                            tagValue: value,
-                          })
-                        )
-                      }
-                    />
-
-                    <InfluxMetadataList
-                      title="Channels"
-                      values={influxChannels}
-                      activeValue={
-                        customDataDraft.channel
-                      }
-                      emptyText={
-                        influxConfig.measurement
-                          ? "No channels found"
-                          : "Select a measurement first"
-                      }
-                      onSelect={(value) =>
-                        setCustomDataDraft(
-                          (current) => ({
-                            ...current,
-                            channel: value,
-                          })
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-
-                {/* DASHBOARD SETTINGS */}
-                <div
-                  className="
-                    rounded-3xl border
-                    border-slate-200 bg-white
-                    p-5 shadow-sm
-                    dark:border-slate-700
-                    dark:bg-slate-900
-                  "
-                >
-                  <div className="mb-4">
-                    <h4
-                      className="
-                        text-sm font-black
-                        text-slate-900
-                        dark:text-white
-                      "
-                    >
-                      Dashboard Data Source
-                    </h4>
-
-                    <p
-                      className="
-                        mt-1 text-xs
-                        text-slate-500
-                        dark:text-slate-400
-                      "
-                    >
-                      Give the selected Influx channel a readable dashboard name and optional unit.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          uppercase tracking-wider
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Dashboard display name
-                      </span>
-
-                      <input
-                        type="text"
-                        value={customDataDraft.label}
-                        onChange={(event) =>
-                          setCustomDataDraft(
-                            (current) => ({
-                              ...current,
-                              label:
-                                event.target.value,
-                            })
-                          )
-                        }
-                        placeholder="e.g. Sterilizer Door Pressure"
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          text-sm text-slate-900
-                          outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      />
-                    </label>
-
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          uppercase tracking-wider
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Dashboard key
-                      </span>
-
-                      <input
-                        type="text"
-                        value={customDataDraft.key}
-                        list="dashboard-key-options"
-                        onChange={(event) =>
-                          setCustomDataDraft(
-                            (current) => ({
-                              ...current,
-                              key: event.target.value,
-                            })
-                          )
-                        }
-                        placeholder="Auto generated if empty"
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          text-sm text-slate-900
-                          outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      />
-
-                      <p className="mt-1 text-[11px] text-slate-400">
-                        Example: doorPressure, sterilizerTemp, oilFlowrate.
-                      </p>
-                    </label>
-
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          uppercase tracking-wider
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Unit
-                      </span>
-
-                      <input
-                        type="text"
-                        value={customDataDraft.unit}
-                        list="unit-options"
-                        onChange={(event) =>
-                          setCustomDataDraft(
-                            (current) => ({
-                              ...current,
-                              unit:
-                                event.target.value,
-                            })
-                          )
-                        }
-                        placeholder="Optional, e.g. bar / °C / %"
-                        className="
-                          mt-2 w-full rounded-2xl
-                          border border-slate-300
-                          bg-white px-4 py-3
-                          text-sm text-slate-900
-                          outline-none
-                          focus:ring-2
-                          focus:ring-blue-500
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
-                      />
-                    </label>
-
-                    <div
-                      className="
-                        rounded-2xl border
-                        border-emerald-100
-                        bg-emerald-50 p-4
-                        text-sm text-emerald-800
-                        dark:border-emerald-900/60
-                        dark:bg-emerald-950/30
-                        dark:text-emerald-200
-                      "
-                    >
-                      After saving, this source appears in widget selection and template channel mapping.
-                    </div>
-                  </div>
-                </div>
-
-                <datalist id="dashboard-key-options">
-                  {allDataOptions.map((option) => (
-                    <option
-                      key={option.key}
-                      value={option.key}
-                    >
-                      {option.label}
-                    </option>
-                  ))}
-                </datalist>
-
-                <datalist id="unit-options">
-                  {commonUnitOptions.map((unit) => (
-                    <option
-                      key={unit || "none"}
-                      value={unit}
-                    />
-                  ))}
-                </datalist>
-              </div>
-            </div>
-
-            {/* FOOTER */}
-            <div
-              className="
-                flex shrink-0
-                items-center justify-end gap-3
-                border-t border-slate-200
-                bg-slate-50/70 px-7 py-5
-                dark:border-slate-700
-                dark:bg-slate-950/40
-              "
-            >
-              <button
-                type="button"
-                onClick={() =>
-                  setShowCustomDataModal(false)
-                }
-                className="
-                  rounded-2xl border
-                  border-slate-300 bg-white
-                  px-5 py-3 text-sm
-                  font-semibold text-slate-700
-                  transition hover:bg-slate-100
-                  dark:border-slate-600
-                  dark:bg-slate-800
-                  dark:text-white
-                  dark:hover:bg-slate-700
-                "
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={addCustomDataSource}
-                className="
-                  inline-flex items-center gap-2
-                  rounded-2xl bg-blue-600
-                  px-5 py-3 text-sm
-                  font-semibold text-white
-                  shadow-lg shadow-blue-600/20
-                  transition hover:bg-blue-700
-                "
-              >
-                <Plus size={17} />
-                Add and Select Data Source
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
