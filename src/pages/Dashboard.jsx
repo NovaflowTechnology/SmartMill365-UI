@@ -6,7 +6,7 @@ import {
   Maximize2,
   Minimize2,
   LayoutGrid,
-  Activity,
+  Monitor,
   Pencil,
   Plus,
   FolderOpen,
@@ -259,6 +259,60 @@ const getTimeRangeLabel = (timeRange, customRange) => {
   );
 };
 
+
+const getDashboardCacheKey = (templateId) =>
+  `dashboard-last-known-data-${String(templateId || "default")}`;
+
+const readDashboardCache = (templateId) => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(
+      getDashboardCacheKey(templateId)
+    );
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !parsed.data ||
+      typeof parsed.data !== "object" ||
+      Array.isArray(parsed.data)
+    ) {
+      return null;
+    }
+
+    return parsed;
+  } catch (err) {
+    console.warn("⚠️ Failed to read dashboard cache:", err);
+    return null;
+  }
+};
+
+const writeDashboardCache = (templateId, snapshot) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      getDashboardCacheKey(templateId),
+      JSON.stringify(snapshot)
+    );
+  } catch (err) {
+    // LocalStorage may be unavailable or full. The live React state still
+    // keeps the last successful values for the current browser session.
+    console.warn("⚠️ Failed to write dashboard cache:", err);
+  }
+};
+
 export default function Dashboard({
   template,
   setFullscreen,
@@ -398,6 +452,11 @@ export default function Dashboard({
 
   const [dataError, setDataError] =
     useState("");
+
+  const [
+    lastSuccessfulUpdate,
+    setLastSuccessfulUpdate,
+  ] = useState(null);
 
   const layout =
     typeof template?.layout === "string"
@@ -701,14 +760,36 @@ export default function Dashboard({
   const isDarkMode = dark || detectedDark;
 
   // UPDATE TEMPLATE ITEMS WHEN TEMPLATE CHANGES
+  //
+  // Restore the last successful current readings from localStorage first.
+  // This lets the dashboard still show its last-known values after a browser
+  // refresh even if InfluxDB is temporarily unavailable.
   useEffect(() => {
     setItems(layout?.items || []);
-    setData({});
+
+    const cached =
+      readDashboardCache(
+        template?.id
+      );
+
+    if (cached) {
+      setData(cached.data || {});
+      setLastSuccessfulUpdate(
+        cached.timestamp || null
+      );
+    } else {
+      setData({});
+      setLastSuccessfulUpdate(null);
+    }
+
+    // History/logs are kept in memory during a temporary connection failure,
+    // but are not persisted to localStorage because long chart ranges can be
+    // too large for browser storage.
     setHistory([]);
     setLogs([]);
     setLiveStatus(null);
     setSankeyValues({});
-  }, [template]);
+  }, [template?.id]);
 
   // FETCH TEMPLATE-SPECIFIC LIVE DATA
   const fetchTemplateLiveData = async () => {
@@ -800,35 +881,111 @@ export default function Dashboard({
         throw requestError;
       }
 
-      const incoming = result?.data || {};
+      const incoming =
+        result?.data &&
+        typeof result.data === "object" &&
+        !Array.isArray(result.data)
+          ? result.data
+          : {};
 
-      setData(incoming);
-      setLiveStatus(result?.liveStatus || null);
-      setSankeyValues(result?.sankeyValues || {});
+      const hasIncomingData =
+        Object.keys(incoming).length > 0;
 
-      // Logs should be returned separately by the backend. The widget
-      // renderer also supports logs inside data.logs or liveStatus.logs,
-      // but keeping a dedicated state prevents them from being mixed with
-      // numeric channel values.
-      setLogs(
+      /*
+       * LAST-KNOWN-GOOD DATA
+       * --------------------
+       * Do not replace current readings with {} when the backend responds
+       * successfully but InfluxDB produced no usable values.
+       *
+       * Merge incoming fields so a temporarily missing channel does not wipe
+       * the previous value for the other channels.
+       */
+      if (hasIncomingData) {
+        const receivedAt =
+          new Date().toISOString();
+
+        setData((previous) => {
+          const merged = {
+            ...previous,
+            ...incoming,
+          };
+
+          writeDashboardCache(
+            template?.id,
+            {
+              data: merged,
+              timestamp: receivedAt,
+            }
+          );
+
+          return merged;
+        });
+
+        setLastSuccessfulUpdate(
+          receivedAt
+        );
+      }
+
+      if (result?.liveStatus) {
+        setLiveStatus(
+          result.liveStatus
+        );
+      }
+
+      if (
+        result?.sankeyValues &&
+        typeof result.sankeyValues === "object" &&
+        Object.keys(result.sankeyValues).length > 0
+      ) {
+        setSankeyValues(
+          result.sankeyValues
+        );
+      }
+
+      // Only replace logs when the backend actually returned a log array.
+      // A transient empty/missing log payload therefore does not erase the
+      // existing event list.
+      const incomingLogs =
         Array.isArray(result?.logs)
           ? result.logs
           : Array.isArray(result?.liveStatus?.logs)
           ? result.liveStatus.logs
           : Array.isArray(incoming?.logs)
           ? incoming.logs
-          : []
-      );
+          : null;
 
-      // Use real historical rows returned by InfluxDB. Do not build
-      // chart history from the current live reading on the browser.
-      setHistory(
-        Array.isArray(result?.history)
-          ? result.history
-          : []
-      );
+      if (incomingLogs !== null) {
+        setLogs(incomingLogs);
+      }
 
-      return true;
+      // Keep the currently displayed chart when a successful HTTP response
+      // contains no history rows. This is useful when Influx is momentarily
+      // unable to return the selected period.
+      if (
+        Array.isArray(result?.history) &&
+        result.history.length > 0
+      ) {
+        setHistory(result.history);
+      }
+
+      if (!hasIncomingData) {
+        const cachedTimestamp =
+          lastSuccessfulUpdate ||
+          readDashboardCache(
+            template?.id
+          )?.timestamp ||
+          null;
+
+        setDataError(
+          cachedTimestamp
+            ? `No new InfluxDB readings were returned. Showing last known data from ${new Date(
+                cachedTimestamp
+              ).toLocaleString()}.`
+            : "No new InfluxDB readings were returned."
+        );
+      }
+
+      return hasIncomingData;
     } catch (err) {
       console.error(
         "❌ Template live data error:",
@@ -843,11 +1000,27 @@ export default function Dashboard({
        * empty. Keep the last successful snapshot until the next request
        * succeeds.
        */
+      const cachedTimestamp =
+        lastSuccessfulUpdate ||
+        readDashboardCache(
+          template?.id
+        )?.timestamp ||
+        null;
+
+      const lastKnownText =
+        cachedTimestamp
+          ? ` Showing last known data from ${new Date(
+              cachedTimestamp
+            ).toLocaleString()}.`
+          : "";
+
       setDataError(
         err?.transient
-          ? "Live connection delayed. Showing the last successful data."
-          : err.message ||
-            "Unable to retrieve live data."
+          ? `Live connection delayed.${lastKnownText}`
+          : `${
+              err.message ||
+              "Unable to retrieve live data."
+            }${lastKnownText}`
       );
 
       return false;
@@ -940,7 +1113,7 @@ export default function Dashboard({
       <div
         className={`
           dashboard-page
-          ${isDarkMode ? "dark dashboard-dark bg-[#050a1e] text-slate-100" : ""}
+          ${isDarkMode ? "dark dashboard-dark bg-[#081022] text-slate-100" : ""}
           min-h-[calc(100vh-3rem)]
           w-full
           flex items-center
@@ -951,29 +1124,29 @@ export default function Dashboard({
         {isDarkMode && (
           <style>{`
             .dashboard-dark {
-              color: #e2e8f0;
-              background-color: #0b1120 !important;
+              color: #D8DEF1;
+              background-color: #0B1328 !important;
             }
 
             .dashboard-dark .text-gray-900,
             .dashboard-dark .text-gray-800,
             .dashboard-dark .text-gray-700 {
-              color: #f8fafc !important;
+              color: #F5F7FF !important;
             }
 
             .dashboard-dark .text-gray-600,
             .dashboard-dark .text-gray-500,
             .dashboard-dark .text-gray-400,
             .dashboard-dark .text-gray-300 {
-              color: #cbd5e1 !important;
+              color: #96A4C7 !important;
             }
 
             .dashboard-dark .bg-gray-100 {
-              background-color: #1e293b !important;
+              background-color: #1B2948 !important;
             }
 
             .dashboard-dark .hover\\:bg-gray-200:hover {
-              background-color: #334155 !important;
+              background-color: #2C3C61 !important;
             }
           `}</style>
         )}
@@ -1047,7 +1220,7 @@ export default function Dashboard({
                 justify-center
                 gap-2
                 px-5 py-3
-                rounded-[14px]
+                rounded-lg
                 bg-blue-600
                 hover:bg-emerald-700
                 text-white
@@ -1067,7 +1240,7 @@ export default function Dashboard({
                 justify-center
                 gap-2
                 px-5 py-3
-                rounded-[14px]
+                rounded-lg
                 bg-gray-100
                 hover:bg-gray-200
                 dark:bg-gray-700
@@ -1093,12 +1266,12 @@ export default function Dashboard({
       data-dashboard-mode={dashboardMode}
       className={`
         dashboard-page
-        ${isDarkMode ? "dark dashboard-dark bg-[#0b1120] text-slate-100" : "bg-[#eef1f5] text-slate-900"}
+        ${isDarkMode ? "dark dashboard-dark bg-[#0B1328] text-slate-100" : "bg-[#eef1f5] text-slate-900"}
         ${
           isFullscreen
             ? `
               fixed inset-0
-              ${isDarkMode ? "bg-[#0b1120]" : "bg-[#eef1f5]"}
+              ${isDarkMode ? "bg-[#0B1328]" : "bg-[#eef1f5]"}
               z-50
               flex flex-col
               overflow-y-auto
@@ -1108,7 +1281,7 @@ export default function Dashboard({
               min-h-0
               w-full
               flex flex-col
-              ${isDarkMode ? "bg-[#0b1120]" : "bg-[#eef1f5]"}
+              ${isDarkMode ? "bg-[#0B1328]" : "bg-[#eef1f5]"}
             `
         }
       `}
@@ -1116,37 +1289,37 @@ export default function Dashboard({
       {isDarkMode && (
         <style>{`
           .dashboard-dark {
-            color: #e2e8f0;
-            background-color: #0b1120 !important;
+            color: #D8DEF1;
+            background-color: #0B1328 !important;
           }
 
           .dashboard-dark * {
-            scrollbar-color: #334155 #020617;
+            scrollbar-color: #2C3C61 #081022;
           }
 
           .dashboard-dark .bg-white {
-            background-color: #0f172a !important;
+            background-color: #111B34 !important;
           }
 
           .dashboard-dark .bg-gray-50,
           .dashboard-dark .bg-gray-100 {
-            background-color: #0f172a !important;
+            background-color: #111B34 !important;
           }
 
           .dashboard-dark .bg-gray-200,
           .dashboard-dark .bg-gray-700 {
-            background-color: #1e293b !important;
+            background-color: #1B2948 !important;
           }
 
           .dashboard-dark .bg-gray-800,
           .dashboard-dark .bg-slate-800 {
-            background-color: #0f172a !important;
+            background-color: #111B34 !important;
           }
 
           .dashboard-dark .bg-gray-900,
           .dashboard-dark .bg-slate-900,
           .dashboard-dark .bg-slate-950 {
-            background-color: #111827 !important;
+            background-color: #101A31 !important;
           }
 
           .dashboard-dark .border-gray-200,
@@ -1154,56 +1327,56 @@ export default function Dashboard({
           .dashboard-dark .border-gray-600,
           .dashboard-dark .border-gray-700,
           .dashboard-dark .border-slate-700 {
-            border-color: #334155 !important;
+            border-color: #2C3C61 !important;
           }
 
           .dashboard-dark .text-gray-900,
           .dashboard-dark .text-gray-800,
           .dashboard-dark .text-gray-700 {
-            color: #f8fafc !important;
+            color: #F5F7FF !important;
           }
 
           .dashboard-dark .text-gray-600,
           .dashboard-dark .text-gray-500,
           .dashboard-dark .text-gray-400,
           .dashboard-dark .text-gray-300 {
-            color: #cbd5e1 !important;
+            color: #96A4C7 !important;
           }
 
           .dashboard-dark input,
           .dashboard-dark select,
           .dashboard-dark textarea {
-            color: #f8fafc !important;
-            background-color: #111827 !important;
-            border-color: #334155 !important;
+            color: #F5F7FF !important;
+            background-color: #101A31 !important;
+            border-color: #2C3C61 !important;
           }
 
           .dashboard-dark input::placeholder,
           .dashboard-dark textarea::placeholder {
-            color: #64748b !important;
+            color: #7180A4 !important;
           }
 
           .dashboard-dark option {
-            color: #f8fafc !important;
-            background-color: #111827 !important;
+            color: #F5F7FF !important;
+            background-color: #101A31 !important;
           }
 
           .dashboard-dark .hover\:bg-gray-50:hover,
           .dashboard-dark .hover\:bg-gray-100:hover,
           .dashboard-dark .dark\:hover\:bg-gray-700:hover,
           .dashboard-dark .dark\:hover\:bg-gray-800:hover {
-            background-color: #1e293b !important;
+            background-color: #1B2948 !important;
           }
 
           .dashboard-dark .recharts-cartesian-axis-tick-value,
           .dashboard-dark .recharts-text,
           .dashboard-dark .recharts-label {
-            fill: #cbd5e1 !important;
-            color: #cbd5e1 !important;
+            fill: #96A4C7 !important;
+            color: #96A4C7 !important;
           }
 
           .dashboard-dark .recharts-cartesian-grid line {
-            stroke: #334155 !important;
+            stroke: #2C3C61 !important;
           }
         `}</style>
       )}
@@ -1262,18 +1435,18 @@ export default function Dashboard({
           dark:bg-slate-900
           border border-slate-200
           dark:border-slate-700
-          shadow-[0_2px_8px_rgba(15,23,42,0.05)]
+          shadow-sm
 
           ${
             isFullscreen
               ? `
                 mb-1
-                rounded-[10px]
+                rounded-lg
                 px-2.5 py-1
               `
               : `
                 mb-1
-                rounded-[10px]
+                rounded-lg
                 px-3 py-1.5
               `
           }
@@ -1288,15 +1461,12 @@ export default function Dashboard({
           >
             <div
               className={`
-                rounded-full
-                border border-slate-200
-                bg-white
+                rounded-lg
+                bg-emerald-50
                 flex items-center
                 justify-center
                 text-emerald-600
-                shadow-sm
-                dark:border-slate-700
-                dark:bg-slate-800
+                dark:bg-emerald-500/10
                 dark:text-emerald-300
 
                 ${
@@ -1306,9 +1476,9 @@ export default function Dashboard({
                 }
               `}
             >
-              <Activity
-                size={15}
-                strokeWidth={2.25}
+              <Monitor
+                size={14}
+                strokeWidth={2}
               />
             </div>
 
@@ -1365,7 +1535,7 @@ export default function Dashboard({
               }
               className={`
                 inline-flex items-center gap-1.5
-                rounded-[10px]
+                rounded-lg
                 bg-white dark:bg-gray-900
                 border border-gray-200 dark:border-gray-700
                 text-gray-700 dark:text-gray-200
@@ -1418,7 +1588,7 @@ export default function Dashboard({
                   <button
                     type="button"
                     onClick={() => setShowTimeRangeMenu(false)}
-                    className="rounded-[14px] p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                    className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                     aria-label="Close time range menu"
                   >
                     <X size={18} />
@@ -1441,7 +1611,7 @@ export default function Dashboard({
                             setShowTimeRangeMenu(false);
                           }}
                           className={`
-                            w-full rounded-[14px] px-3 py-2 text-left text-sm transition
+                            w-full rounded-lg px-3 py-2 text-left text-sm transition
                             ${
                               timeRange === option.value
                                 ? "bg-emerald-600 text-white"
@@ -1470,7 +1640,7 @@ export default function Dashboard({
                             setShowTimeRangeMenu(false);
                           }}
                           className={`
-                            w-full rounded-[14px] px-3 py-2 text-left text-sm transition
+                            w-full rounded-lg px-3 py-2 text-left text-sm transition
                             ${
                               timeRange === option.value
                                 ? "bg-emerald-600 text-white"
@@ -1505,7 +1675,7 @@ export default function Dashboard({
                           from: event.target.value,
                         }))
                       }
-                      className="mb-4 w-full rounded-[14px] border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      className="mb-4 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     />
 
                     <label className="mb-2 block text-xs font-semibold text-gray-600 dark:text-gray-300">
@@ -1520,7 +1690,7 @@ export default function Dashboard({
                           to: event.target.value,
                         }))
                       }
-                      className="mb-4 w-full rounded-[14px] border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      className="mb-4 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     />
 
                     <button
@@ -1542,7 +1712,7 @@ export default function Dashboard({
                         setTimeRange("custom");
                         setShowTimeRangeMenu(false);
                       }}
-                      className="w-full rounded-[14px] bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                      className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
                     >
                       Apply custom range
                     </button>
@@ -1562,7 +1732,7 @@ export default function Dashboard({
                 inline-flex h-7
                 items-center
                 justify-center gap-1.5
-                rounded-[10px]
+                rounded-lg
                 border border-emerald-200
                 bg-emerald-50 px-2.5
                 text-[10px] font-bold
@@ -1593,7 +1763,7 @@ export default function Dashboard({
             className={`
               inline-flex items-center
               gap-1.5
-              rounded-[10px]
+              rounded-lg
               bg-white
               hover:bg-gray-50
               dark:bg-gray-900
@@ -1640,7 +1810,7 @@ export default function Dashboard({
             className={`
               inline-flex items-center
               gap-1.5
-              rounded-[10px]
+              rounded-lg
               bg-white
               hover:bg-gray-50
               dark:bg-gray-900
@@ -1684,7 +1854,7 @@ export default function Dashboard({
         <div
           className="
             mb-2
-            rounded-[10px]
+            rounded-lg
             border border-red-200
             dark:border-red-800
             bg-red-50

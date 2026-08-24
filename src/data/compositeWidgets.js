@@ -71,23 +71,15 @@ export const COMPOSITE_PRESETS = [
     minSources: 2,
   },
 
-  {
-    id: "stat-status",
-    label: "Stat + Data Status",
-    description:
-      "Live KPI together with device health.",
-    primaryType: "bignumber",
-    secondaryType: "status",
-    defaultLayout: "horizontal",
-    defaultRatio: 44,
-    minSources: 1,
-  },
 ];
 
 export const DEFAULT_COMPOSITE_CONFIG = {
   preset: "stat-line",
   layout: "vertical",
   ratio: 34,
+
+  primaryConfig: {},
+  secondaryConfig: {},
 };
 
 export const getCompositePreset = (

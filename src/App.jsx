@@ -7,11 +7,16 @@ import TemplateEditor from "./pages/TemplateEditor";
 import TemplateList from "./pages/TemplateList";
 import ImageWidgetEditor from "./pages/ImageWidgetEditor";
 import SankeyFlowEditor from "./pages/SankeyFlowEditor";
+import ProcessSimulator from "./pages/ProcessSimulator";
 import OrganizationManagement from "./pages/ManageOrganization";
 import DeviceManagement from "./pages/DeviceManagement";
 import Login from "./pages/Login";
 
 import ProtectedRoute from "./components/ProtectedRoute";
+import AppFeedback from "./components/AppFeedback";
+import { installLegacyAlertBridge } from "./utils/feedback";
+
+installLegacyAlertBridge();
 
 export default function App() {
   // PAGE
@@ -260,6 +265,26 @@ export default function App() {
         );
       }
 
+      // PALM OIL PROCESS SIMULATOR
+      case "process-simulator":
+        return (
+          <ProtectedRoute>
+            <Layout
+              setPage={handleNavigate}
+              currentPage={page}
+              fullscreen={fullscreen}
+              showSidebar={true}
+              dark={dark}
+              toggleTheme={toggleTheme}
+            >
+              <ProcessSimulator
+                template={selectedTemplate}
+                dark={dark}
+              />
+            </Layout>
+          </ProtectedRoute>
+        );
+
       // TEMPLATE BUILDER
       case "builder":
         return (
@@ -465,5 +490,13 @@ export default function App() {
     }
   };
 
-  return renderPage();
+  return (
+    <>
+      <div key={page} className="app-route-frame">
+        {renderPage()}
+      </div>
+
+      <AppFeedback />
+    </>
+  );
 }

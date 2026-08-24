@@ -48,9 +48,9 @@ export default function LinearGaugeWidget({
       : "normal";
 
   const statusMeta = {
-    normal: { label: "Normal", color: TECH_ACCENT.lime, text: "text-[#638f2d] dark:text-[#A4C65A]" },
+    normal: { label: "Normal", color: TECH_ACCENT.lime, text: "text-cyan-700 dark:text-[#58D7FF]" },
     warning: { label: "Warning", color: "#D99D30", text: "text-amber-600 dark:text-amber-300" },
-    critical: { label: "Critical", color: TECH_ACCENT.plum, text: "text-[#8c365f] dark:text-[#d989a7]" },
+    critical: { label: "Critical", color: TECH_ACCENT.plum, text: "text-[#8c365f] dark:text-[#FF9AAE]" },
   }[status];
 
   return (
@@ -107,14 +107,14 @@ export default function LinearGaugeWidget({
             )}
           </div>
 
-          {/* Bullet-chart treatment inspired by the green editorial reference. */}
+          {/* Unified cyan → indigo → violet progress treatment. */}
           <div className="relative pt-4">
-            <div className="relative h-3 rounded-full bg-[#E8ECE5] dark:bg-[#283028]">
+            <div className="relative h-3 rounded-full bg-[#E8EDF5] dark:bg-[#223253]">
               <div
                 className="h-full rounded-full transition-[width] duration-500"
                 style={{
                   width: `${percentage}%`,
-                  background: `linear-gradient(90deg, ${TECH_ACCENT.olive}, ${TECH_ACCENT.lime}, ${TECH_ACCENT.forest})`,
+                  background: `linear-gradient(90deg, ${TECH_ACCENT.lime}, ${TECH_ACCENT.forest}, ${TECH_ACCENT.berry})`,
                 }}
               />
 
@@ -124,7 +124,7 @@ export default function LinearGaugeWidget({
                 title={`Warning ${warning}`}
               />
               <div
-                className="absolute -top-3 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#6D254D]"
+                className="absolute -top-3 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#FF6F88]"
                 style={{ left: `${dangerPercent}%` }}
                 title={`Danger ${danger}`}
               />

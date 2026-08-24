@@ -79,8 +79,8 @@ export default function GaugeWidget({
     normal: {
       label: "Normal",
       color: TECH_ACCENT.lime,
-      text: "text-[#5f8f25] dark:text-[#A4C65A]",
-      bg: "bg-[#7CB342]/10",
+      text: "text-cyan-700 dark:text-[#58D7FF]",
+      bg: "bg-[#58D7FF]/10",
     },
     warning: {
       label: "Warning",
@@ -91,8 +91,8 @@ export default function GaugeWidget({
     critical: {
       label: "Critical",
       color: TECH_ACCENT.plum,
-      text: "text-[#8c365f] dark:text-[#d989a7]",
-      bg: "bg-[#6D254D]/10",
+      text: "text-[#8c365f] dark:text-[#FF9AAE]",
+      bg: "bg-[#FF6F88]/10",
     },
   }[status];
 
@@ -175,9 +175,9 @@ export default function GaugeWidget({
                 y2="126"
                 gradientUnits="userSpaceOnUse"
               >
-                <stop offset="0%" stopColor="#A4C65A" />
-                <stop offset="58%" stopColor="#7CB342" />
-                <stop offset="100%" stopColor="#2E7D32" />
+                <stop offset="0%" stopColor="#58D7FF" />
+                <stop offset="58%" stopColor="#7D75E7" />
+                <stop offset="100%" stopColor="#A86BDF" />
               </linearGradient>
             </defs>
 
@@ -188,7 +188,8 @@ export default function GaugeWidget({
                 y1={tick.iy}
                 x2={tick.x}
                 y2={tick.y}
-                stroke="#CBD5C5"
+                stroke="#CBD5E1"
+                className="dark:[stroke:#3A4A70]"
                 strokeWidth={tick.major ? 1.6 : 1}
                 opacity={tick.major ? 0.9 : 0.55}
               />
@@ -199,10 +200,10 @@ export default function GaugeWidget({
                 cx + radius
               } ${cy}`}
               fill="none"
-              stroke="#EDF0EA"
+              stroke="#E8EDF5"
               strokeWidth="16"
               strokeLinecap="round"
-              className="dark:[stroke:#273029]"
+              className="dark:[stroke:#223253]"
             />
 
             <path

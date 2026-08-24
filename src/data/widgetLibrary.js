@@ -112,15 +112,6 @@ export const widgetLibrary = [
   },
 
   {
-    type: "status",
-    label: "Data Status",
-    description:
-      "Display device health, connection status, and data freshness.",
-    icon: Radio,
-    supportedData: [],
-  },
-
-  {
     type: "image",
     label: "Image",
     description:
@@ -129,21 +120,3 @@ export const widgetLibrary = [
     supportedData: [],
   },
 ];
-
-/**
- * Original Channel Mapping from Novaflow
- *
- * ch1:  steamPressure
- * ch2:  steamFlowrate
- * ch3:  steamOutletTemp
- * ch4:  inletDraft
- * ch5:  outletDraft
- * ch6:  furnaceDraft
- *
- * ch8:  waterInletTemp
- * ch9:  waterFlowrate
- * ch10: waterDrumLevel
- * ch11: vgPressure
- * ch12: vgInletTemp
- * ch13: vgOutletTemp
- */

@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { widgetLibrary } from "../data/widgetLibrary";
 import WidgetRenderer from "../components/WidgetRenderer";
-import { defaultSankeyConfig } from "../widgets/SankeyWidget";
+import {
+  defaultSankeyConfig,
+  normalizeSankeyConfig as normalizeSankeyGraphConfig,
+  getSankeyDataKeys as getSankeyGraphDataKeys,
+} from "../widgets/SankeyWidget";
+import { confirmAction } from "../utils/feedback";
 import {
   filterMeasurementsByGroup,
   formatMeasurementLabel,
@@ -31,12 +36,65 @@ import {
   ChevronRight,
   Check,
   ScrollText,
+  Scan,
+  MoveHorizontal,
 } from "lucide-react";
 
 const GRID_MIN_ROWS = 1;
 const GRID_MIN_COLS = 1;
 const GRID_MAX_ROWS = 12;
 const GRID_MAX_COLS = 12;
+
+// Shared Designer/Dashboard geometry. Widget Studio uses these same values so
+// its preview box is the exact size the widget will occupy after it is added.
+const DESIGNER_GRID_GAP_PX = 8;
+const DASHBOARD_GRID_ROW_HEIGHT_PX = 235;
+const FIT_MIN_CELL_WIDTH_PX = 28;
+const SCROLL_REFERENCE_COLUMNS = 4;
+const SCROLL_MIN_CELL_WIDTH_PX = 180;
+const SCROLL_MAX_CELL_WIDTH_PX = 320;
+
+const getDesignerCellWidth = (mode, viewportWidth, columnCount) => {
+  const safeViewportWidth = Math.max(0, Number(viewportWidth) || 0);
+  const safeColumnCount = Math.max(1, Number(columnCount) || 1);
+
+  if (mode === "scroll") {
+    return Math.round(
+      Math.max(
+        SCROLL_MIN_CELL_WIDTH_PX,
+        Math.min(
+          SCROLL_MAX_CELL_WIDTH_PX,
+          (
+            safeViewportWidth -
+            Math.max(0, SCROLL_REFERENCE_COLUMNS - 1) * DESIGNER_GRID_GAP_PX
+          ) / SCROLL_REFERENCE_COLUMNS
+        )
+      )
+    );
+  }
+
+  return Math.max(
+    FIT_MIN_CELL_WIDTH_PX,
+    (
+      safeViewportWidth -
+      Math.max(0, safeColumnCount - 1) * DESIGNER_GRID_GAP_PX
+    ) / safeColumnCount
+  );
+};
+
+const getDesignerWidgetPixelSize = (widthUnits, heightUnits, cellWidth) => {
+  const safeWidthUnits = Math.max(1, Number(widthUnits) || 1);
+  const safeHeightUnits = Math.max(1, Number(heightUnits) || 1);
+
+  return {
+    width:
+      safeWidthUnits * cellWidth +
+      Math.max(0, safeWidthUnits - 1) * DESIGNER_GRID_GAP_PX,
+    height:
+      safeHeightUnits * DASHBOARD_GRID_ROW_HEIGHT_PX +
+      Math.max(0, safeHeightUnits - 1) * DESIGNER_GRID_GAP_PX,
+  };
+};
 
 const sizeOptions = [
   { label: "1×1", w: 1, h: 1 },
@@ -95,7 +153,7 @@ const defaultBigNumberDisplay = {
   decimals: 1,
   unit: "",
   alignment: "center",
-  valueSize: "large",
+  valueSize: "xlarge",
   valueColor: "default",
   trendThreshold: 0.5,
 
@@ -113,7 +171,7 @@ const defaultBigNumberDisplay = {
     {
       value: 2,
       text: "AUTO",
-      color: "green",
+      color: "cyan",
     },
     {
       value: 3,
@@ -158,16 +216,20 @@ const defaultLogDisplay = {
 
 const defaultChartDisplay = {
   showGrid: true,
+  gridDensity: "normal",
   showLegend: true,
   showTooltip: true,
   showXAxis: true,
   showYAxis: true,
   showDots: false,
   xAxisFormat: "auto",
-  xAxisTickGap: 30,
-  yAxisMode: "range",
+  xAxisTickGap: 56,
+  // Smart Auto fits steady data, but includes zero when values reach/cross/approach it.
+  yAxisMode: "auto",
   yAxisMin: "",
   yAxisMax: "",
+  // Used by Fixed Scale. Blank keeps the interval automatic.
+  yAxisInterval: "",
   yAxisTickCount: 5,
   strokeWidth: 2.5,
   lineWeight: "normal",
@@ -179,9 +241,95 @@ const defaultChartDisplay = {
   chartStyle: "line", // "line" | "area"
   areaOpacity: 0.34,
   areaEndOpacity: 0.025,
+
+  compactLegend: true,
+  showLatestValues: true,
+  showZeroLine: false,
+  autoScalePerSeries: false,
 };
 
 const defaultHistoryWindow = "15m";
+
+const createDefaultCompositePartConfig = () => ({
+  label: "",
+  dataKey: "",
+  dataKeys: [],
+  sourceMode: "all", // "all" | "custom" for multi-source children
+
+  bigNumberDisplay: {
+    ...defaultBigNumberDisplay,
+    mode: "number",
+    mappings: defaultBigNumberDisplay.mappings.map((mapping) => ({
+      ...mapping,
+    })),
+  },
+
+  rangeConfig: {
+    ...defaultRangeConfig,
+  },
+
+  chartDisplay: {
+    ...defaultChartDisplay,
+    showLatestValues: false,
+    compactLegend: true,
+  },
+
+  historyWindow: defaultHistoryWindow,
+  orientation: "vertical",
+
+  pieDisplay: {
+    showLegend: true,
+    showTotal: true,
+    showTooltip: true,
+    legendPosition: "auto",
+  },
+});
+
+const normalizeCompositePartConfig = (config = {}) => {
+  const defaults = createDefaultCompositePartConfig();
+
+  return {
+    ...defaults,
+    ...config,
+
+    bigNumberDisplay: {
+      ...defaults.bigNumberDisplay,
+      ...(config.bigNumberDisplay || {}),
+      mappings: Array.isArray(config.bigNumberDisplay?.mappings)
+        ? config.bigNumberDisplay.mappings.map((mapping) => ({ ...mapping }))
+        : defaults.bigNumberDisplay.mappings.map((mapping) => ({ ...mapping })),
+    },
+
+    rangeConfig: {
+      ...defaults.rangeConfig,
+      ...(config.rangeConfig || {}),
+    },
+
+    chartDisplay: {
+      ...defaults.chartDisplay,
+      ...(config.chartDisplay || {}),
+      yAxisMode: ["fixed", "custom", "range"].includes(
+        config.chartDisplay?.yAxisMode
+      )
+        ? "fixed"
+        : "auto",
+    },
+
+    pieDisplay: {
+      ...defaults.pieDisplay,
+      ...(config.pieDisplay || {}),
+    },
+
+    dataKeys: Array.isArray(config.dataKeys) ? [...config.dataKeys] : [],
+  };
+};
+
+const normalizeCompositeConfig = (config = {}) => ({
+  ...DEFAULT_COMPOSITE_CONFIG,
+  ...config,
+  primaryConfig: normalizeCompositePartConfig(config.primaryConfig || {}),
+  secondaryConfig: normalizeCompositePartConfig(config.secondaryConfig || {}),
+});
 
 const previewLogs = [
   {
@@ -231,7 +379,7 @@ const supportsRangeConfiguration = (
   displayMode = "number"
 ) => {
   if (
-    ["image", "status", "sankey", "logs"].includes(type)
+    ["image", "sankey", "logs"].includes(type)
   ) {
     return false;
   }
@@ -387,7 +535,7 @@ const InfluxMetadataList = ({
 }) => (
   <div
     className="
-      min-w-0 rounded-2xl border
+      min-w-0 rounded-xl border
       border-slate-200 bg-slate-50 p-3
       dark:border-slate-700
       dark:bg-slate-950/70
@@ -558,12 +706,68 @@ export default function TemplateDesigner({
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(4);
 
-  // Available viewport space below the builder controls.
-  // Small grids stretch to fill the page; large grids grow and scroll.
+  /*
+   * Canvas viewing preference only.
+   *
+   * "fit"
+   *   - all columns remain inside the available page width
+   *   - cells shrink proportionally and remain landscape
+   *
+   * "scroll"
+   *   - each column keeps a comfortable minimum width
+   *   - horizontal scrolling appears when necessary
+   *
+   * This is intentionally NOT stored inside the template layout.
+   */
   const [
-    gridViewportHeight,
-    setGridViewportHeight,
-  ] = useState(520);
+    canvasMode,
+    setCanvasMode,
+  ] = useState(() => {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return "scroll";
+    }
+
+    /*
+     * V2 preference key intentionally ignores the older saved "fit"
+     * preference once. Fixed-size editing is now the safer default because
+     * it never changes widget-box size when columns are added.
+     */
+    const stored =
+      window.localStorage.getItem(
+        "templateCanvasModeV2"
+      );
+
+    return stored === "fit"
+      ? "fit"
+      : "scroll";
+  });
+
+  useEffect(() => {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      "templateCanvasModeV2",
+      canvasMode
+    );
+  }, [canvasMode]);
+
+  // Width available to the template grid.
+  //
+  // Horizontal sizing still reacts to the available editor width, but
+  // vertical sizing intentionally matches the Dashboard card height.
+  // The designer is allowed to grow taller than the viewport and scroll.
+  const [
+    gridViewportWidth,
+    setGridViewportWidth,
+  ] = useState(1200);
 
   // STATES
   const [items, setItems] = useState([]);
@@ -618,8 +822,8 @@ export default function TemplateDesigner({
     useState([]);
 
   // The widget wizard now starts with Data Source.
-  // "Dedicated" is used for widgets such as Logs, Data Status,
-  // Image and Sankey that do not select a normal single Influx field.
+  // "Dedicated" is used for widgets such as Logs, Image and Sankey
+  // that do not select a normal single Influx field.
   const [
     useDedicatedWidgetSource,
     setUseDedicatedWidgetSource,
@@ -635,6 +839,31 @@ export default function TemplateDesigner({
 
   const [newW, setNewW] = useState(1);
   const [newH, setNewH] = useState(1);
+
+  /*
+   * WIDGET STUDIO = ACTUAL ADDED SIZE
+   * ---------------------------------
+   * Do not scale the preview to the Studio pane. Use the exact same grid-cell
+   * width, 235px row height, and 8px gaps as the Template Designer canvas.
+   * If the real widget is larger than the preview pane, that pane scrolls.
+   */
+  const studioPreviewCellWidth = getDesignerCellWidth(
+    canvasMode,
+    gridViewportWidth,
+    cols
+  );
+
+  const studioPreviewPixelSize = getDesignerWidgetPixelSize(
+    newW,
+    newH,
+    studioPreviewCellWidth
+  );
+
+  const studioPreviewFrameSize = {
+    width: `${Math.round(studioPreviewPixelSize.width)}px`,
+    height: `${Math.round(studioPreviewPixelSize.height)}px`,
+    flexShrink: 0,
+  };
 
   const [
     newBigNumberDisplay,
@@ -669,9 +898,9 @@ export default function TemplateDesigner({
   const [
     newCompositeConfig,
     setNewCompositeConfig,
-  ] = useState({
-    ...DEFAULT_COMPOSITE_CONFIG,
-  });
+  ] = useState(() =>
+    normalizeCompositeConfig()
+  );
 
   const [customDataOptions, setCustomDataOptions] = useState([]);
 
@@ -1124,11 +1353,13 @@ export default function TemplateDesigner({
     setCols(Number(snapshot.cols) || 4);
     setTemplateName(snapshot.templateName || "");
     setItems(
-      Array.isArray(nextItems)
-        ? nextItems
-        : Array.isArray(snapshot.items)
-        ? snapshot.items
-        : []
+      (
+        Array.isArray(nextItems)
+          ? nextItems
+          : Array.isArray(snapshot.items)
+          ? snapshot.items
+          : []
+      ).filter((item) => item?.type !== "status")
     );
     setInfluxConfig({
       ...defaultInfluxConfig,
@@ -1171,7 +1402,11 @@ export default function TemplateDesigner({
       setTemplateName(selectedTemplate.name || "");
       setRows(layout?.rows || 3);
       setCols(layout?.cols || 4);
-      setItems(Array.isArray(layout?.items) ? layout.items : []);
+      setItems(
+        Array.isArray(layout?.items)
+          ? layout.items.filter((item) => item?.type !== "status")
+          : []
+      );
 
       const savedInflux = {
         ...defaultInfluxConfig,
@@ -1295,7 +1530,9 @@ export default function TemplateDesigner({
 
       setCustomWidgetTypes(
         Array.isArray(layout?.customWidgetTypes)
-          ? layout.customWidgetTypes
+          ? layout.customWidgetTypes.filter(
+              (widget) => widget?.baseType !== "status"
+            )
           : []
       );
 
@@ -1323,25 +1560,26 @@ export default function TemplateDesigner({
       baseType: widget.type,
       isCustomWidgetType: false,
     })),
-    ...customWidgetTypes.map((widget) => ({
-      ...widget,
-      type: widget.baseType,
-      optionId: widget.id,
-      icon: LayoutGrid,
-      isCustomWidgetType: true,
-    })),
+    ...customWidgetTypes
+      .filter((widget) => widget?.baseType !== "status")
+      .map((widget) => ({
+        ...widget,
+        type: widget.baseType,
+        optionId: widget.id,
+        icon: LayoutGrid,
+        isCustomWidgetType: true,
+      })),
   ];
 
   const dedicatedWidgetTypes = [
     "image",
     "sankey",
     "logs",
-    "status",
   ];
 
   // Data-bound widgets are shown after selecting one or more process fields.
   // Dedicated widgets are shown after choosing the "System / Dedicated Widget"
-  // option in Step 1, so Logs and Data Status never ask for a direct field.
+  // option in Step 1, so Logs, Image and Sankey can use their own configuration.
   const wizardWidgetOptions = allWidgetOptions.filter((widget) =>
     useDedicatedWidgetSource
       ? dedicatedWidgetTypes.includes(widget.type)
@@ -1361,10 +1599,9 @@ export default function TemplateDesigner({
 
   const getAvailableDataOptionsForType = (type) => {
     // These widgets do not ask the user to select a direct field:
-    // - Data Status derives connection / field-health information from the mapped device.
     // - Logs uses its own log configuration.
     // - Image and Sankey use their dedicated editors.
-    if (["image", "sankey", "logs", "status"].includes(type)) {
+    if (["image", "sankey", "logs"].includes(type)) {
       return [];
     }
 
@@ -1390,137 +1627,108 @@ export default function TemplateDesigner({
 
   const [sankeyConfig, setSankeyConfig] = useState(defaultSankeyConfig);
 
-  const getSankeyOutputs = (config = sankeyConfig) => {
-    if (Array.isArray(config?.outputs)) {
-      return config.outputs;
-    }
+  const getSankeyGraph = (config = sankeyConfig) =>
+    normalizeSankeyGraphConfig(
+      config || defaultSankeyConfig
+    );
 
-    // Backward compatibility for the old nodes + links Sankey format.
-    if (Array.isArray(config?.links)) {
-      const nodeMap = new Map(
-        (Array.isArray(config?.nodes) ? config.nodes : []).map((node) => [
-          node.id,
-          node,
-        ])
-      );
+  // Kept under the old helper name because several Designer sections use it
+  // for counts. In the new Sankey model these are graph LINKS, not outputs.
+  const getSankeyOutputs = (config = sankeyConfig) =>
+    getSankeyGraph(config).links || [];
 
-      return config.links.map((link, index) => {
-        const targetNode = nodeMap.get(link.target);
-
-        return {
-          id: link.id || `output-${index + 1}`,
-          name:
-            targetNode?.name ||
-            link.label ||
-            `Sterilizer ${index + 1}`,
-          dataKey: link.dataKey || "",
-          dataSource: {
-            bucket: influxConfig.bucket || "",
-            measurement: influxConfig.measurement || "",
-            tagKey: influxConfig.tagKey || "id",
-            tagValue: influxConfig.tagValue || influxConfig.id || "",
-            id: influxConfig.id || "",
-            channel: link.channel || channelMap?.[link.dataKey] || "",
-          },
-        };
-      });
-    }
-
-    return [];
-  };
-
-  const getSankeyDataKeys = (config = sankeyConfig) => [
-    ...new Set(
-      getSankeyOutputs(config)
-        .map((output) => output.dataKey)
-        .filter(Boolean)
-    ),
-  ];
+  const getSankeyDataKeys = (config = sankeyConfig) =>
+    getSankeyGraphDataKeys(config);
 
   const getConfiguredSankeyOutputs = (config = sankeyConfig) =>
     getSankeyOutputs(config).filter(
-      (output) =>
-        output.name &&
-        (output.dataKey ||
-          output.dataSource?.channel)
+      (link) =>
+        link.dataKey ||
+        link.dataSource?.channel
     );
 
   const getSankeyOutputSummary = (config = sankeyConfig) => {
-    const configuredOutputs = getConfiguredSankeyOutputs(config);
+    const graph = getSankeyGraph(config);
+    const nodeMap = new Map(
+      graph.nodes.map((node) => [node.id, node])
+    );
+    const configuredLinks = getConfiguredSankeyOutputs(graph);
 
-    if (!configuredOutputs.length) {
-      return "No Sankey output configured";
+    if (!configuredLinks.length) {
+      return "No Sankey flow field configured";
     }
 
-    return configuredOutputs
-      .map((output) => {
-        const source =
-          output.dataKey ||
-          output.dataSource?.channel ||
+    return configuredLinks
+      .map((link) => {
+        const sourceName =
+          nodeMap.get(link.source)?.name || "Source";
+        const targetName =
+          nodeMap.get(link.target)?.name || "Target";
+        const field =
+          link.dataKey ||
+          link.dataSource?.channel ||
           "not configured";
 
-        return `${output.name || "Output"} (${source})`;
+        return `${sourceName} → ${targetName} (${field})`;
       })
-      .join(", " );
+      .join(", ");
   };
 
   const getPreparedSankeyConfig = () => {
-    const safeOutputs = getSankeyOutputs(sankeyConfig);
+    const graph = getSankeyGraph(sankeyConfig);
 
-    return {
-      sourceName:
-        sankeyConfig?.sourceName?.trim() || "Boiler A",
-
+    return normalizeSankeyGraphConfig({
       unit:
-        sankeyConfig?.unit?.trim() || "t/h",
+        graph.unit?.trim() ||
+        sankeyConfig?.unit?.trim() ||
+        "psi",
 
-      outputs: safeOutputs.map((output, index) => ({
-        id: output.id || `output-${index + 1}`,
-
+      nodes: graph.nodes.map((node, index) => ({
+        id: node.id || `node-${index + 1}`,
         name:
-          output.name?.trim() ||
-          `Sterilizer ${index + 1}`,
+          node.name?.trim() ||
+          `Node ${index + 1}`,
+        color: node.color,
+      })),
 
-
-        dataKey:
-          output.dataKey || "",
-
+      links: graph.links.map((link, index) => ({
+        id: link.id || `link-${index + 1}`,
+        source: link.source,
+        target: link.target,
+        label: link.label?.trim() || "",
+        color: link.color,
+        dataKey: link.dataKey || "",
         dataSource: {
           bucket:
-            output.dataSource?.bucket ||
+            link.dataSource?.bucket ||
             influxConfig.bucket ||
             "Mill",
-
           measurement:
-            output.dataSource?.measurement ||
+            link.dataSource?.measurement ||
             influxConfig.measurement ||
             "PBLR",
-
           tagKey:
-            output.dataSource?.tagKey ||
+            link.dataSource?.tagKey ||
             influxConfig.tagKey ||
             "id",
-
           tagValue:
-            output.dataSource?.tagValue ||
-            output.dataSource?.id ||
+            link.dataSource?.tagValue ||
+            link.dataSource?.id ||
             influxConfig.tagValue ||
             influxConfig.id ||
             "",
-
           id:
-            output.dataSource?.id ||
-            output.dataSource?.tagValue ||
+            link.dataSource?.id ||
+            link.dataSource?.tagValue ||
             influxConfig.id ||
             "",
-
           channel:
-            output.dataSource?.channel ||
-            channelMap?.[output.dataKey] ||
+            link.dataSource?.channel ||
+            channelMap?.[link.dataKey] ||
             "",
         },
       })),
-    };
+    });
   };
 
   const getMinimumGridSizeForItems = () => {
@@ -1631,11 +1839,195 @@ export default function TemplateDesigner({
   ) => {
     if (!preset) return;
 
-    setNewCompositeConfig({
-      preset: preset.id,
-      layout: preset.defaultLayout,
-      ratio: preset.defaultRatio,
-    });
+    setNewCompositeConfig(
+      (previous) =>
+        normalizeCompositeConfig({
+          ...previous,
+          preset: preset.id,
+          layout: preset.defaultLayout,
+          ratio: preset.defaultRatio,
+        })
+    );
+  };
+
+  const updateCompositePartConfig = (
+    partName,
+    patchOrUpdater
+  ) => {
+    const configKey =
+      partName === "primary"
+        ? "primaryConfig"
+        : "secondaryConfig";
+
+    setNewCompositeConfig(
+      (previous) => {
+        const current = normalizeCompositePartConfig(
+          previous?.[configKey] || {}
+        );
+
+        const patch =
+          typeof patchOrUpdater === "function"
+            ? patchOrUpdater(current)
+            : patchOrUpdater;
+
+        return {
+          ...previous,
+          [configKey]: normalizeCompositePartConfig({
+            ...current,
+            ...(patch || {}),
+          }),
+        };
+      }
+    );
+  };
+
+  const getCompositeAvailableKeys = () => {
+    const keys =
+      newDataKeys.length > 0
+        ? newDataKeys
+        : newDataKey
+        ? [newDataKey]
+        : [];
+
+    return Array.from(new Set(keys.filter(Boolean)));
+  };
+
+  const getCompositePartSelectedKeys = (
+    partConfig,
+    widgetType
+  ) => {
+    const available = getCompositeAvailableKeys();
+    const availableSet = new Set(available);
+
+    const configured = Array.isArray(partConfig?.dataKeys)
+      ? partConfig.dataKeys.filter((key) => availableSet.has(key))
+      : [];
+
+    if (["line", "area", "bar", "pie"].includes(widgetType)) {
+      if (partConfig?.sourceMode === "custom") {
+        return configured.length > 0
+          ? configured
+          : available.slice(0, 1);
+      }
+
+      return available;
+    }
+
+    if (partConfig?.dataKey && availableSet.has(partConfig.dataKey)) {
+      return [partConfig.dataKey];
+    }
+
+    if (configured.length > 0) return [configured[0]];
+    return available.slice(0, 1);
+  };
+
+  const toggleCompositePartDataKey = (
+    partName,
+    key
+  ) => {
+    updateCompositePartConfig(
+      partName,
+      (current) => {
+        const currentKeys = Array.isArray(current.dataKeys)
+          ? current.dataKeys
+          : [];
+
+        const nextKeys = currentKeys.includes(key)
+          ? currentKeys.filter((itemKey) => itemKey !== key)
+          : [...currentKeys, key];
+
+        return {
+          sourceMode: "custom",
+          dataKey: "",
+          // Keep at least one source in custom mode.
+          dataKeys: nextKeys.length > 0 ? nextKeys : [key],
+        };
+      }
+    );
+  };
+
+  const getPreparedCompositeConfig = () => {
+    const available = getCompositeAvailableKeys();
+    const availableSet = new Set(available);
+
+    const preparePart = (config = {}) => {
+      const normalized = normalizeCompositePartConfig(config);
+
+      return {
+        ...normalized,
+        dataKey:
+          normalized.dataKey && availableSet.has(normalized.dataKey)
+            ? normalized.dataKey
+            : "",
+        dataKeys: normalized.dataKeys.filter((key) => availableSet.has(key)),
+        bigNumberDisplay: {
+          ...normalized.bigNumberDisplay,
+          mappings: normalized.bigNumberDisplay.mappings.map((mapping) => ({
+            ...mapping,
+          })),
+        },
+        rangeConfig: { ...normalized.rangeConfig },
+        chartDisplay: { ...normalized.chartDisplay },
+        pieDisplay: { ...normalized.pieDisplay },
+      };
+    };
+
+    const normalized = normalizeCompositeConfig(newCompositeConfig);
+
+    return {
+      ...normalized,
+      primaryConfig: preparePart(normalized.primaryConfig),
+      secondaryConfig: preparePart(normalized.secondaryConfig),
+    };
+  };
+
+  const validateCompositeConfig = () => {
+    if (newType !== "composite") return true;
+
+    const preset = getCompositePreset(newCompositeConfig.preset);
+    const selectedCount = getCompositeAvailableKeys().length;
+
+    if (selectedCount < preset.minSources) {
+      showToast(
+        "error",
+        `${preset.label} requires at least ${preset.minSources} data source${
+          preset.minSources > 1 ? "s" : ""
+        }.`
+      );
+      return false;
+    }
+
+    const prepared = getPreparedCompositeConfig();
+    const partTypes = [
+      ["Primary", preset.primaryType, prepared.primaryConfig],
+      ["Secondary", preset.secondaryType, prepared.secondaryConfig],
+    ];
+
+    for (const [partLabel, widgetType, config] of partTypes) {
+      if (!["gauge", "linearGauge"].includes(widgetType)) continue;
+
+      const min = Number(config.rangeConfig.min);
+      const max = Number(config.rangeConfig.max);
+      const warning = Number(config.rangeConfig.warning);
+      const danger = Number(config.rangeConfig.danger);
+
+      if (
+        ![min, max, warning, danger].every(Number.isFinite) ||
+        max <= min ||
+        warning < min ||
+        warning > max ||
+        danger < min ||
+        danger > max
+      ) {
+        showToast(
+          "error",
+          `${partLabel} ${widgetType} range is invalid. Check minimum, maximum, warning, and danger values.`
+        );
+        return false;
+      }
+    }
+
+    return true;
   };
 
   // Keep image widgets in landscape dimensions so the diagram is readable
@@ -1739,11 +2131,13 @@ export default function TemplateDesigner({
         compatible[0] ||
         COMPOSITE_PRESETS[0];
 
-      setNewCompositeConfig({
-        preset: firstPreset.id,
-        layout: firstPreset.defaultLayout,
-        ratio: firstPreset.defaultRatio,
-      });
+      setNewCompositeConfig(
+        normalizeCompositeConfig({
+          preset: firstPreset.id,
+          layout: firstPreset.defaultLayout,
+          ratio: firstPreset.defaultRatio,
+        })
+      );
 
       setNewW(2);
       setNewH(1);
@@ -2846,10 +3240,6 @@ export default function TemplateDesigner({
     setNewRangeConfig({
       ...defaultRangeConfig,
     });
-
-    setNewCompositeConfig({
-      ...DEFAULT_COMPOSITE_CONFIG,
-    });
   }, [newDataKey, newType, selectedItem]);
 
   // RETURN FROM IMAGE EDITOR
@@ -2965,16 +3355,8 @@ export default function TemplateDesigner({
     const returnedConfig =
       returnedWidget.sankeyConfig || defaultSankeyConfig;
 
-    const returnedDataKeys = [
-      ...new Set(
-        (Array.isArray(returnedConfig.outputs)
-          ? returnedConfig.outputs
-          : []
-        )
-          .map((output) => output.dataKey)
-          .filter(Boolean)
-      ),
-    ];
+    const returnedDataKeys =
+      getSankeyDataKeys(returnedConfig);
 
     setSankeyConfig(returnedConfig);
     setNewType("sankey");
@@ -3091,6 +3473,13 @@ export default function TemplateDesigner({
       ...defaultChartDisplay,
       ...(selectedItem.chartDisplay || {}),
 
+      // Older Y-axis modes are simplified into Smart Auto or Fixed Scale.
+      yAxisMode: ["fixed", "custom", "range"].includes(
+        selectedItem.chartDisplay?.yAxisMode
+      )
+        ? "fixed"
+        : "auto",
+
       // Migrate old standalone Area widgets into LineWidget Area mode.
       chartStyle:
         selectedItem.type === "area"
@@ -3104,10 +3493,11 @@ export default function TemplateDesigner({
         defaultHistoryWindow
     );
 
-    setNewCompositeConfig({
-      ...DEFAULT_COMPOSITE_CONFIG,
-      ...(selectedItem.compositeConfig || {}),
-    });
+    setNewCompositeConfig(
+      normalizeCompositeConfig(
+        selectedItem.compositeConfig || {}
+      )
+    );
 
     setImageDraftPins(
       selectedItem.type === "image" && Array.isArray(selectedItem.pins)
@@ -3245,11 +3635,16 @@ export default function TemplateDesigner({
     setNewH(safeH);
   };
 
-  const startResizeWidget = (event, item) => {
+  const startResizeWidget = (
+    event,
+    item,
+    direction = "both"
+  ) => {
     event.preventDefault();
     event.stopPropagation();
 
-    const rect = gridRef.current?.getBoundingClientRect();
+    const rect =
+      gridRef.current?.getBoundingClientRect();
 
     if (!rect?.width || !rect?.height) {
       return;
@@ -3259,6 +3654,7 @@ export default function TemplateDesigner({
       startX: event.clientX,
       startY: event.clientY,
       item: { ...item },
+      direction,
       cellWidth: rect.width / cols,
       cellHeight: rect.height / rows,
     };
@@ -3285,31 +3681,63 @@ export default function TemplateDesigner({
         startX,
         startY,
         item,
+        direction = "both",
         cellWidth,
         cellHeight,
       } = resizeStart;
 
-      const deltaCols =
+      const rawDeltaCols =
         cellWidth > 0
-          ? Math.round((event.clientX - startX) / cellWidth)
+          ? Math.round(
+              (event.clientX - startX) /
+                cellWidth
+            )
           : 0;
+
+      const rawDeltaRows =
+        cellHeight > 0
+          ? Math.round(
+              (event.clientY - startY) /
+                cellHeight
+            )
+          : 0;
+
+      const deltaCols =
+        direction === "y"
+          ? 0
+          : rawDeltaCols;
 
       const deltaRows =
-        cellHeight > 0
-          ? Math.round((event.clientY - startY) / cellHeight)
-          : 0;
+        direction === "x"
+          ? 0
+          : rawDeltaRows;
 
-      const minimumSize = getMinimumWidgetSize(item.type);
+      const minimumSize =
+        getMinimumWidgetSize(
+          item.type
+        );
 
-      const nextW = Math.min(
-        cols - item.x,
-        Math.max(minimumSize.w, item.w + deltaCols)
-      );
+      const nextW =
+        direction === "y"
+          ? item.w
+          : Math.min(
+              cols - item.x,
+              Math.max(
+                minimumSize.w,
+                item.w + deltaCols
+              )
+            );
 
-      const nextH = Math.min(
-        rows - item.y,
-        Math.max(minimumSize.h, item.h + deltaRows)
-      );
+      const nextH =
+        direction === "x"
+          ? item.h
+          : Math.min(
+              rows - item.y,
+              Math.max(
+                minimumSize.h,
+                item.h + deltaRows
+              )
+            );
 
       const candidate = {
         ...item,
@@ -4110,6 +4538,7 @@ export default function TemplateDesigner({
 
     if (!validateRangeConfig()) return;
     if (!validateBigNumberDataSources()) return;
+    if (!validateCompositeConfig()) return;
 
     if (
       isMultiDataWidget &&
@@ -4127,19 +4556,16 @@ export default function TemplateDesigner({
     const preparedSankeyConfig = getPreparedSankeyConfig();
     const hasValidSankeyOutput =
       newType !== "sankey" ||
-      preparedSankeyConfig.outputs.some(
-        (output) =>
-          output.name &&
-          (
-            output.dataKey ||
-            output.dataSource?.channel
-          )
+      preparedSankeyConfig.links.some(
+        (link) =>
+          link.dataKey ||
+          link.dataSource?.channel
       );
 
     if (!hasValidSankeyOutput) {
       showToast(
         "error",
-        "Please configure at least one Sankey output with a channel or existing data key."
+        "Please configure at least one Sankey flow with a process field."
       );
 
       return;
@@ -4207,7 +4633,7 @@ export default function TemplateDesigner({
 
       compositeConfig:
         newType === "composite"
-          ? { ...newCompositeConfig }
+          ? getPreparedCompositeConfig()
           : undefined,
 
       x: activeCell.col,
@@ -4289,9 +4715,9 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
 
-    setNewCompositeConfig({
-      ...DEFAULT_COMPOSITE_CONFIG,
-    });
+    setNewCompositeConfig(
+      normalizeCompositeConfig()
+    );
 
     setNewLogDisplay({
       ...defaultLogDisplay,
@@ -4307,6 +4733,7 @@ export default function TemplateDesigner({
 
     if (!validateRangeConfig()) return;
     if (!validateBigNumberDataSources()) return;
+    if (!validateCompositeConfig()) return;
 
     if (
       isMultiDataWidget &&
@@ -4323,19 +4750,16 @@ export default function TemplateDesigner({
     const preparedSankeyConfig = getPreparedSankeyConfig();
     const hasValidSankeyOutput =
       newType !== "sankey" ||
-      preparedSankeyConfig.outputs.some(
-        (output) =>
-          output.name &&
-          (
-            output.dataKey ||
-            output.dataSource?.channel
-          )
+      preparedSankeyConfig.links.some(
+        (link) =>
+          link.dataKey ||
+          link.dataSource?.channel
       );
 
     if (!hasValidSankeyOutput) {
       showToast(
         "error",
-        "Please configure at least one Sankey output with a channel or existing data key."
+        "Please configure at least one Sankey flow with a process field."
       );
 
       return;
@@ -4423,7 +4847,7 @@ export default function TemplateDesigner({
 
             compositeConfig:
               newType === "composite"
-                ? { ...newCompositeConfig }
+                ? getPreparedCompositeConfig()
                 : undefined,
 
             w: newW,
@@ -4494,9 +4918,9 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
 
-    setNewCompositeConfig({
-      ...DEFAULT_COMPOSITE_CONFIG,
-    });
+    setNewCompositeConfig(
+      normalizeCompositeConfig()
+    );
 
     setNewLogDisplay({
       ...defaultLogDisplay,
@@ -4753,12 +5177,12 @@ export default function TemplateDesigner({
     : null;
 
   const isDataSourceRequired =
-    !["image", "sankey", "logs", "status"].includes(newType);
+    !["image", "sankey", "logs"].includes(newType);
 
-  // Data Status and Logs are fully configured after Appearance.
-  // They do not require a direct field selection in Step 1.
+  // Logs is fully configured after Appearance and does not require
+  // a direct process-field selection in Step 1.
   const skipsWidgetDataSourceStep =
-    ["status", "logs"].includes(newType);
+    newType === "logs";
 
   const hasSelectedDataSource =
     newType === "sankey"
@@ -4766,42 +5190,6 @@ export default function TemplateDesigner({
       : isMultiDataWidget
       ? newDataKeys.length > 0
       : Boolean(newDataKey);
-
-  const selectedSourceCount =
-    newType === "sankey"
-      ? getConfiguredSankeyOutputs().length
-      : isMultiDataWidget
-      ? newDataKeys.filter(Boolean).length
-      : newDataKey
-      ? 1
-      : 0;
-
-  const selectedWidgetTypeLabel =
-    allWidgetOptions.find((option) =>
-      option.isCustomWidgetType
-        ? option.optionId === newWidgetTypeId
-        : !newWidgetTypeId &&
-          option.type === newType
-    )?.label ||
-    getDefaultWidgetLabel(newType).replace(
-      / Widget$/,
-      ""
-    );
-
-  const widgetSummarySourceText =
-    newType === "image"
-      ? "Image / pin configuration"
-      : newType === "status"
-      ? "Dedicated status source"
-      : newType === "logs"
-      ? "Dedicated log source"
-      : newType === "sankey"
-      ? `${selectedSourceCount} configured output${
-          selectedSourceCount === 1 ? "" : "s"
-        }`
-      : `${selectedSourceCount} source${
-          selectedSourceCount === 1 ? "" : "s"
-        }`;
 
   const selectedPreviewKeys = isMultiDataWidget
     ? newDataKeys
@@ -4844,109 +5232,139 @@ export default function TemplateDesigner({
   useEffect(() => {
     let frameId = null;
 
-    const updateGridViewportHeight = () => {
-      frameId = window.requestAnimationFrame(
-        () => {
-          const rect =
-            gridRef.current?.getBoundingClientRect();
-
-          if (!rect) return;
-
-          const bottomGap = 12;
-
-          setGridViewportHeight(
-            Math.max(
-              280,
-              Math.floor(
-                window.innerHeight -
-                  rect.top -
-                  bottomGap
-              )
-            )
+    const updateGridViewportWidth =
+      () => {
+        if (frameId) {
+          window.cancelAnimationFrame(
+            frameId
           );
         }
-      );
-    };
 
-    updateGridViewportHeight();
+        frameId =
+          window.requestAnimationFrame(
+            () => {
+              const parent =
+                gridRef.current
+                  ?.parentElement;
+
+              const rect =
+                parent?.getBoundingClientRect();
+
+              if (!rect?.width) {
+                return;
+              }
+
+              setGridViewportWidth(
+                Math.max(
+                  320,
+                  Math.floor(rect.width)
+                )
+              );
+            }
+          );
+      };
+
+    updateGridViewportWidth();
 
     window.addEventListener(
       "resize",
-      updateGridViewportHeight
+      updateGridViewportWidth
     );
 
     const resizeObserver =
-      typeof ResizeObserver !== "undefined"
+      typeof ResizeObserver !==
+      "undefined"
         ? new ResizeObserver(
-            updateGridViewportHeight
+            updateGridViewportWidth
           )
         : null;
 
     const parent =
       gridRef.current?.parentElement;
 
-    if (parent && resizeObserver) {
-      resizeObserver.observe(parent);
+    if (
+      parent &&
+      resizeObserver
+    ) {
+      resizeObserver.observe(
+        parent
+      );
     }
 
     return () => {
       if (frameId) {
-        window.cancelAnimationFrame(frameId);
+        window.cancelAnimationFrame(
+          frameId
+        );
       }
 
       window.removeEventListener(
         "resize",
-        updateGridViewportHeight
+        updateGridViewportWidth
       );
 
       resizeObserver?.disconnect();
     };
   }, [rows, cols]);
 
-  const gridGapPx = 12;
+  // Keep the editor grid geometry aligned with Dashboard.jsx.
+  const gridGapPx = DESIGNER_GRID_GAP_PX;
 
-  // Keep widget rows visually consistent when the template grows.
-  //
-  // The 3-row layout is treated as the normal dashboard baseline.
-  // Rows 4, 5, 6... keep the SAME row height instead of shrinking
-  // to squeeze everything into one viewport.
-  //
-  // The grid simply becomes taller and the builder scrolls naturally.
-  const baselineVisibleRows = 3;
-  const minimumGridRowHeight = 150;
+  /*
+   * DASHBOARD-MATCHED WIDGET HEIGHT
+   * -------------------------------
+   * Dashboard.jsx allows a normal 3-row dashboard to use up to 235px
+   * per grid row. The Template Designer used to derive row height from
+   * column width, which made the same widget look noticeably shorter in
+   * the editor.
+   *
+   * Keep every designer row at the dashboard card height instead. This is
+   * intentionally independent of viewport height: a taller template simply
+   * extends the page and the existing template-builder overflow lets the
+   * user scroll up/down.
+   *
+   * Fit / Fixed now affects horizontal sizing only.
+   */
+  const dashboardGridRowHeight = DASHBOARD_GRID_ROW_HEIGHT_PX;
 
-  const baselineRowHeight =
-    Math.max(
-      minimumGridRowHeight,
-      Math.floor(
-        (
-          gridViewportHeight -
-          Math.max(
-            0,
-            baselineVisibleRows - 1
-          ) *
-            gridGapPx
-        ) /
-          baselineVisibleRows
-      )
-    );
+  /*
+   * FIT MODE
+   * --------
+   * All columns fit inside the visible editor width, matching Dashboard's
+   * responsive column behavior. Vertical widget height stays unchanged.
+   */
+  const fitCellWidth = getDesignerCellWidth(
+    "fit",
+    gridViewportWidth,
+    cols
+  );
 
-  // For 1-3 rows, continue using the available page height nicely.
-  // For >3 rows, lock each row to the normal 3-row height.
+  /*
+   * FIXED / HORIZONTAL-SCROLL MODE
+   * ------------------------------
+   * Preserve a comfortable column width when there are many columns.
+   * Row height remains the exact same dashboard-matched height.
+   */
+  const scrollCellWidth = getDesignerCellWidth(
+    "scroll",
+    gridViewportWidth,
+    cols
+  );
+
+  const calculatedCellWidth =
+    canvasMode === "scroll"
+      ? scrollCellWidth
+      : fitCellWidth;
+
+  // Deliberately fixed to Dashboard's standard 3-row card height.
+  // Do not shrink this to make all configured rows fit on one screen.
   const fittedGridRowHeight =
-    rows <= baselineVisibleRows
-      ? Math.max(
-          baselineRowHeight,
-          Math.floor(
-            (
-              gridViewportHeight -
-              Math.max(0, rows - 1) *
-                gridGapPx
-            ) /
-              rows
-          )
-        )
-      : baselineRowHeight;
+    dashboardGridRowHeight;
+
+  const scrollGridWidth =
+    cols * scrollCellWidth +
+    Math.max(0, cols - 1) *
+      gridGapPx;
 
   const fittedGridHeight =
     rows * fittedGridRowHeight +
@@ -4961,6 +5379,619 @@ export default function TemplateDesigner({
     );
   }
 
+  const renderCompositePartConfiguration = (
+    partName,
+    widgetType
+  ) => {
+    const configKey =
+      partName === "primary"
+        ? "primaryConfig"
+        : "secondaryConfig";
+
+    const partConfig = normalizeCompositePartConfig(
+      newCompositeConfig?.[configKey] || {}
+    );
+
+    const availableKeys = getCompositeAvailableKeys();
+    const selectedKeys = getCompositePartSelectedKeys(
+      partConfig,
+      widgetType
+    );
+
+    const displayName =
+      widgetType === "bignumber"
+        ? "Stat"
+        : widgetType === "linearGauge"
+        ? "Linear Gauge"
+        : widgetType.charAt(0).toUpperCase() + widgetType.slice(1);
+
+    const isMultiSource = ["line", "area", "bar", "pie"].includes(
+      widgetType
+    );
+
+    const updateNested = (key, patch) =>
+      updateCompositePartConfig(partName, (current) => ({
+        [key]: {
+          ...(current?.[key] || {}),
+          ...patch,
+        },
+      }));
+
+    const compactInput =
+      "h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-950 dark:text-white";
+
+    const toggleClass =
+      "flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300";
+
+    return (
+      <details
+        open
+        className="group overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-300">
+              {partName === "primary" ? "Primary" : "Secondary"}
+            </div>
+            <div className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
+              {displayName}
+            </div>
+          </div>
+
+          <ChevronRight
+            size={15}
+            className="shrink-0 text-slate-400 transition-transform group-open:rotate-90"
+          />
+        </summary>
+
+        <div className="space-y-3 border-t border-slate-100 px-3 py-3 dark:border-slate-800">
+          <div>
+            <label className="mb-1.5 block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+              Child Label
+            </label>
+            <input
+              type="text"
+              value={partConfig.label || ""}
+              onChange={(event) =>
+                updateCompositePartConfig(partName, {
+                  label: event.target.value,
+                })
+              }
+              placeholder={displayName}
+              className={compactInput}
+            />
+          </div>
+
+          {availableKeys.length > 0 && (
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                {isMultiSource
+                  ? "Sources for this child"
+                  : "Source for this child"}
+              </label>
+
+              {isMultiSource ? (
+                <>
+                  <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-950">
+                    {[
+                      ["all", "All connected"],
+                      ["custom", "Custom"],
+                    ].map(([mode, label]) => {
+                      const selected =
+                        (partConfig.sourceMode || "all") === mode;
+
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() =>
+                            updateCompositePartConfig(partName, {
+                              sourceMode: mode,
+                              ...(mode === "custom" &&
+                              (!Array.isArray(partConfig.dataKeys) ||
+                                partConfig.dataKeys.length === 0)
+                                ? { dataKeys: availableKeys.slice(0, 1) }
+                                : {}),
+                            })
+                          }
+                          className={`h-7 rounded-md px-2.5 text-[10px] font-semibold transition-colors ${
+                            selected
+                              ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                              : "text-slate-500 dark:text-slate-400"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {(partConfig.sourceMode || "all") === "custom" ? (
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {availableKeys.map((key) => {
+                        const selected = selectedKeys.includes(key);
+
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() =>
+                              toggleCompositePartDataKey(partName, key)
+                            }
+                            className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[11px] transition-colors ${
+                              selected
+                                ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                            }`}
+                          >
+                            <span
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                selected
+                                  ? "border-emerald-500 bg-emerald-500 text-white"
+                                  : "border-slate-300 dark:border-slate-600"
+                              }`}
+                            >
+                              {selected && <Check size={10} />}
+                            </span>
+                            <span className="truncate">
+                              {getDataSourceLabel(key)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] leading-4 text-slate-400">
+                      This child uses all connected widget sources. Choose Custom to limit it to specific sources.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <select
+                  value={partConfig.dataKey || ""}
+                  onChange={(event) =>
+                    updateCompositePartConfig(partName, {
+                      dataKey: event.target.value,
+                      dataKeys: [],
+                    })
+                  }
+                  className={compactInput}
+                >
+                  <option value="">First connected source</option>
+                  {availableKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {getDataSourceLabel(key)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {widgetType === "bignumber" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Decimals
+                </label>
+                <select
+                  value={partConfig.bigNumberDisplay.decimals}
+                  onChange={(event) =>
+                    updateNested("bigNumberDisplay", {
+                      decimals: Number(event.target.value),
+                    })
+                  }
+                  className={compactInput}
+                >
+                  {[0, 1, 2, 3].map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Unit
+                </label>
+                <input
+                  type="text"
+                  value={partConfig.bigNumberDisplay.unit || ""}
+                  onChange={(event) =>
+                    updateNested("bigNumberDisplay", {
+                      unit: event.target.value,
+                    })
+                  }
+                  placeholder="bar, °C, %"
+                  className={compactInput}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Alignment
+                </label>
+                <select
+                  value={partConfig.bigNumberDisplay.alignment || "center"}
+                  onChange={(event) =>
+                    updateNested("bigNumberDisplay", {
+                      alignment: event.target.value,
+                    })
+                  }
+                  className={compactInput}
+                >
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Value Size
+                </label>
+                <select
+                  value={partConfig.bigNumberDisplay.valueSize || "xlarge"}
+                  onChange={(event) =>
+                    updateNested("bigNumberDisplay", {
+                      valueSize: event.target.value,
+                    })
+                  }
+                  className={compactInput}
+                >
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large">Large</option>
+                  <option value="xlarge">Extra Large</option>
+                </select>
+              </div>
+
+              {[
+                ["showUnit", "Show unit"],
+                ["showTrend", "Show trend"],
+                ["showLabel", "Show label"],
+              ].map(([key, label]) => (
+                <label key={key} className={toggleClass}>
+                  <input
+                    type="checkbox"
+                    checked={partConfig.bigNumberDisplay[key] !== false}
+                    onChange={(event) =>
+                      updateNested("bigNumberDisplay", {
+                        [key]: event.target.checked,
+                      })
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          )}
+
+          {["gauge", "linearGauge"].includes(widgetType) && (
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                ["min", "Minimum"],
+                ["max", "Maximum"],
+                ["warning", "Warning"],
+                ["danger", "Danger"],
+              ].map(([key, label]) => (
+                <div key={key}>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    {label}
+                  </label>
+                  <input
+                    type="number"
+                    value={partConfig.rangeConfig[key]}
+                    onChange={(event) =>
+                      updateNested("rangeConfig", {
+                        [key]: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  />
+                </div>
+              ))}
+
+              <div className="col-span-2">
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Unit
+                </label>
+                <input
+                  type="text"
+                  value={partConfig.rangeConfig.unit || ""}
+                  onChange={(event) =>
+                    updateNested("rangeConfig", {
+                      unit: event.target.value,
+                    })
+                  }
+                  placeholder="bar, °C, %"
+                  className={compactInput}
+                />
+              </div>
+            </div>
+          )}
+
+          {["line", "area"].includes(widgetType) && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    Chart Style
+                  </label>
+                  <select
+                    value={
+                      partConfig.chartDisplay.chartStyle ||
+                      (widgetType === "area" ? "area" : "line")
+                    }
+                    onChange={(event) =>
+                      updateNested("chartDisplay", {
+                        chartStyle: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  >
+                    <option value="line">Line</option>
+                    <option value="area">Area</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    Time Window
+                  </label>
+                  <select
+                    value={partConfig.historyWindow || defaultHistoryWindow}
+                    onChange={(event) =>
+                      updateCompositePartConfig(partName, {
+                        historyWindow: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  >
+                    {["5m", "15m", "1h", "6h", "24h", "2d", "7d", "30d", "90d"].map(
+                      (window) => (
+                        <option key={window} value={window}>
+                          {window}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    Line Weight
+                  </label>
+                  <select
+                    value={partConfig.chartDisplay.lineWeight || "normal"}
+                    onChange={(event) =>
+                      updateNested("chartDisplay", {
+                        lineWeight: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  >
+                    <option value="thin">Thin</option>
+                    <option value="normal">Normal</option>
+                    <option value="bold">Bold</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    Pattern
+                  </label>
+                  <select
+                    value={partConfig.chartDisplay.linePattern || "solid"}
+                    onChange={(event) =>
+                      updateNested("chartDisplay", {
+                        linePattern: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  >
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    Grid Density
+                  </label>
+                  <select
+                    value={partConfig.chartDisplay.gridDensity || "normal"}
+                    onChange={(event) =>
+                      updateNested("chartDisplay", {
+                        gridDensity: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  >
+                    <option value="sparse">Low</option>
+                    <option value="normal">Balanced</option>
+                    <option value="dense">Dense</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                    Y-axis
+                  </label>
+                  <select
+                    value={
+                      partConfig.chartDisplay.yAxisMode === "auto"
+                        ? "auto"
+                        : "fixed"
+                    }
+                    onChange={(event) =>
+                      updateNested("chartDisplay", {
+                        yAxisMode: event.target.value,
+                      })
+                    }
+                    className={compactInput}
+                  >
+                    <option value="auto">Smart Auto</option>
+                    <option value="fixed">Fixed Scale</option>
+                  </select>
+                </div>
+              </div>
+
+              {partConfig.chartDisplay.yAxisMode !== "auto" && (
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900/60">
+                  {[
+                    ["yAxisMin", "Min", partConfig.rangeConfig.min],
+                    ["yAxisMax", "Max", partConfig.rangeConfig.max],
+                    ["yAxisInterval", "Interval", ""],
+                  ].map(([key, label, placeholder]) => (
+                    <div key={key}>
+                      <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                        {label}
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        min={key === "yAxisInterval" ? "0" : undefined}
+                        value={partConfig.chartDisplay[key] ?? ""}
+                        placeholder={String(placeholder ?? "")}
+                        onChange={(event) =>
+                          updateNested("chartDisplay", {
+                            yAxisMode: "fixed",
+                            [key]: event.target.value,
+                          })
+                        }
+                        className={compactInput}
+                      />
+                    </div>
+                  ))}
+                  <p className="col-span-3 text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+                    Example: 0 to 400 with interval 100 gives 0, 100, 200, 300, 400.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  ["showGrid", "Grid"],
+                  ["showLegend", "Legend"],
+                  ["showTooltip", "Tooltip"],
+                  ["showXAxis", "X-axis"],
+                  ["showYAxis", "Y-axis"],
+                  ["showDots", "Points"],
+                ].map(([key, label]) => (
+                  <label key={key} className={toggleClass}>
+                    <input
+                      type="checkbox"
+                      checked={partConfig.chartDisplay[key] !== false}
+                      onChange={(event) =>
+                        updateNested("chartDisplay", {
+                          [key]: event.target.checked,
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {widgetType === "bar" && (
+            <div className="space-y-2">
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Orientation
+                </label>
+                <select
+                  value={partConfig.orientation || "vertical"}
+                  onChange={(event) =>
+                    updateCompositePartConfig(partName, {
+                      orientation: event.target.value,
+                    })
+                  }
+                  className={compactInput}
+                >
+                  <option value="vertical">Vertical</option>
+                  <option value="horizontal">Horizontal</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  ["showGrid", "Grid"],
+                  ["showLegend", "Legend"],
+                  ["showTooltip", "Tooltip"],
+                ].map(([key, label]) => (
+                  <label key={key} className={toggleClass}>
+                    <input
+                      type="checkbox"
+                      checked={partConfig.chartDisplay[key] !== false}
+                      onChange={(event) =>
+                        updateNested("chartDisplay", {
+                          [key]: event.target.checked,
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {widgetType === "pie" && (
+            <div className="space-y-2">
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">
+                  Legend Position
+                </label>
+                <select
+                  value={partConfig.pieDisplay.legendPosition || "auto"}
+                  onChange={(event) =>
+                    updateNested("pieDisplay", {
+                      legendPosition: event.target.value,
+                    })
+                  }
+                  className={compactInput}
+                >
+                  <option value="auto">Automatic</option>
+                  <option value="side">Side</option>
+                  <option value="bottom">Bottom</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  ["showLegend", "Legend"],
+                  ["showTotal", "Center total"],
+                  ["showTooltip", "Tooltip"],
+                ].map(([key, label]) => (
+                  <label key={key} className={toggleClass}>
+                    <input
+                      type="checkbox"
+                      checked={partConfig.pieDisplay[key] !== false}
+                      onChange={(event) =>
+                        updateNested("pieDisplay", {
+                          [key]: event.target.checked,
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+
+        </div>
+      </details>
+    );
+  };
+
+
   return (
     <div className="template-builder relative h-full overflow-auto bg-transparent p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <style>{`
@@ -4969,34 +6000,34 @@ export default function TemplateDesigner({
         }
 
         .dark .template-builder .bg-white {
-          background-color: #0f172a !important;
+          background-color: #111B34 !important;
         }
 
         .dark .template-builder .bg-gray-50 {
-          background-color: #0b1220 !important;
+          background-color: #0B1328 !important;
         }
 
         .dark .template-builder .bg-gray-100 {
-          background-color: #0b1220 !important;
+          background-color: #0B1328 !important;
         }
 
         .dark .template-builder .bg-gray-200 {
-          background-color: #1e293b !important;
+          background-color: #1B2948 !important;
         }
 
         .dark .template-builder .bg-gray-800,
         .dark .template-builder .bg-slate-800 {
-          background-color: #1e293b !important;
+          background-color: #1B2948 !important;
         }
 
         .dark .template-builder .bg-gray-900,
         .dark .template-builder .bg-slate-900 {
-          background-color: #0f172a !important;
+          background-color: #111B34 !important;
         }
 
         .dark .template-builder .bg-gray-950,
         .dark .template-builder .bg-slate-950 {
-          background-color: #020617 !important;
+          background-color: #081022 !important;
         }
 
         .dark .template-builder .border-gray-200,
@@ -5004,7 +6035,7 @@ export default function TemplateDesigner({
         .dark .template-builder .border-gray-700,
         .dark .template-builder .border-slate-700,
         .dark .template-builder .border-slate-600 {
-          border-color: #334155 !important;
+          border-color: #2C3C61 !important;
         }
 
         .dark .template-builder .text-gray-900,
@@ -5030,7 +6061,7 @@ export default function TemplateDesigner({
         .dark .template-builder select,
         .dark .template-builder textarea {
           color: #f8fafc !important;
-          background-color: #020617 !important;
+          background-color: #081022 !important;
           border-color: #475569 !important;
         }
 
@@ -5041,17 +6072,17 @@ export default function TemplateDesigner({
 
         .dark .template-builder option {
           color: #f8fafc !important;
-          background-color: #020617 !important;
+          background-color: #081022 !important;
         }
 
         .dark .template-builder .hover\:bg-gray-100:hover,
         .dark .template-builder .hover\:bg-gray-50:hover {
-          background-color: #1e293b !important;
+          background-color: #1B2948 !important;
         }
 
         .dark .template-builder .dark\:hover\:bg-gray-800:hover,
         .dark .template-builder .dark\:hover\:bg-slate-800:hover {
-          background-color: #1e293b !important;
+          background-color: #1B2948 !important;
         }
 
         .template-builder .data-mapping-toggle {
@@ -5090,7 +6121,7 @@ export default function TemplateDesigner({
           absolute inset-0
           bg-[linear-gradient(to_right,#d1d5db_1px,transparent_1px),linear-gradient(to_bottom,#d1d5db_1px,transparent_1px)]
           bg-[size:40px_40px]
-          opacity-10 dark:opacity-[0.035]
+          opacity-[0.055] dark:opacity-[0.025]
           pointer-events-none
         "
       />
@@ -5099,10 +6130,10 @@ export default function TemplateDesigner({
       <div
         className="
           sticky top-0 z-20
-          mb-2 rounded-2xl
+          mb-3 rounded-xl
           border border-slate-200
           bg-white p-3
-          shadow-[0_3px_12px_rgba(15,23,42,0.05)]
+          shadow-sm
           dark:border-slate-800
           dark:bg-slate-900
           dark:shadow-none
@@ -5132,7 +6163,7 @@ export default function TemplateDesigner({
             <div className="min-w-0">
               <h1
                 className="
-                  truncate text-xl
+                  truncate text-lg
                   font-bold tracking-tight
                   text-slate-950
                   dark:text-white
@@ -5421,6 +6452,72 @@ export default function TemplateDesigner({
                   +
                 </button>
               </div>
+
+              {/* CANVAS WIDTH MODE */}
+              <div
+                className="
+                  inline-flex h-8
+                  items-center rounded-lg
+                  border border-slate-300
+                  bg-slate-50 p-0.5
+                  dark:border-slate-700
+                  dark:bg-slate-950
+                "
+                title="Both modes keep Dashboard-height widgets · Fit fits columns to the page · Fixed preserves column width and scrolls horizontally"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCanvasMode("fit")
+                  }
+                  className={`
+                    inline-flex h-7
+                    items-center gap-1.5
+                    rounded-md px-2.5
+                    text-[10px]
+                    font-semibold
+                    transition-colors
+                    ${
+                      canvasMode === "fit"
+                        ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    }
+                  `}
+                  title="Fit all columns inside the page while keeping Dashboard widget height"
+                >
+                  <Scan size={12} />
+                  Fit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCanvasMode(
+                      "scroll"
+                    )
+                  }
+                  className={`
+                    inline-flex h-7
+                    items-center gap-1.5
+                    rounded-md px-2.5
+                    text-[10px]
+                    font-semibold
+                    transition-colors
+                    ${
+                      canvasMode ===
+                      "scroll"
+                        ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    }
+                  `}
+                  title="Keep Dashboard-height widgets and a comfortable column width · horizontal scrolling appears when needed"
+                >
+                  <MoveHorizontal
+                    size={12}
+                  />
+                  Fixed
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -5471,13 +6568,13 @@ export default function TemplateDesigner({
             z-40
             w-[min(920px,calc(100%-3rem))]
             h-16
-            rounded-2xl
+            rounded-xl
             border
             px-5
             flex items-center justify-center gap-3
             text-sm font-medium
             backdrop-blur-xl
-            shadow-lg
+            shadow-sm
             transition-all duration-200
             ${
               dragOverTrash
@@ -5503,6 +6600,38 @@ export default function TemplateDesigner({
         </div>
       )}
 
+      {/* DIRECT MANIPULATION HINT */}
+      <div
+        className="
+          mb-2 hidden
+          items-center justify-between
+          gap-3 text-[10px]
+          text-slate-400
+          md:flex
+          dark:text-slate-500
+        "
+      >
+        <span>
+          {canvasMode === "fit"
+            ? `Dashboard size · Fit columns · ${Math.round(
+                calculatedCellWidth
+              )} × ${fittedGridRowHeight}px per unit · vertical scrolling allowed`
+            : `Dashboard size · Fixed columns · ${scrollCellWidth} × ${fittedGridRowHeight}px per unit · scrolling allowed`}
+        </span>
+
+        <span>
+          Click to edit · drag widget to move · drag edge to resize
+        </span>
+      </div>
+
+      {/* GRID VIEWPORT */}
+      <div
+        className={
+          canvasMode === "scroll"
+            ? "w-full overflow-x-auto overflow-y-visible pb-2"
+            : "w-full overflow-x-hidden overflow-y-visible"
+        }
+      >
       {/* GRID */}
       <div
         ref={gridRef}
@@ -5514,12 +6643,22 @@ export default function TemplateDesigner({
             setDragOverCell(null);
           }
         }}
-        className="grid gap-3 relative z-10"
+        className="grid gap-2 relative z-10"
         style={{
-          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+          gridTemplateColumns:
+            canvasMode === "scroll"
+              ? `repeat(${cols}, ${scrollCellWidth}px)`
+              : `repeat(${cols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${rows}, ${fittedGridRowHeight}px)`,
           height: `${fittedGridHeight}px`,
-          minWidth: 0,
+          width:
+            canvasMode === "scroll"
+              ? `${scrollGridWidth}px`
+              : "100%",
+          minWidth:
+            canvasMode === "scroll"
+              ? `${scrollGridWidth}px`
+              : 0,
         }}
       >
         {dragPreview && (
@@ -5597,7 +6736,7 @@ export default function TemplateDesigner({
                 setShowModal(true);
               }}
               className={`
-                rounded-2xl
+                rounded-xl
                 border-2 border-dashed
                 bg-white dark:bg-slate-900/40 dark:bg-gray-800/30
                 backdrop-blur-sm
@@ -5633,9 +6772,36 @@ export default function TemplateDesigner({
                 ) : (
                   <>
                     <>
-                      <Plus className="mx-auto mb-2 text-gray-400 dark:text-slate-400" />
+                      <Plus
+                        className={`
+                          mx-auto text-gray-400
+                          dark:text-slate-400
+                          ${
+                            canvasMode === "fit" &&
+                            cols >= 9
+                              ? "mb-0.5 h-3.5 w-3.5"
+                              : cols >= 9
+                              ? "mb-1 h-4 w-4"
+                              : "mb-1.5 h-5 w-5"
+                          }
+                        `}
+                      />
 
-                      <p className="text-sm text-gray-400 dark:text-slate-400">
+                      <p
+                        className={`
+                          whitespace-nowrap
+                          text-gray-400
+                          dark:text-slate-400
+                          ${
+                            canvasMode === "fit" &&
+                            cols >= 9
+                              ? "text-[9px]"
+                              : cols >= 9
+                              ? "text-[10px]"
+                              : "text-xs"
+                          }
+                        `}
+                      >
                         Add Widget
                       </p>
                     </>
@@ -5652,7 +6818,12 @@ export default function TemplateDesigner({
             key={item.id}
             draggable={!resizingItemId}
             onDragStart={(e) => {
-              if (resizingItemId) {
+              if (
+                resizingItemId ||
+                e.target?.closest?.(
+                  ".resize-handle"
+                )
+              ) {
                 e.preventDefault();
                 return;
               }
@@ -5699,16 +6870,18 @@ export default function TemplateDesigner({
               group
               relative
               min-h-0 min-w-0
-              bg-white dark:bg-slate-900
-              border border-gray-200 dark:border-slate-700
-              rounded-3xl
-              shadow-lg
-              hover:shadow-2xl
-              hover:-translate-y-1
-              transition-all duration-300
+              bg-transparent
+              border border-transparent
+              rounded-xl
+              shadow-none
+              hover:ring-1
+              hover:ring-emerald-300/70
+              dark:hover:ring-emerald-500/50
+              transition-[box-shadow]
+              duration-150
               overflow-hidden
-              p-4
-              cursor-move
+              cursor-grab
+              active:cursor-grabbing
 
               ${
                 draggingItemId === item.id
@@ -5726,30 +6899,91 @@ export default function TemplateDesigner({
               gridColumn: `${item.x + 1} / span ${item.w}`,
               gridRow: `${item.y + 1} / span ${item.h}`,
             }}
+            title="Click to edit · Hold and drag to move · Drag an edge to resize"
           >
-            {/* DRAG BADGE */}
+            {/* DIRECT-MANIPULATION RESIZE EDGES
+                Move: drag the widget itself.
+                Edit: click the widget.
+                Resize: drag the right edge, bottom edge, or corner. */}
+
+            {/* WIDTH RESIZE EDGE
+                Invisible hit zone: cursor indicates resize without drawing
+                a permanent/hover side bar over the widget. */}
             <div
               className="
-                absolute top-3 right-3
-                z-20
-                w-8 h-8
-                rounded-xl
-                bg-white dark:bg-slate-900/90
-                border border-gray-200 dark:border-slate-700
-                shadow-sm
-                flex items-center justify-center
-                text-gray-400 dark:text-slate-400
-                group-hover:text-emerald-500
+                resize-handle
+                absolute right-0 top-2 bottom-2
+                z-30 w-2
+                cursor-ew-resize
               "
-              title="Drag to move"
-            >
-              <Move size={15} />
-            </div>
+              onMouseDown={(event) =>
+                startResizeWidget(
+                  event,
+                  item,
+                  "x"
+                )
+              }
+              onClick={(event) =>
+                event.stopPropagation()
+              }
+              title="Drag edge to change width"
+            />
 
-            {/* ACTUAL WIDGET PREVIEW */}
-            <div className="absolute inset-0 p-4 pointer-events-none">
+            {/* HEIGHT RESIZE EDGE */}
+            <div
+              className="
+                resize-handle
+                absolute bottom-0 left-2 right-2
+                z-30 h-2
+                cursor-ns-resize
+              "
+              onMouseDown={(event) =>
+                startResizeWidget(
+                  event,
+                  item,
+                  "y"
+                )
+              }
+              onClick={(event) =>
+                event.stopPropagation()
+              }
+              title="Drag edge to change height"
+            />
+
+            {/* CORNER RESIZE HANDLE */}
+            <div
+              className="
+                resize-handle
+                absolute bottom-0 right-0
+                z-40 h-5 w-5
+                cursor-nwse-resize
+              "
+              onMouseDown={(event) =>
+                startResizeWidget(
+                  event,
+                  item,
+                  "both"
+                )
+              }
+              onClick={(event) =>
+                event.stopPropagation()
+              }
+              title="Drag corner to resize width and height"
+            />
+
+            {/* ACTUAL WIDGET PREVIEW
+                No editor-only padding here. Dashboard.jsx also gives
+                WidgetRenderer the full grid cell, so responsive widgets
+                receive comparable dimensions in both places. */}
+            <div
+              className="
+                absolute inset-0
+                p-0
+                pointer-events-none
+              "
+            >
               {item.type === "image" ? (
-                <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 dark:bg-[#050a1e]">
+                <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-[#081022]">
                   <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
                     <WidgetRenderer
                       type={item.type}
@@ -5765,6 +6999,7 @@ export default function TemplateDesigner({
                             : undefined,
                       }}
                       history={previewHistory}
+                      historyWindow="15m"
                       dataKey={item.dataKey}
                       item={{
                         ...item,
@@ -5801,6 +7036,7 @@ export default function TemplateDesigner({
                         : undefined,
                   }}
                   history={previewHistory}
+                  historyWindow="15m"
                   dataKey={item.dataKey}
                   item={{
                     ...item,
@@ -5823,57 +7059,21 @@ export default function TemplateDesigner({
               )}
             </div>
 
-            {/* RESIZE HANDLE */}
-            <button
-              type="button"
-              onMouseDown={(event) => startResizeWidget(event, item)}
-              onClick={(event) => event.stopPropagation()}
-              className="
-                resize-handle
-                absolute bottom-3 right-3
-                z-20
-                w-9 h-9
-                rounded-2xl
-                border border-emerald-300 dark:border-emerald-700
-                bg-white/95 dark:bg-slate-900/95
-                shadow-lg
-                flex items-center justify-center
-                text-emerald-600 dark:text-emerald-300
-                opacity-80 group-hover:opacity-100
-                cursor-se-resize
-                transition
-                hover:scale-110
-              "
-              title="Drag to resize"
-            >
-              ↘
-            </button>
-
-            {/* EDIT ICON */}
-            <div
-              className="
-                absolute bottom-14 right-3
-                w-8 h-8
-                rounded-full
-                bg-white dark:bg-slate-900/90
-                border border-gray-200 dark:border-slate-700
-                shadow
-                flex items-center justify-center
-                opacity-70 group-hover:opacity-100
-              "
-            >
-              <Pencil className="w-4 h-4 text-gray-500 dark:text-slate-300 group-hover:text-emerald-500" />
-            </div>
-
             {/* SIZE BADGE */}
             <div
               className="
-                absolute bottom-3 left-3
-                text-xs
-                text-gray-400 dark:text-slate-400
-                bg-white dark:bg-slate-900/80
-                px-2 py-1
-                rounded-lg
+                absolute bottom-2 left-2
+                z-20
+                text-[10px]
+                text-slate-400
+                dark:text-slate-500
+                bg-white/90
+                dark:bg-slate-900/90
+                px-1.5 py-0.5
+                rounded-md
+                opacity-0
+                transition-opacity
+                group-hover:opacity-100
               "
             >
               {item.w}×{item.h}
@@ -5881,13 +7081,14 @@ export default function TemplateDesigner({
           </div>
         ))}
       </div>
+      </div>
 
       {toast && (
         <div
           className={`
             fixed right-5 top-5 z-[100]
             flex w-[min(420px,calc(100vw-2.5rem))]
-            items-start gap-3 rounded-2xl border p-4 shadow-2xl
+            items-start gap-3 rounded-xl border p-4 shadow-xl
             backdrop-blur-xl
             ${
               toast.type === "error"
@@ -5928,7 +7129,7 @@ export default function TemplateDesigner({
             onClick={() => setToast(null)}
             className="
               rounded-xl p-1.5 text-gray-400 dark:text-slate-400 transition
-              hover:bg-gray-100 dark:bg-[#050a1e] hover:text-gray-700 dark:text-slate-200
+              hover:bg-gray-100 dark:bg-[#081022] hover:text-gray-700 dark:text-slate-200
               dark:hover:bg-gray-800 dark:hover:text-white
             "
             aria-label="Dismiss notification"
@@ -6011,12 +7212,16 @@ export default function TemplateDesigner({
                 {isEdit && selectedItem && (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "Delete this widget from the template?"
-                        )
-                      ) {
+                    onClick={async () => {
+                      const confirmed =
+                        await confirmAction({
+                          title: "Delete widget?",
+                          message: "Delete this widget from the template?",
+                          confirmLabel: "Delete Widget",
+                          tone: "danger",
+                        });
+
+                      if (confirmed) {
                         removeWidget(
                           selectedItem.id
                         );
@@ -6130,7 +7335,7 @@ export default function TemplateDesigner({
                   grid min-h-0
                   overflow-hidden
                   bg-slate-100
-                  dark:bg-[#050a1e]
+                  dark:bg-[#081022]
                 "
                 style={{
                   gridTemplateRows:
@@ -6141,7 +7346,6 @@ export default function TemplateDesigner({
                   className="
                     min-h-0 overflow-hidden
                     px-4 pb-3 pt-3
-                    pointer-events-none
                     flex flex-col
                   "
                 >
@@ -6168,6 +7372,21 @@ export default function TemplateDesigner({
                             newType
                           )}
                       </h3>
+
+                      <span
+                        className="
+                          rounded-md
+                          border border-slate-200
+                          bg-white px-1.5 py-0.5
+                          text-[10px] font-semibold
+                          text-slate-400
+                          dark:border-slate-700
+                          dark:bg-slate-900
+                          dark:text-slate-500
+                        "
+                      >
+                        Actual size {newW}×{newH}
+                      </span>
 
                       {isMultiDataWidget &&
                       newDataKeys.length > 0 ? (
@@ -6218,17 +7437,26 @@ export default function TemplateDesigner({
 
                   <div
                     className="
-                      min-h-0 flex-1
-                      flex items-center justify-center
-                      overflow-hidden
+                      min-h-0 flex-1 overflow-auto
                     "
                   >
                     <div
+                      className="
+                        flex min-h-full min-w-full
+                        items-center justify-center p-2
+                      "
+                      style={{
+                        width: "max-content",
+                        height: "max-content",
+                      }}
+                    >
+                    <div
                       className={
                         newType === "image"
-                          ? "aspect-video h-full w-full max-w-full overflow-hidden rounded-xl bg-gray-200 dark:bg-gray-950"
-                          : "h-full w-full"
+                          ? "pointer-events-none overflow-hidden rounded-xl bg-gray-200 dark:bg-gray-950"
+                          : "pointer-events-none overflow-hidden"
                       }
+                      style={studioPreviewFrameSize}
                     >
                       {showEmptyLivePreview || showNoValuesLivePreview ? (
                         <button
@@ -6252,7 +7480,7 @@ export default function TemplateDesigner({
                             className="
                               flex h-14 w-14
                               items-center justify-center
-                              rounded-2xl
+                              rounded-xl
                               border border-emerald-200
                               bg-emerald-100
                               text-emerald-700
@@ -6301,12 +7529,12 @@ export default function TemplateDesigner({
                           <span
                             className="
                               mt-6 inline-flex items-center gap-2
-                              rounded-2xl
+                              rounded-xl
                               bg-emerald-600
                               px-5 py-3
                               text-sm font-bold
                               text-white
-                              shadow-lg shadow-emerald-600/20
+                              shadow-sm shadow-cyan-500/20
                               transition
                               group-hover:bg-emerald-700
                               dark:bg-emerald-500
@@ -6455,6 +7683,7 @@ export default function TemplateDesigner({
                         />
                       )}
                     </div>
+                    </div>
                   </div>
                 </div>
 
@@ -6546,7 +7775,7 @@ export default function TemplateDesigner({
                       {useDedicatedWidgetSource ? (
                         <div
                           className="
-                            rounded-2xl border
+                            rounded-xl border
                             border-slate-200 bg-white
                             p-4
                             dark:border-slate-700
@@ -6575,8 +7804,6 @@ export default function TemplateDesigner({
                               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                                 {newType === "logs"
                                   ? "Logs reads event and activity data through its own log configuration."
-                                  : newType === "status"
-                                  ? "Data Status derives connection health and data freshness through its dedicated status configuration."
                                   : newType === "image"
                                   ? "Image widgets configure live sensor pins inside the image editor."
                                   : newType === "sankey"
@@ -6590,7 +7817,7 @@ export default function TemplateDesigner({
                         !showCustomDataModal ? (
                         <div
                           className="
-                            rounded-2xl border
+                            rounded-xl border
                             border-slate-200 bg-white
                             p-5
                             shadow-[0_4px_18px_rgba(15,23,42,0.04)]
@@ -6606,7 +7833,7 @@ export default function TemplateDesigner({
                                   className="
                                     flex h-11 w-11 shrink-0
                                     items-center justify-center
-                                    rounded-2xl bg-emerald-50
+                                    rounded-xl bg-emerald-50
                                     text-emerald-600
                                     dark:bg-emerald-500/10
                                     dark:text-emerald-300
@@ -6687,7 +7914,7 @@ export default function TemplateDesigner({
                       ) : allDataOptions.length > 0 ? (
                         <div
                           className="
-                            rounded-2xl border
+                            rounded-xl border
                             border-slate-200 bg-white
                             p-4
                             dark:border-slate-700
@@ -6783,7 +8010,7 @@ export default function TemplateDesigner({
                                     transition-colors
                                     ${
                                       selected
-                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:border-cyan-500/30 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
                                         : "border-slate-200 bg-slate-50/60 hover:border-emerald-300 hover:bg-emerald-50/40 dark:border-slate-700 dark:bg-slate-950/50 dark:hover:border-emerald-500/40"
                                     }
                                   `}
@@ -6923,7 +8150,7 @@ export default function TemplateDesigner({
         <div
           className="
             mt-4
-            rounded-2xl
+            rounded-xl
             bg-slate-50/80
             p-2
             dark:bg-slate-950/80
@@ -6932,7 +8159,7 @@ export default function TemplateDesigner({
           <div
             className="
               w-full overflow-hidden
-              rounded-2xl border
+              rounded-xl border
               border-slate-200 bg-white
               shadow-[0_4px_16px_rgba(15,23,42,0.05)]
               dark:border-slate-700
@@ -6958,7 +8185,7 @@ export default function TemplateDesigner({
                   className="
                     flex h-9 w-9
                     shrink-0 items-center
-                    justify-center rounded-2xl
+                    justify-center rounded-xl
                     bg-emerald-100 text-emerald-600
                     dark:bg-emerald-500/15
                     dark:text-emerald-300
@@ -7774,7 +9001,7 @@ export default function TemplateDesigner({
                         }
                         placeholder="e.g. Sterilizer Door Pressure"
                         className="
-                          mt-2 w-full rounded-2xl
+                          mt-2 w-full rounded-xl
                           border border-slate-300
                           bg-white px-3 py-2.5
                           text-sm text-slate-900
@@ -7814,7 +9041,7 @@ export default function TemplateDesigner({
                         }
                         placeholder="Auto generated if empty"
                         className="
-                          mt-2 w-full rounded-2xl
+                          mt-2 w-full rounded-xl
                           border border-slate-300
                           bg-white px-3 py-2.5
                           text-sm text-slate-900
@@ -7859,7 +9086,7 @@ export default function TemplateDesigner({
                         }
                         placeholder="Optional, e.g. bar / °C / %"
                         className="
-                          mt-2 w-full rounded-2xl
+                          mt-2 w-full rounded-xl
                           border border-slate-300
                           bg-white px-3 py-2.5
                           text-sm text-slate-900
@@ -7875,7 +9102,7 @@ export default function TemplateDesigner({
 
                     <div
                       className="
-                        rounded-2xl border
+                        rounded-xl border
                         border-emerald-100
                         bg-emerald-50 p-4
                         text-sm text-emerald-800
@@ -7928,7 +9155,7 @@ export default function TemplateDesigner({
                   setShowCustomDataModal(false)
                 }
                 className="
-                  rounded-2xl border
+                  rounded-xl border
                   border-slate-300 bg-white
                   px-5 py-3 text-sm
                   font-semibold text-slate-700
@@ -7947,11 +9174,11 @@ export default function TemplateDesigner({
                 onClick={addCustomDataSource}
                 className="
                   inline-flex items-center gap-2
-                  rounded-2xl bg-emerald-600
+                  rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500
                   px-5 py-3 text-sm
                   font-semibold text-white
-                  shadow-lg shadow-emerald-600/20
-                  transition hover:bg-emerald-700
+                  shadow-sm shadow-emerald-600/20
+                  transition hover:from-cyan-400 hover:to-indigo-400
                 "
               >
                 <Plus size={17} />
@@ -8009,22 +9236,118 @@ export default function TemplateDesigner({
               {/* RIGHT SETTINGS / WIDGET CONFIGURATION */}
               <div
                 className="
+                  widget-settings-panel
                   relative min-h-0
                   overflow-y-auto overflow-x-hidden
                   overscroll-contain
                   bg-slate-50/70
-                  px-3.5 pt-3.5 pb-0
+                  px-3.5 pb-4 pt-0
                   dark:bg-slate-950/60
                   flex flex-col
                 "
               >
-                <div className="mb-3 px-1">
-                  <p className="text-base font-bold text-slate-900 dark:text-white">
-                    Widget Settings
-                  </p>
-                  <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                    Choose the visualization, configure its display, then review the size before saving.
-                  </p>
+                <style>{`
+                  .widget-settings-panel {
+                    font-size: 11px;
+                  }
+
+                  .widget-settings-panel h3 {
+                    font-size: 12px !important;
+                    line-height: 1.25rem !important;
+                  }
+
+                  .widget-settings-panel h4 {
+                    font-size: 11px !important;
+                    line-height: 1rem !important;
+                  }
+
+                  .widget-settings-panel label {
+                    font-size: 10px !important;
+                    line-height: 0.95rem !important;
+                  }
+
+                  .widget-settings-panel p {
+                    font-size: 10px !important;
+                    line-height: 0.95rem !important;
+                  }
+
+                  .widget-settings-panel button,
+                  .widget-settings-panel input,
+                  .widget-settings-panel select,
+                  .widget-settings-panel textarea {
+                    font-size: 11px !important;
+                  }
+
+                  .widget-settings-panel button div,
+                  .widget-settings-panel button span {
+                    font-size: 10px !important;
+                  }
+
+                  .widget-settings-panel .widget-settings-title {
+                    font-size: 12px !important;
+                    line-height: 1rem !important;
+                  }
+
+                  .widget-settings-panel .widget-settings-live {
+                    font-size: 9px !important;
+                  }
+                `}</style>
+                <div
+                  className="
+                    sticky top-0 z-20
+                    -mx-3.5 mb-3
+                    border-b border-slate-200/90
+                    bg-white/95 px-4 py-3
+                    shadow-[0_1px_0_rgba(15,23,42,0.02)]
+                    backdrop-blur-md
+                    dark:border-slate-700/90
+                    dark:bg-slate-900/95
+                  "
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="
+                        flex h-9 w-9 shrink-0
+                        items-center justify-center
+                        rounded-xl border
+                        border-emerald-100
+                        bg-emerald-50
+                        text-emerald-600
+                        dark:border-emerald-500/20
+                        dark:bg-emerald-500/10
+                        dark:text-emerald-300
+                      "
+                    >
+                      <Pencil size={16} />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="widget-settings-title font-bold text-slate-900 dark:text-white">
+                          Widget Settings
+                        </p>
+
+                        <span
+                          className="
+                            shrink-0 rounded-full
+                            border border-slate-200
+                            bg-slate-50 px-2 py-0.5
+                            widget-settings-live font-semibold
+                            text-slate-500
+                            dark:border-slate-700
+                            dark:bg-slate-800
+                            dark:text-slate-400
+                          "
+                        >
+                          Live
+                        </span>
+                      </div>
+
+                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                        Changes update the preview instantly.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 {/* WIDGET TYPE */}
@@ -8032,10 +9355,13 @@ export default function TemplateDesigner({
                   <>
                     <div
                       className="
-                        bg-gray-50 dark:bg-slate-950
-                        border border-gray-200 dark:border-slate-700
-                        rounded-2xl
-                        p-4
+                        rounded-2xl border
+                        border-slate-200
+                        bg-white p-4
+                        shadow-sm shadow-slate-200/30
+                        dark:border-slate-700
+                        dark:bg-slate-900
+                        dark:shadow-none
                       "
                     >
                       <div className="mb-3 flex items-start justify-between gap-3">
@@ -8098,8 +9424,8 @@ export default function TemplateDesigner({
 
                                 ${
                                   selected
-                                    ? "bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-500/20"
-                                    : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
+                                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 shadow-sm dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20"
+                                    : "border-slate-200 bg-slate-50/70 text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/5"
                                 }
                               `}
                             >
@@ -8139,7 +9465,7 @@ export default function TemplateDesigner({
                                   hidden
                                   ${
                                     selected
-                                      ? "text-emerald-50"
+                                      ? "text-emerald-600 dark:text-emerald-300"
                                       : "text-gray-400 dark:text-slate-400"
                                   }
                                 `}
@@ -8177,7 +9503,7 @@ export default function TemplateDesigner({
                     {newType === "composite" && (
                       <div
                         className="
-                          mt-4 rounded-2xl border
+                          mt-4 rounded-xl border
                           border-gray-200 bg-gray-50
                           p-4
                           dark:border-slate-700
@@ -8216,7 +9542,7 @@ export default function TemplateDesigner({
                                   )
                                 }
                                 className={`
-                                  rounded-2xl border p-4
+                                  rounded-xl border p-4
                                   text-left transition-all
                                   ${
                                     selected
@@ -8266,7 +9592,7 @@ export default function TemplateDesigner({
                                 )
                               }
                               className="
-                                w-full rounded-2xl
+                                w-full rounded-xl
                                 border border-gray-300
                                 bg-white px-4 py-2.5
                                 text-gray-900 outline-none
@@ -8317,7 +9643,7 @@ export default function TemplateDesigner({
                         <div
                           className="
                             mt-4 overflow-hidden
-                            rounded-2xl border
+                            rounded-xl border
                             border-gray-200 bg-white
                             dark:border-slate-700
                             dark:bg-slate-900
@@ -8376,6 +9702,42 @@ export default function TemplateDesigner({
                             </div>
                           </div>
                         </div>
+
+                        <div
+                          className="
+                            mt-4 rounded-xl
+                            border border-slate-200
+                            bg-slate-50/70 p-3
+                            dark:border-slate-700
+                            dark:bg-slate-950/60
+                          "
+                        >
+                          <div className="mb-3">
+                            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                              Configure Combined Widgets
+                            </h3>
+
+                            <p className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                              Configure each child independently. Child labels, source selection, ranges, chart settings, and Pie options are saved with this Composite widget.
+                            </p>
+                          </div>
+
+                          <div className="space-y-2">
+                            {renderCompositePartConfiguration(
+                              "primary",
+                              getCompositePreset(
+                                newCompositeConfig.preset
+                              ).primaryType
+                            )}
+
+                            {renderCompositePartConfiguration(
+                              "secondary",
+                              getCompositePreset(
+                                newCompositeConfig.preset
+                              ).secondaryType
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -8384,7 +9746,7 @@ export default function TemplateDesigner({
                         type="button"
                         onClick={() => setWidgetStep(1)}
                         className="
-                          rounded-2xl border
+                          rounded-xl border
                           border-gray-300 bg-white
                           px-5 py-3 font-semibold
                           text-gray-700 transition
@@ -8402,7 +9764,7 @@ export default function TemplateDesigner({
                         type="button"
                         onClick={goToNextWidgetStep}
                         className="
-                          rounded-2xl
+                          rounded-xl
                           bg-emerald-600 hover:bg-emerald-700
                           text-white
                           px-6 py-3
@@ -8425,7 +9787,7 @@ export default function TemplateDesigner({
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
-                          rounded-2xl
+                          rounded-xl
                           p-4
                         "
                       >
@@ -8449,7 +9811,7 @@ export default function TemplateDesigner({
                           onChange={(e) => setNewLabel(e.target.value)}
                           className="
                             w-full
-                            rounded-2xl
+                            rounded-xl
                             border border-gray-300 dark:border-slate-600
                             bg-white dark:bg-slate-900
                             dark:text-white
@@ -8467,7 +9829,7 @@ export default function TemplateDesigner({
                       {newType === "logs" && (
                         <div
                           className="
-                            rounded-2xl border
+                            rounded-xl border
                             border-gray-200 bg-gray-50
                             p-4
                             dark:border-slate-700
@@ -8479,7 +9841,7 @@ export default function TemplateDesigner({
                               className="
                                 flex h-10 w-10
                                 shrink-0 items-center
-                                justify-center rounded-2xl
+                                justify-center rounded-xl
                                 bg-blue-100 text-blue-600
                                 dark:bg-blue-500/15
                                 dark:text-blue-300
@@ -8519,7 +9881,7 @@ export default function TemplateDesigner({
                                   )
                                 }
                                 className="
-                                  w-full rounded-2xl
+                                  w-full rounded-xl
                                   border border-gray-300
                                   bg-white px-4 py-3
                                   text-gray-900 outline-none
@@ -8571,7 +9933,7 @@ export default function TemplateDesigner({
                                   )
                                 }
                                 className="
-                                  w-full rounded-2xl
+                                  w-full rounded-xl
                                   border border-gray-300
                                   bg-white px-4 py-3
                                   text-gray-900 outline-none
@@ -8613,7 +9975,7 @@ export default function TemplateDesigner({
                                 className="
                                   flex items-center
                                   justify-between gap-3
-                                  rounded-2xl border
+                                  rounded-xl border
                                   border-gray-200 bg-white
                                   p-4
                                   dark:border-slate-700
@@ -8698,7 +10060,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className={`
-                                      rounded-2xl border
+                                      rounded-xl border
                                       px-3 py-3
                                       text-sm font-bold
                                       capitalize transition
@@ -8719,7 +10081,7 @@ export default function TemplateDesigner({
 
                           <div
                             className="
-                              mt-4 rounded-2xl
+                              mt-4 rounded-xl
                               border border-blue-100
                               bg-blue-50 p-4
                               text-xs leading-relaxed
@@ -8738,7 +10100,7 @@ export default function TemplateDesigner({
                       {newType === "bignumber" && (
                         <div
                           className="
-                            rounded-2xl border
+                            rounded-xl border
                             border-gray-200 bg-gray-50
                             p-4
                             dark:border-slate-700
@@ -8825,7 +10187,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className={`
-                                      rounded-2xl border
+                                      rounded-xl border
                                       p-4 text-left
                                       transition-all
                                       ${
@@ -8878,7 +10240,7 @@ export default function TemplateDesigner({
                                   )
                                 }
                                 className="
-                                  w-full rounded-2xl
+                                  w-full rounded-xl
                                   border border-gray-300
                                   bg-white px-4 py-3
                                   text-gray-900 outline-none
@@ -8920,7 +10282,7 @@ export default function TemplateDesigner({
                                   )
                                 }
                                 className="
-                                  w-full rounded-2xl
+                                  w-full rounded-xl
                                   border border-gray-300
                                   bg-white px-4 py-3
                                   text-gray-900 outline-none
@@ -8951,7 +10313,7 @@ export default function TemplateDesigner({
                             className="
                               mt-4 flex items-center
                               justify-between gap-3
-                              rounded-2xl border
+                              rounded-xl border
                               border-gray-200 bg-white
                               p-4
                               dark:border-slate-700
@@ -9004,7 +10366,7 @@ export default function TemplateDesigner({
                                         "Smaller layout for 1×1 cards",
                                     },
                                     {
-                                      value: "company",
+                                      value: "simple",
                                       label: "Simple",
                                       description:
                                         "Clean value and unit display",
@@ -9028,7 +10390,7 @@ export default function TemplateDesigner({
                                           )
                                         }
                                         className={`
-                                          rounded-2xl border
+                                          rounded-xl border
                                           p-4 text-left
                                           transition-all
                                           ${
@@ -9044,7 +10406,99 @@ export default function TemplateDesigner({
 
                                         <div
                                           className={`
-                                            mt-1 text-[11px]
+                                            mt-2 flex h-8
+                                            items-center
+                                            ${
+                                              option.value ===
+                                              "compact"
+                                                ? "justify-start"
+                                                : option.value ===
+                                                  "simple"
+                                                ? "justify-center"
+                                                : "justify-between"
+                                            }
+                                            rounded-lg px-2
+                                            ${
+                                              selected
+                                                ? "bg-white/10"
+                                                : "bg-slate-50 dark:bg-slate-950"
+                                            }
+                                          `}
+                                        >
+                                          <span
+                                            className={`
+                                              font-black
+                                              ${
+                                                option.value ===
+                                                "compact"
+                                                  ? "text-base"
+                                                  : "text-lg"
+                                              }
+                                            `}
+                                          >
+                                            44.1
+                                          </span>
+
+                                          {option.value ===
+                                            "modern" && (
+                                            <span
+                                              className={`
+                                                h-1 w-10
+                                                overflow-hidden
+                                                rounded-full
+                                                ${
+                                                  selected
+                                                    ? "bg-white/20"
+                                                    : "bg-slate-200 dark:bg-slate-700"
+                                                }
+                                              `}
+                                            >
+                                              <span
+                                                className="
+                                                  block h-full
+                                                  w-2/3 rounded-full
+                                                  bg-[#58D7FF]
+                                                "
+                                              />
+                                            </span>
+                                          )}
+
+                                          {option.value ===
+                                            "compact" && (
+                                            <span
+                                              className={`
+                                                ml-2 text-[9px]
+                                                ${
+                                                  selected
+                                                    ? "text-emerald-50"
+                                                    : "text-slate-400"
+                                                }
+                                              `}
+                                            >
+                                              ↗ Rising
+                                            </span>
+                                          )}
+
+                                          {option.value ===
+                                            "simple" && (
+                                            <span
+                                              className={`
+                                                ml-1 text-[9px]
+                                                ${
+                                                  selected
+                                                    ? "text-emerald-50"
+                                                    : "text-slate-400"
+                                                }
+                                              `}
+                                            >
+                                              psi
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div
+                                          className={`
+                                            mt-1.5 text-[11px]
                                             ${
                                               selected
                                                 ? "text-emerald-50"
@@ -9076,7 +10530,7 @@ export default function TemplateDesigner({
                                     className="
                                       flex items-center
                                       justify-between gap-3
-                                      rounded-2xl border
+                                      rounded-xl border
                                       border-gray-200 bg-white
                                       p-4
                                       dark:border-slate-700
@@ -9141,7 +10595,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl
+                                      w-full rounded-xl
                                       border border-gray-300
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
@@ -9175,7 +10629,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl
+                                      w-full rounded-xl
                                       border border-gray-300
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
@@ -9208,7 +10662,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl
+                                      w-full rounded-xl
                                       border border-gray-300
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
@@ -9275,7 +10729,7 @@ export default function TemplateDesigner({
                                         )
                                       }
                                       className="
-                                        w-full rounded-2xl
+                                        w-full rounded-xl
                                         border border-gray-300
                                         bg-white px-4 py-3
                                         text-gray-900 outline-none
@@ -9300,8 +10754,8 @@ export default function TemplateDesigner({
                             "combined" && (
                             <div
                               className="
-                                mt-4 rounded-2xl border
-                                border-emerald-200 bg-emerald-50/60
+                                mt-4 rounded-xl border
+                                border-cyan-200 bg-cyan-50/60
                                 p-4
                                 dark:border-emerald-500/25
                                 dark:bg-emerald-500/[0.05]
@@ -9325,7 +10779,7 @@ export default function TemplateDesigner({
 
                                   <div
                                     className="
-                                      min-h-[48px] rounded-2xl border
+                                      min-h-[48px] rounded-xl border
                                       border-gray-200 bg-white
                                       px-4 py-3 text-sm font-semibold
                                       text-gray-800
@@ -9364,7 +10818,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl border
+                                      w-full rounded-xl border
                                       border-gray-300 bg-white
                                       px-4 py-3 text-gray-900
                                       outline-none focus:ring-2
@@ -9421,7 +10875,7 @@ export default function TemplateDesigner({
                                     }
                                     placeholder="Machine Status"
                                     className="
-                                      w-full rounded-2xl border
+                                      w-full rounded-xl border
                                       border-gray-300 bg-white
                                       px-4 py-3 text-gray-900
                                       outline-none focus:ring-2
@@ -9477,7 +10931,7 @@ export default function TemplateDesigner({
                                       className="
                                         grid min-w-0
                                         grid-cols-[minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(90px,1fr)_36px]
-                                        gap-1.5 rounded-2xl
+                                        gap-1.5 rounded-xl
                                         border border-gray-200
                                         bg-white p-2.5
                                         dark:border-slate-700
@@ -9762,7 +11216,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl
+                                      w-full rounded-xl
                                       border border-gray-300
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
@@ -9796,7 +11250,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl
+                                      w-full rounded-xl
                                       border border-gray-300
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
@@ -9839,7 +11293,7 @@ export default function TemplateDesigner({
                                 className="
                                   flex items-center
                                   justify-between gap-3
-                                  rounded-2xl border
+                                  rounded-xl border
                                   border-gray-200 bg-white
                                   p-4
                                   dark:border-slate-700
@@ -9879,7 +11333,7 @@ export default function TemplateDesigner({
                           className="
                             bg-gray-50 dark:bg-slate-950
                             border border-gray-200 dark:border-slate-700
-                            rounded-2xl
+                            rounded-xl
                             p-4
                           "
                         >
@@ -9894,11 +11348,11 @@ export default function TemplateDesigner({
                                 type="button"
                                 onClick={() => setNewOrientation(direction)}
                                 className={`
-                                  py-4 rounded-2xl border transition-all font-medium capitalize
+                                  py-4 rounded-xl border transition-all font-medium capitalize
                                   ${
                                     newOrientation === direction
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow"
-                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
+                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#081022] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                   }
                                 `}
                               >
@@ -9913,7 +11367,7 @@ export default function TemplateDesigner({
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
-                          rounded-2xl
+                          rounded-xl
                           p-4
                         "
                       >
@@ -9943,13 +11397,13 @@ export default function TemplateDesigner({
                                   applyDraftWidgetSize(s.w, s.h);
                                 }}
                                 className={`
-                                  py-4 rounded-2xl border transition-all font-medium
+                                  py-4 rounded-xl border transition-all font-medium
                                   ${
                                     newW === s.w && newH === s.h
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow"
                                       : exceedsGrid
                                       ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-950 dark:border-slate-700 dark:text-slate-600"
-                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
+                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#081022] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                   }
                                 `}
                               >
@@ -9962,7 +11416,7 @@ export default function TemplateDesigner({
                         <div
                           className="
                             mt-4
-                            rounded-2xl
+                            rounded-xl
                             border border-gray-200 dark:border-slate-700
                             bg-white dark:bg-slate-900
                             p-4
@@ -9985,7 +11439,7 @@ export default function TemplateDesigner({
                                 bg-emerald-100 dark:bg-emerald-900/30
                                 px-3 py-1
                                 text-xs font-bold
-                                text-emerald-700 dark:text-emerald-300
+                                text-cyan-700 dark:text-cyan-300
                               "
                             >
                               {newW} × {newH}
@@ -10008,7 +11462,7 @@ export default function TemplateDesigner({
                                 }
                                 className="
                                   mt-2 w-full
-                                  rounded-2xl
+                                  rounded-xl
                                   border border-gray-300 dark:border-slate-600
                                   bg-white dark:bg-slate-950
                                   px-4 py-3
@@ -10036,7 +11490,7 @@ export default function TemplateDesigner({
                                 }
                                 className="
                                   mt-2 w-full
-                                  rounded-2xl
+                                  rounded-xl
                                   border border-gray-300 dark:border-slate-600
                                   bg-white dark:bg-slate-950
                                   px-4 py-3
@@ -10058,73 +11512,7 @@ export default function TemplateDesigner({
 
                     </div>
 
-                    {skipsWidgetDataSourceStep && (
-                    <div
-                      className="
-                        mt-3 rounded-xl border
-                        border-slate-200 bg-white
-                        px-3 py-3
-                        dark:border-slate-700
-                        dark:bg-slate-900
-                      "
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div
-                          className="
-                            mt-0.5 flex h-7 w-7
-                            shrink-0 items-center
-                            justify-center rounded-lg
-                            bg-emerald-50
-                            text-emerald-600
-                            dark:bg-emerald-500/10
-                            dark:text-emerald-300
-                          "
-                        >
-                          <CheckCircle2 size={15} />
-                        </div>
 
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                            Widget Summary
-                          </p>
-
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="max-w-full truncate text-sm font-bold text-slate-800 dark:text-white">
-                              {newLabel.trim() ||
-                                getFallbackWidgetLabel(
-                                  newType,
-                                  isMultiDataWidget
-                                    ? newDataKeys[0] ||
-                                      newDataKey
-                                    : newDataKey
-                                )}
-                            </span>
-
-                            <span className="text-[10px] text-slate-400">
-                              {selectedWidgetTypeLabel}
-                            </span>
-
-                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
-                              •
-                            </span>
-
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                              {newW} × {newH}
-                            </span>
-
-                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
-                              •
-                            </span>
-
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                              {widgetSummarySourceText}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    )}
 
                   </>
                 )}
@@ -10134,7 +11522,7 @@ export default function TemplateDesigner({
                     {newType === "image" ? (
                       <div
                         className="
-                          rounded-2xl border p-4
+                          rounded-xl border p-4
                           border-purple-200 bg-purple-50
                           dark:border-purple-500/40
                           dark:bg-slate-900
@@ -10153,7 +11541,7 @@ export default function TemplateDesigner({
                           className="mb-4 text-sm leading-5"
                           style={{
                             color: document.documentElement.classList.contains("dark")
-                              ? "#334155"
+                              ? "#2C3C61"
                               : "#475569",
                           }}
                         >
@@ -10162,7 +11550,7 @@ export default function TemplateDesigner({
 
                         <div
                           className="
-                            mb-4 rounded-2xl border
+                            mb-4 rounded-xl border
                             border-dashed border-purple-300
                             bg-white p-4
                             dark:border-purple-400/50
@@ -10211,7 +11599,7 @@ export default function TemplateDesigner({
 
                           {imageDraft.croppedSrc ? (
                             <div className="mt-4">
-                              <div className="overflow-hidden rounded-2xl border border-purple-200 bg-gray-100 dark:border-purple-800 dark:bg-slate-950">
+                              <div className="overflow-hidden rounded-xl border border-purple-200 bg-gray-100 dark:border-purple-800 dark:bg-slate-950">
                                 <img
                                   src={imageDraft.croppedSrc}
                                   alt="Uploaded diagram preview"
@@ -10292,10 +11680,10 @@ export default function TemplateDesigner({
                           }}
                           className="
                             w-full
-                            rounded-2xl
+                            rounded-xl
                             bg-purple-600 py-4
                             font-bold text-white
-                            shadow-lg
+                            shadow-sm
                             shadow-purple-600/20
                             transition-all
                             hover:bg-purple-700
@@ -10312,7 +11700,7 @@ export default function TemplateDesigner({
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
-                          rounded-2xl
+                          rounded-xl
                           p-4
                         "
                       >
@@ -10331,7 +11719,7 @@ export default function TemplateDesigner({
                         ) && (
                           <div
                             className="
-                              mt-4 rounded-2xl border
+                              mt-4 rounded-xl border
                               border-cyan-200/80
                               bg-gradient-to-br
                               from-cyan-50/70 via-white
@@ -10431,7 +11819,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl border
+                                      w-full rounded-xl border
                                       border-gray-300 bg-white
                                       px-4 py-3 dark:text-white
                                       dark:border-slate-600
@@ -10468,7 +11856,7 @@ export default function TemplateDesigner({
                                       )
                                     }
                                     className="
-                                      w-full rounded-2xl border
+                                      w-full rounded-xl border
                                       border-gray-300 bg-white
                                       px-4 py-3 dark:text-white
                                       dark:border-slate-600
@@ -10484,9 +11872,294 @@ export default function TemplateDesigner({
                               </div>
                             )}
 
+                            {newType === "line" && (
+                              <div
+                                className="
+                                  mb-3 rounded-xl
+                                  border border-slate-200
+                                  bg-white p-3
+                                  dark:border-slate-700
+                                  dark:bg-slate-900
+                                "
+                              >
+                                <div
+                                  className="
+                                    flex flex-col gap-3
+                                    sm:flex-row
+                                    sm:items-center
+                                    sm:justify-between
+                                  "
+                                >
+                                  <div className="min-w-0">
+                                    <div
+                                      className="
+                                        text-xs font-bold
+                                        text-slate-800
+                                        dark:text-slate-100
+                                      "
+                                    >
+                                      Background Grid Lines
+                                    </div>
+
+                                    <p
+                                      className="
+                                        mt-0.5 text-[11px]
+                                        leading-4
+                                        text-slate-500
+                                        dark:text-slate-400
+                                      "
+                                    >
+                                      Show faint reference lines behind the trend to make values easier to compare.
+                                    </p>
+                                  </div>
+
+                                  <div
+                                    className="
+                                      inline-flex shrink-0
+                                      rounded-lg
+                                      border border-slate-200
+                                      bg-slate-50 p-1
+                                      dark:border-slate-700
+                                      dark:bg-slate-950
+                                    "
+                                  >
+                                    {[
+                                      {
+                                        value: true,
+                                        label: "Show",
+                                      },
+                                      {
+                                        value: false,
+                                        label: "Hide",
+                                      },
+                                    ].map((option) => {
+                                      const selected =
+                                        (newChartDisplay.showGrid !==
+                                          false) ===
+                                        option.value;
+
+                                      return (
+                                        <button
+                                          key={String(
+                                            option.value
+                                          )}
+                                          type="button"
+                                          onClick={() =>
+                                            setNewChartDisplay(
+                                              (previous) => ({
+                                                ...previous,
+                                                showGrid:
+                                                  option.value,
+                                              })
+                                            )
+                                          }
+                                          className={`
+                                            h-7 rounded-md
+                                            px-3 text-[11px]
+                                            font-semibold
+                                            transition-colors
+                                            ${
+                                              selected
+                                                ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                                                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                                            }
+                                          `}
+                                        >
+                                          {option.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {newChartDisplay.showGrid !==
+                                  false && (
+                                  <div
+                                    className="
+                                      mt-3 flex
+                                      flex-col gap-2
+                                      sm:flex-row
+                                      sm:items-center
+                                      sm:justify-between
+                                    "
+                                  >
+                                    <div>
+                                      <div
+                                        className="
+                                          text-[11px]
+                                          font-semibold
+                                          text-slate-700
+                                          dark:text-slate-200
+                                        "
+                                      >
+                                        Grid Density
+                                      </div>
+
+                                      <p
+                                        className="
+                                          mt-0.5
+                                          text-[10px]
+                                          text-slate-400
+                                        "
+                                      >
+                                        Keep major grid lines clear; add only faint horizontal guides between them.
+                                      </p>
+                                    </div>
+
+                                    <div
+                                      className="
+                                        inline-flex shrink-0
+                                        rounded-lg
+                                        border border-slate-200
+                                        bg-slate-50 p-1
+                                        dark:border-slate-700
+                                        dark:bg-slate-950
+                                      "
+                                    >
+                                      {[
+                                        {
+                                          value: "sparse",
+                                          label: "Low",
+                                        },
+                                        {
+                                          value: "normal",
+                                          label: "Balanced",
+                                        },
+                                        {
+                                          value: "dense",
+                                          label: "Dense",
+                                        },
+                                      ].map((option) => {
+                                        const selected =
+                                          (newChartDisplay.gridDensity ||
+                                            "dense") ===
+                                          option.value;
+
+                                        return (
+                                          <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() =>
+                                              setNewChartDisplay(
+                                                (previous) => ({
+                                                  ...previous,
+                                                  gridDensity:
+                                                    option.value,
+                                                })
+                                              )
+                                            }
+                                            className={`
+                                              h-7 rounded-md
+                                              px-2.5 text-[10px]
+                                              font-semibold
+                                              transition-colors
+                                              ${
+                                                selected
+                                                  ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                                                  : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                                              }
+                                            `}
+                                          >
+                                            {option.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div
+                                  className="
+                                    mt-3 overflow-hidden
+                                    rounded-lg border
+                                    border-slate-200
+                                    bg-slate-50
+                                    dark:border-slate-700
+                                    dark:bg-slate-950
+                                  "
+                                  aria-hidden="true"
+                                >
+                                  <svg
+                                    viewBox="0 0 320 54"
+                                    className="h-12 w-full"
+                                    preserveAspectRatio="none"
+                                  >
+                                    {newChartDisplay.showGrid !==
+                                      false && (
+                                      <g
+                                        stroke="currentColor"
+                                        className="text-slate-300 dark:text-slate-700"
+                                        strokeWidth="1"
+                                        strokeDasharray="3 5"
+                                      >
+                                        {(() => {
+                                          const density =
+                                            newChartDisplay.gridDensity ||
+                                            "dense";
+
+                                          const horizontalLines =
+                                            density === "sparse"
+                                              ? [18, 36]
+                                              : density === "normal"
+                                              ? [13, 27, 41]
+                                              : [9, 18, 27, 36, 45];
+
+                                          const verticalLines =
+                                            density === "sparse"
+                                              ? [106, 213]
+                                              : density === "normal"
+                                              ? [80, 160, 240]
+                                              : [53, 106, 160, 213, 266];
+
+                                          return (
+                                            <>
+                                              {horizontalLines.map(
+                                                (y) => (
+                                                  <line
+                                                    key={`h-${y}`}
+                                                    x1="0"
+                                                    y1={y}
+                                                    x2="320"
+                                                    y2={y}
+                                                  />
+                                                )
+                                              )}
+
+                                              {verticalLines.map(
+                                                (x) => (
+                                                  <line
+                                                    key={`v-${x}`}
+                                                    x1={x}
+                                                    y1="0"
+                                                    x2={x}
+                                                    y2="54"
+                                                  />
+                                                )
+                                              )}
+                                            </>
+                                          );
+                                        })()}
+                                      </g>
+                                    )}
+
+                                    <polyline
+                                      points="0,37 38,30 78,33 116,20 155,24 198,15 240,23 280,12 320,18"
+                                      fill="none"
+                                      stroke="#58D7FF"
+                                      strokeWidth="2.5"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </div>
+                              </div>
+                            )}
+
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                               {[
-                                ["showGrid", "Grid"],
+                                ...(newType === "bar"
+                                  ? [["showGrid", "Grid lines"]]
+                                  : []),
                                 ["showLegend", "Legend"],
                                 ["showTooltip", "Tooltip"],
                                 ["showXAxis", "X-axis"],
@@ -10500,7 +12173,7 @@ export default function TemplateDesigner({
                                     key={key}
                                     className="
                                       flex items-center gap-2
-                                      rounded-2xl border
+                                      rounded-xl border
                                       border-gray-200 bg-white
                                       px-3 py-2.5
                                       dark:border-slate-700
@@ -10535,11 +12208,13 @@ export default function TemplateDesigner({
                             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div>
                                 <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                  Y-axis Range
+                                  Y-axis Scale
                                 </label>
                                 <select
                                   value={
-                                    newChartDisplay.yAxisMode
+                                    newChartDisplay.yAxisMode === "auto"
+                                      ? "auto"
+                                      : "fixed"
                                   }
                                   onChange={(event) =>
                                     setNewChartDisplay(
@@ -10551,7 +12226,7 @@ export default function TemplateDesigner({
                                     )
                                   }
                                   className="
-                                    w-full rounded-2xl border
+                                    w-full rounded-xl border
                                     border-gray-300 bg-white
                                     px-4 py-3 dark:text-white
                                     dark:border-slate-600
@@ -10559,13 +12234,10 @@ export default function TemplateDesigner({
                                   "
                                 >
                                   <option value="auto">
-                                    Automatic · visible data
+                                    Smart Auto · recommended
                                   </option>
-                                  <option value="range">
-                                    Data Range · widget min/max
-                                  </option>
-                                  <option value="custom">
-                                    Custom · axis min/max
+                                  <option value="fixed">
+                                    Fixed Scale · exact min / max / interval
                                   </option>
                                 </select>
 
@@ -10574,116 +12246,155 @@ export default function TemplateDesigner({
                                     mt-2 rounded-xl px-3 py-2
                                     text-[10px] leading-4
                                     ${
-                                      newChartDisplay.yAxisMode ===
-                                      "auto"
+                                      newChartDisplay.yAxisMode === "auto"
                                         ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
-                                        : newChartDisplay.yAxisMode ===
-                                          "range"
-                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                                         : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
                                     }
                                   `}
                                 >
-                                  {newChartDisplay.yAxisMode ===
-                                  "auto"
-                                    ? "Uses only the visible chart data. Data Range minimum and maximum do not control the Y-axis while data is available."
-                                    : newChartDisplay.yAxisMode ===
-                                      "range"
-                                    ? "Uses the widget Data Range minimum and maximum below."
-                                    : "Uses the Axis Minimum and Axis Maximum entered here."}
+                                  {newChartDisplay.yAxisMode === "auto"
+                                    ? "Smart Auto follows the visible data and automatically keeps zero when it becomes meaningful."
+                                    : "Fixed Scale uses your exact minimum and maximum. Tick Interval controls the spacing between Y-axis labels."}
                                 </div>
                               </div>
 
-                              <div>
-                                <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                  Y-axis Tick Count
-                                </label>
-                                <input
-                                  type="number"
-                                  min="2"
-                                  max="12"
-                                  value={
-                                    newChartDisplay.yAxisTickCount
-                                  }
-                                  onChange={(event) =>
-                                    setNewChartDisplay(
-                                      (previous) => ({
-                                        ...previous,
-                                        yAxisTickCount:
-                                          event.target.value,
-                                      })
-                                    )
-                                  }
-                                  className="
-                                    w-full rounded-2xl border
-                                    border-gray-300 bg-white
-                                    px-4 py-3 dark:text-white
-                                    dark:border-slate-600
-                                    dark:bg-slate-900
-                                  "
-                                />
-                              </div>
+                              {newChartDisplay.yAxisMode === "auto" && (
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                    Auto Tick Target
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="2"
+                                    max="12"
+                                    value={
+                                      newChartDisplay.yAxisTickCount
+                                    }
+                                    onChange={(event) =>
+                                      setNewChartDisplay(
+                                        (previous) => ({
+                                          ...previous,
+                                          yAxisTickCount:
+                                            event.target.value,
+                                        })
+                                      )
+                                    }
+                                    className="
+                                      w-full rounded-xl border
+                                      border-gray-300 bg-white
+                                      px-4 py-3 dark:text-white
+                                      dark:border-slate-600
+                                      dark:bg-slate-900
+                                    "
+                                  />
+                                  <p className="mt-2 text-[10px] leading-4 text-gray-500 dark:text-slate-400">
+                                    Approximate number of major Y-axis labels used by Smart Auto.
+                                  </p>
+                                </div>
+                              )}
                             </div>
 
-                            {newChartDisplay.yAxisMode ===
-                              "custom" && (
-                              <div className="mt-4 grid grid-cols-2 gap-4">
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Axis Minimum
-                                  </label>
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    value={
-                                      newChartDisplay.yAxisMin
-                                    }
-                                    onChange={(event) =>
-                                      setNewChartDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          yAxisMin:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-2xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  />
+                            {newChartDisplay.yAxisMode !== "auto" && (
+                              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/25 dark:bg-amber-500/[0.05]">
+                                <div className="mb-3">
+                                  <h4 className="text-sm font-bold text-gray-900 dark:text-white">
+                                    Fixed Y-axis Scale
+                                  </h4>
+                                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                    Set the exact chart scale. For example, Minimum 0, Maximum 400, Interval 100 produces 0, 100, 200, 300, 400.
+                                  </p>
                                 </div>
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Axis Maximum
-                                  </label>
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    value={
-                                      newChartDisplay.yAxisMax
-                                    }
-                                    onChange={(event) =>
-                                      setNewChartDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          yAxisMax:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-2xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  />
+
+                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                  <div>
+                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                      Minimum
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={newChartDisplay.yAxisMin}
+                                      placeholder={String(newRangeConfig.min ?? "0")}
+                                      onChange={(event) =>
+                                        setNewChartDisplay(
+                                          (previous) => ({
+                                            ...previous,
+                                            yAxisMode: "fixed",
+                                            yAxisMin: event.target.value,
+                                          })
+                                        )
+                                      }
+                                      className="
+                                        w-full rounded-xl border
+                                        border-gray-300 bg-white
+                                        px-4 py-3 dark:text-white
+                                        dark:border-slate-600
+                                        dark:bg-slate-900
+                                      "
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                      Maximum
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={newChartDisplay.yAxisMax}
+                                      placeholder={String(newRangeConfig.max ?? "100")}
+                                      onChange={(event) =>
+                                        setNewChartDisplay(
+                                          (previous) => ({
+                                            ...previous,
+                                            yAxisMode: "fixed",
+                                            yAxisMax: event.target.value,
+                                          })
+                                        )
+                                      }
+                                      className="
+                                        w-full rounded-xl border
+                                        border-gray-300 bg-white
+                                        px-4 py-3 dark:text-white
+                                        dark:border-slate-600
+                                        dark:bg-slate-900
+                                      "
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                      Tick Interval
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      min="0"
+                                      value={newChartDisplay.yAxisInterval ?? ""}
+                                      placeholder="Example: 100"
+                                      onChange={(event) =>
+                                        setNewChartDisplay(
+                                          (previous) => ({
+                                            ...previous,
+                                            yAxisMode: "fixed",
+                                            yAxisInterval: event.target.value,
+                                          })
+                                        )
+                                      }
+                                      className="
+                                        w-full rounded-xl border
+                                        border-gray-300 bg-white
+                                        px-4 py-3 dark:text-white
+                                        dark:border-slate-600
+                                        dark:bg-slate-900
+                                      "
+                                    />
+                                  </div>
                                 </div>
+
+                                <p className="mt-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+                                  Leave Minimum or Maximum blank to fall back to the widget Data Range. Leave Tick Interval blank to divide the fixed range automatically.
+                                </p>
                               </div>
                             )}
 
@@ -10774,7 +12485,7 @@ export default function TemplateDesigner({
                                           <div
                                             className={`text-xs font-bold ${
                                               selected
-                                                ? "text-emerald-700 dark:text-emerald-300"
+                                                ? "text-cyan-700 dark:text-cyan-300"
                                                 : "text-slate-700 dark:text-slate-200"
                                             }`}
                                           >
@@ -10863,7 +12574,7 @@ export default function TemplateDesigner({
                                           <div
                                             className={`text-xs font-bold ${
                                               selected
-                                                ? "text-emerald-700 dark:text-emerald-300"
+                                                ? "text-cyan-700 dark:text-cyan-300"
                                                 : "text-slate-700 dark:text-slate-200"
                                             }`}
                                           >
@@ -10962,7 +12673,7 @@ export default function TemplateDesigner({
                                             <div
                                               className={`text-xs font-bold ${
                                                 selected
-                                                  ? "text-emerald-700 dark:text-emerald-300"
+                                                  ? "text-cyan-700 dark:text-cyan-300"
                                                   : "text-slate-700 dark:text-slate-200"
                                               }`}
                                             >
@@ -11075,24 +12786,24 @@ export default function TemplateDesigner({
       newBigNumberDisplay.mode
     ) &&
                           hasSelectedDataSource && (
-                            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
                               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                   <h3 className="font-bold dark:text-white">
-                                    Data Range and Thresholds
+                                    Operating Range and Thresholds
                                   </h3>
 
                                   <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                    Configure the unit, expected operating range, and thresholds for this widget.
+                                    Configure the sensor unit, expected operating range, and warning thresholds. This is separate from the visible Y-axis scale.
                                   </p>
 
-                                  {newType === "line" &&
-                                    newChartDisplay.yAxisMode ===
-                                      "auto" && (
-                                      <p className="mt-2 text-[10px] font-medium leading-4 text-blue-600 dark:text-blue-300">
-                                        Automatic Y-axis is active: Minimum and Maximum remain saved as the widget's expected range, but they do not control the chart Y-axis while live/history data is available.
-                                      </p>
-                                    )}
+                                  {newType === "line" && (
+                                    <p className="mt-2 text-[10px] font-medium leading-4 text-blue-600 dark:text-blue-300">
+                                      {newChartDisplay.yAxisMode === "auto"
+                                        ? "Smart Auto uses live/history values for the visible Y-axis. This range remains the expected engineering range and no-data fallback."
+                                        : "Fixed Scale above controls the visible Y-axis. This section remains useful for the sensor unit, operating range, and thresholds."}
+                                    </p>
+                                  )}
                                 </div>
 
 
@@ -11121,7 +12832,7 @@ export default function TemplateDesigner({
                                         }))
                                       }
                                       className="
-                                        w-full rounded-2xl
+                                        w-full rounded-xl
                                         border border-gray-300 dark:border-slate-600
                                         bg-white dark:bg-slate-900
                                         px-4 py-3
@@ -11149,7 +12860,7 @@ export default function TemplateDesigner({
                                       }))
                                     }
                                     className="
-                                      w-full rounded-2xl
+                                      w-full rounded-xl
                                       border border-gray-300 dark:border-slate-600
                                       bg-white dark:bg-slate-900
                                       px-4 py-3
@@ -11161,7 +12872,7 @@ export default function TemplateDesigner({
                                 </div>
                               </div>
 
-                              <div className="mt-4 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                              <div className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                                 These settings are saved directly with this widget and are used by the dashboard at runtime.
                               </div>
                             </div>
@@ -11170,9 +12881,9 @@ export default function TemplateDesigner({
                         {newType === "sankey" && (
                           <div
                             className="
-                              mt-4 rounded-2xl border p-4
-                              border-emerald-200 bg-emerald-50
-                              dark:border-emerald-500/40
+                              mt-4 rounded-xl border p-4
+                              border-cyan-200 bg-cyan-50
+                              dark:border-cyan-500/30
                               dark:bg-slate-900
                             "
                           >
@@ -11186,15 +12897,15 @@ export default function TemplateDesigner({
                                   className="mt-1 text-sm leading-5"
                                   style={{
                                     color: document.documentElement.classList.contains("dark")
-                                      ? "#334155"
+                                      ? "#AAB7D4"
                                       : "#475569",
                                   }}
                                 >
-                                  Open the full-screen editor to configure the source name and output data sources.
+                                  Open the full-screen editor to create nodes and connect them into a multi-level flow network.
                                 </p>
 
-                                <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                                  Current setup: {getSankeyOutputs().length} output(s)
+                                <p className="mt-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300">
+                                  Current setup: {getSankeyGraph().nodes.length} node(s) · {getSankeyOutputs().length} flow(s)
                                 </p>
                               </div>
 
@@ -11214,13 +12925,8 @@ export default function TemplateDesigner({
                                       h: newH || 2,
                                     };
 
-                                  const targetDataKeys = [
-                                    ...new Set(
-                                      (preparedConfig.outputs || [])
-                                        .map((output) => output.dataKey)
-                                        .filter(Boolean)
-                                    ),
-                                  ];
+                                  const targetDataKeys =
+                                    getSankeyDataKeys(preparedConfig);
 
                                   setEditingSankeyWidget({
                                     ...target,
@@ -11246,14 +12952,12 @@ export default function TemplateDesigner({
                                 }}
                                 className="
                                   inline-flex items-center justify-center
-                                  rounded-2xl bg-emerald-600
+                                  rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500
                                   px-5 py-3 text-sm font-bold
-                                  text-white shadow-lg
-                                  shadow-emerald-600/20
-                                  transition hover:bg-emerald-700
-                                  dark:bg-emerald-500
-                                  dark:text-slate-950
-                                  dark:hover:bg-emerald-400
+                                  text-white shadow-sm
+                                  shadow-cyan-500/20
+                                  transition hover:from-cyan-400 hover:to-indigo-400
+                                  dark:text-white
                                 "
                               >
                                 Open Sankey Flow Editor
@@ -11266,70 +12970,6 @@ export default function TemplateDesigner({
                       </div>
                     )}
 
-                    <div
-                      className="
-                        mt-3 rounded-xl border
-                        border-slate-200 bg-white
-                        px-3 py-3
-                        dark:border-slate-700
-                        dark:bg-slate-900
-                      "
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div
-                          className="
-                            mt-0.5 flex h-7 w-7
-                            shrink-0 items-center
-                            justify-center rounded-lg
-                            bg-emerald-50
-                            text-emerald-600
-                            dark:bg-emerald-500/10
-                            dark:text-emerald-300
-                          "
-                        >
-                          <CheckCircle2 size={15} />
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                            Widget Summary
-                          </p>
-
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="max-w-full truncate text-sm font-bold text-slate-800 dark:text-white">
-                              {newLabel.trim() ||
-                                getFallbackWidgetLabel(
-                                  newType,
-                                  isMultiDataWidget
-                                    ? newDataKeys[0] ||
-                                      newDataKey
-                                    : newDataKey
-                                )}
-                            </span>
-
-                            <span className="text-[10px] text-slate-400">
-                              {selectedWidgetTypeLabel}
-                            </span>
-
-                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
-                              •
-                            </span>
-
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                              {newW} × {newH}
-                            </span>
-
-                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
-                              •
-                            </span>
-
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                              {widgetSummarySourceText}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
 
                   </>
                 )}
@@ -11346,7 +12986,7 @@ export default function TemplateDesigner({
           onClick={() => setShowCustomWidgetModal(false)}
         >
           <div
-            className="w-[min(620px,94vw)] max-h-[90vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            className="w-[min(620px,94vw)] max-h-[90vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 dark:border-slate-700">
@@ -11384,7 +13024,7 @@ export default function TemplateDesigner({
                     }))
                   }
                   placeholder="e.g. Boiler Status, Steam KPI, Sterilizer Trend"
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 />
               </div>
 
@@ -11400,7 +13040,7 @@ export default function TemplateDesigner({
                       baseType: event.target.value,
                     }))
                   }
-                  className="mt-2 w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 >
                   {widgetLibrary.map((widget) => (
                     <option key={widget.type} value={widget.type}>
@@ -11427,11 +13067,11 @@ export default function TemplateDesigner({
                   }
                   placeholder="Optional description shown under the custom widget type."
                   rows={3}
-                  className="mt-2 w-full resize-none rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                  className="mt-2 w-full resize-none rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 />
               </div>
 
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
                 Custom widget types are saved with the template as reusable display presets.
               </div>
             </div>
@@ -11440,7 +13080,7 @@ export default function TemplateDesigner({
               <button
                 type="button"
                 onClick={() => setShowCustomWidgetModal(false)}
-                className="rounded-2xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:border-slate-600 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
+                className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:border-slate-600 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
               >
                 Cancel
               </button>
@@ -11448,7 +13088,7 @@ export default function TemplateDesigner({
               <button
                 type="button"
                 onClick={addCustomWidgetType}
-                className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
               >
                 Add and Select Widget Type
               </button>

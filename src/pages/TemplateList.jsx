@@ -17,6 +17,20 @@ import {
   List,
 } from "lucide-react";
 
+import {
+  MetricCard,
+  PageHeader,
+  SectionHeading,
+  controlClasses,
+} from "../components/ControlCenterUI";
+
+import {
+  DEFAULT_COMPOSITE_CONFIG,
+  getCompositePreset,
+} from "../data/compositeWidgets";
+
+import { confirmAction, notify } from "../utils/feedback";
+
 export default function TemplateList({
   setPage,
   setSelectedTemplate,
@@ -188,7 +202,7 @@ export default function TemplateList({
       setTemplates(data || []);
     } catch (err) {
       console.error(err);
-      alert(`❌ ${err.message}`);
+      notify(`❌ ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -276,11 +290,13 @@ export default function TemplateList({
   // =====================================
   const setFavoriteTemplate = async (template) => {
     const confirmFavorite =
-      window.confirm(
-        `Set "${
+      await confirmAction({
+        title: "Set favourite template?",
+        message: `Use "${
           template.name || `Template #${template.id}`
-        }" as your favourite dashboard template?`
-      );
+        }" as your favourite dashboard template?`,
+        confirmLabel: "Set Favourite",
+      });
 
     if (!confirmFavorite) return;
 
@@ -313,12 +329,12 @@ export default function TemplateList({
 
       setFavoriteTemplateId(String(template.id));
 
-      alert("⭐ Favourite template updated");
+      notify("⭐ Favourite template updated");
 
       await fetchDefaultTemplate?.();
     } catch (err) {
       console.error(err);
-      alert(`❌ ${err.message}`);
+      notify(`❌ ${err.message}`);
     } finally {
       setSettingFavoriteId(null);
     }
@@ -329,9 +345,12 @@ export default function TemplateList({
   // =====================================
   const deleteTemplate = async (id) => {
     const confirmDelete =
-      window.confirm(
-        "Delete this template?"
-      );
+      await confirmAction({
+        title: "Delete template?",
+        message: "This template will be permanently removed.",
+        confirmLabel: "Delete",
+        tone: "danger",
+      });
 
     if (!confirmDelete) return;
 
@@ -378,7 +397,7 @@ export default function TemplateList({
       console.log("🗑 TEMPLATE DELETED:", id);
     } catch (err) {
       console.error(err);
-      alert(`❌ ${err.message}`);
+      notify(`❌ ${err.message}`);
     }
   };
 
@@ -387,13 +406,13 @@ export default function TemplateList({
   // =====================================
   const handleAssign = async () => {
     if (!selectedOrg) {
-      return alert(
+      return notify(
         "Please select organization"
       );
     }
 
     if (!selectedTemplateLocal) {
-      return alert("No template selected");
+      return notify("No template selected");
     }
 
     const alreadyAssigned =
@@ -406,7 +425,7 @@ export default function TemplateList({
       );
 
     if (alreadyAssigned) {
-      return alert(
+      return notify(
         "⚠️ This template is already assigned to this organization."
       );
     }
@@ -435,7 +454,7 @@ export default function TemplateList({
 
       console.log("✅ ASSIGN RESULT:", data);
 
-      alert("✅ Template Assigned");
+      notify("✅ Template Assigned");
 
       setShowAssign(false);
       setSelectedOrg("");
@@ -444,7 +463,7 @@ export default function TemplateList({
       fetchAssignments();
     } catch (err) {
       console.error(err);
-      alert(`❌ ${err.message}`);
+      notify(`❌ ${err.message}`);
     }
   };
 
@@ -456,9 +475,12 @@ export default function TemplateList({
     templateId
   ) => {
     const confirmRemove =
-      window.confirm(
-        "Remove this organization assignment?"
-      );
+      await confirmAction({
+        title: "Remove assignment?",
+        message: "Remove this organization from the template assignment?",
+        confirmLabel: "Remove",
+        tone: "danger",
+      });
 
     if (!confirmRemove) return;
 
@@ -483,7 +505,7 @@ export default function TemplateList({
 
       await parseResponse(res);
 
-      alert("✅ Assignment removed");
+      notify("✅ Assignment removed");
 
       setAssignments((prev) =>
         prev.filter(
@@ -498,7 +520,7 @@ export default function TemplateList({
       );
     } catch (err) {
       console.error(err);
-      alert(`❌ ${err.message}`);
+      notify(`❌ ${err.message}`);
     }
   };
 
@@ -557,7 +579,6 @@ export default function TemplateList({
       bar: "Bar",
       pie: "Pie",
       image: "Image",
-      status: "Data Status",
       logs: "Logs",
       sankey: "Sankey",
       composite: "Composite",
@@ -579,15 +600,15 @@ export default function TemplateList({
             <div className="text-[13px] font-black leading-none text-slate-800 dark:text-slate-100">
               123.4
             </div>
-            <div className="mt-1 h-1 w-8 rounded-full bg-emerald-500/70" />
+            <div className="mt-1 h-1 w-8 rounded-full bg-cyan-500/75" />
           </div>
         );
 
       case "gauge":
         return (
           <div className="relative mx-auto h-8 w-12 overflow-hidden">
-            <div className="absolute inset-x-0 top-1 h-10 rounded-full border-[5px] border-emerald-500/70 border-b-transparent" />
-            <div className="absolute bottom-0 left-1/2 h-[2px] w-4 origin-left -rotate-[24deg] bg-[#6D254D]" />
+            <div className="absolute inset-x-0 top-1 h-10 rounded-full border-[5px] border-cyan-500/75 border-b-transparent" />
+            <div className="absolute bottom-0 left-1/2 h-[2px] w-4 origin-left -rotate-[24deg] bg-[#FF6F88]" />
           </div>
         );
 
@@ -595,7 +616,7 @@ export default function TemplateList({
         return (
           <div className="flex h-full items-center px-2">
             <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-              <div className="h-full w-[72%] rounded-full bg-emerald-500" />
+              <div className="h-full w-[72%] rounded-full bg-cyan-500" />
             </div>
           </div>
         );
@@ -614,13 +635,13 @@ export default function TemplateList({
             item?.type === "area" ? (
               <path
                 d="M2 27 C16 25 20 10 37 15 C52 20 61 5 76 11 C87 14 91 7 98 8 L98 34 L2 34 Z"
-                fill="rgba(124,179,66,0.18)"
+                fill="rgba(88,215,255,0.16)"
               />
             ) : null}
             <path
               d="M2 27 C16 25 20 10 37 15 C52 20 61 5 76 11 C87 14 91 7 98 8"
               fill="none"
-              stroke="#7CB342"
+              stroke="#58D7FF"
               strokeWidth="2.6"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -635,7 +656,7 @@ export default function TemplateList({
               (height, index) => (
                 <span
                   key={index}
-                  className="w-2 rounded-t bg-emerald-500/80"
+                  className="w-2 rounded-t bg-cyan-500/80"
                   style={{
                     height: `${height}%`,
                   }}
@@ -647,26 +668,38 @@ export default function TemplateList({
 
       case "pie":
         return (
-          <div className="flex h-full items-center justify-center">
-            <div
-              className="
-                h-9 w-9 rounded-full
-                border-[7px]
-                border-emerald-600
-                border-r-[#A4C65A]
-                border-b-[#C5D98B]
-              "
-            />
-          </div>
-        );
+          <div
+            className="
+              grid h-full
+              grid-cols-[minmax(0,1fr)_auto]
+              items-center gap-2 px-2
+            "
+          >
+            <div className="flex items-center justify-center">
+              <div
+                className="
+                  relative h-10 w-10
+                  rounded-full
+                  border-[7px]
+                  border-indigo-600
+                  border-r-[#58D7FF]
+                "
+              >
+                <div
+                  className="
+                    absolute inset-[5px]
+                    rounded-full
+                    bg-white
+                    dark:bg-slate-900
+                  "
+                />
+              </div>
+            </div>
 
-      case "status":
-        return (
-          <div className="flex h-full items-center justify-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-[8px] font-bold text-emerald-700 dark:text-emerald-300">
-              LIVE
-            </span>
+            <div className="space-y-1">
+              <div className="h-1 w-8 rounded bg-[#58D7FF]" />
+              <div className="h-1 w-6 rounded bg-[#7D75E7]" />
+            </div>
           </div>
         );
 
@@ -679,7 +712,7 @@ export default function TemplateList({
                   key={index}
                   className="flex items-center gap-1"
                 >
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500/80" />
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-500/80" />
                   <span
                     className="h-1 rounded-full bg-slate-300 dark:bg-slate-600"
                     style={{
@@ -696,7 +729,7 @@ export default function TemplateList({
         return (
           <div className="relative flex h-full items-center justify-center overflow-hidden rounded">
             <div className="absolute inset-2 rounded bg-slate-200 dark:bg-slate-700" />
-            <div className="relative h-2 w-2 rounded-full border-2 border-white bg-emerald-500 shadow" />
+            <div className="relative h-2 w-2 rounded-full border-2 border-slate-100 bg-cyan-500 shadow dark:border-[#2C3C61]" />
           </div>
         );
 
@@ -711,66 +744,147 @@ export default function TemplateList({
               cx="15"
               cy="17"
               r="4"
-              fill="#2E7D32"
+              fill="#7D75E7"
             />
             <circle
               cx="84"
               cy="8"
               r="3"
-              fill="#7CB342"
+              fill="#58D7FF"
             />
             <circle
               cx="84"
               cy="26"
               r="3"
-              fill="#A4C65A"
+              fill="#A86BDF"
             />
             <path
               d="M19 17 C45 17 55 8 81 8"
               fill="none"
-              stroke="#7CB342"
+              stroke="#58D7FF"
               strokeWidth="4"
               opacity="0.65"
             />
             <path
               d="M19 17 C45 17 55 26 81 26"
               fill="none"
-              stroke="#A4C65A"
+              stroke="#A86BDF"
               strokeWidth="3"
               opacity="0.55"
             />
           </svg>
         );
 
-      case "composite":
+      case "composite": {
+        const config = {
+          ...DEFAULT_COMPOSITE_CONFIG,
+          ...(item?.compositeConfig ||
+            {}),
+        };
+
+        const preset =
+          getCompositePreset(
+            config.preset
+          );
+
+        const ratio = Math.min(
+          70,
+          Math.max(
+            25,
+            Number(
+              config.ratio
+            ) || 34
+          )
+        );
+
+        const horizontal =
+          config.layout ===
+          "horizontal";
+
+        const primaryVisual =
+          renderPreviewWidgetVisual({
+            ...item,
+            type:
+              preset.primaryType,
+            label: "",
+          });
+
+        const secondaryVisual =
+          renderPreviewWidgetVisual({
+            ...item,
+            type:
+              preset.secondaryType,
+            label: "",
+            chartDisplay: {
+              ...(item?.chartDisplay ||
+                {}),
+              ...(preset.secondaryType ===
+              "area"
+                ? {
+                    chartStyle:
+                      "area",
+                  }
+                : {}),
+            },
+          });
+
         return (
-          <div className="grid h-full grid-cols-[0.8fr_1.2fr] gap-1 p-1.5">
-            <div className="flex items-center justify-center rounded bg-emerald-50 text-[10px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-              88
+          <div
+            className={`
+              grid h-full min-h-0
+              overflow-hidden
+              rounded-md
+              border border-slate-200
+              dark:border-slate-700
+              ${
+                horizontal
+                  ? "grid-cols-[var(--primary)_minmax(0,1fr)]"
+                  : "grid-rows-[var(--primary)_minmax(0,1fr)]"
+              }
+            `}
+            style={{
+              "--primary":
+                `${ratio}%`,
+            }}
+          >
+            <div
+              className={`
+                min-h-0 min-w-0
+                overflow-hidden
+                bg-white
+                dark:bg-slate-900
+                ${
+                  horizontal
+                    ? "border-r"
+                    : "border-b"
+                }
+                border-slate-200
+                dark:border-slate-700
+              `}
+            >
+              {primaryVisual}
             </div>
-            <div className="flex items-center rounded bg-slate-50 p-1 dark:bg-slate-800">
-              <svg
-                viewBox="0 0 50 20"
-                className="h-full w-full"
-                preserveAspectRatio="none"
-              >
-                <path
-                  d="M1 16 C10 15 14 5 22 9 C31 13 34 3 49 6"
-                  fill="none"
-                  stroke="#7CB342"
-                  strokeWidth="2"
-                />
-              </svg>
+
+            <div
+              className="
+                min-h-0 min-w-0
+                overflow-hidden
+                bg-white
+                dark:bg-slate-900
+              "
+            >
+              {secondaryVisual}
             </div>
           </div>
         );
+      }
 
       default:
         return (
           <div className="flex h-full items-center justify-center">
             <LayoutGrid
-              size={17}
-              className="text-emerald-500"
+              size={14}
+              className="text-cyan-500"
             />
           </div>
         );
@@ -783,14 +897,14 @@ export default function TemplateList({
   if (loading) {
     return (
       <div
-        className={`h-full flex items-center justify-center ${isDark ? "bg-[#050a1e] text-slate-100" : ""}`}
+        className={`h-full flex items-center justify-center ${isDark ? "bg-[#081022] text-slate-100" : ""}`}
       >
         <div className="text-center">
           <div
             className="
               animate-spin rounded-full
               h-14 w-14
-              border-b-2 border-emerald-500
+              border-b-2 border-cyan-500
               mx-auto mb-4
             "
           ></div>
@@ -813,7 +927,7 @@ export default function TemplateList({
   return (
     <div
       className={`template-list-page min-h-full w-full overflow-auto p-3 ${
-        isDark ? "template-list-dark bg-[#050a1e] text-slate-100" : "bg-transparent"
+        isDark ? "template-list-dark bg-[#081022] text-slate-100" : "bg-transparent"
       }`}
     >
       {isDark && (
@@ -823,32 +937,32 @@ export default function TemplateList({
           }
 
           .template-list-dark .bg-white {
-            background-color: #0f172a !important;
+            background-color: #111B34 !important;
           }
 
           .template-list-dark .bg-gray-50 {
-            background-color: #020617 !important;
+            background-color: #081022 !important;
           }
 
           .template-list-dark .bg-gray-100 {
-            background-color: #1e293b !important;
+            background-color: #1B2948 !important;
           }
 
           .template-list-dark .bg-gray-200 {
-            background-color: #334155 !important;
+            background-color: #2C3C61 !important;
           }
 
           .template-list-dark .bg-gray-700,
           .template-list-dark .bg-gray-800,
           .template-list-dark .bg-gray-900 {
-            background-color: #0f172a !important;
+            background-color: #111B34 !important;
           }
 
           .template-list-dark .border-gray-200,
           .template-list-dark .border-gray-300,
           .template-list-dark .border-gray-600,
           .template-list-dark .border-gray-700 {
-            border-color: #334155 !important;
+            border-color: #2C3C61 !important;
           }
 
           .template-list-dark .text-gray-900,
@@ -871,8 +985,8 @@ export default function TemplateList({
           .template-list-dark select,
           .template-list-dark textarea {
             color: #f8fafc !important;
-            background-color: #020617 !important;
-            border-color: #334155 !important;
+            background-color: #081022 !important;
+            border-color: #2C3C61 !important;
           }
 
           .template-list-dark input::placeholder,
@@ -882,34 +996,21 @@ export default function TemplateList({
 
           .template-list-dark option {
             color: #f8fafc !important;
-            background-color: #020617 !important;
+            background-color: #081022 !important;
           }
 
           .template-list-dark .from-gray-100 {
-            --tw-gradient-from: #111827 var(--tw-gradient-from-position) !important;
+            --tw-gradient-from: #111B34 var(--tw-gradient-from-position) !important;
             --tw-gradient-to: rgb(17 24 39 / 0) var(--tw-gradient-to-position) !important;
             --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
           }
 
           .template-list-dark .to-gray-200 {
-            --tw-gradient-to: #334155 var(--tw-gradient-to-position) !important;
+            --tw-gradient-to: #2C3C61 var(--tw-gradient-to-position) !important;
           }
 
           .template-list-dark .hover\:shadow-2xl:hover {
             box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.45) !important;
-          }
-
-          .template-list-dark .bg-emerald-50 {
-            background-color: rgba(6, 78, 59, 0.28) !important;
-          }
-
-          .template-list-dark .border-emerald-200,
-          .template-list-dark .border-emerald-800 {
-            border-color: rgba(16, 185, 129, 0.35) !important;
-          }
-
-          .template-list-dark .text-emerald-700 {
-            color: #6ee7b7 !important;
           }
 
           .template-list-dark .bg-yellow-100 {
@@ -929,372 +1030,247 @@ export default function TemplateList({
             background-color: rgba(113, 63, 18, 0.3) !important;
           }
 
-          .template-list-dark .bg-emerald-100 {
-            background-color: rgba(6, 78, 59, 0.55) !important;
-          }
-
-          .template-list-dark .text-emerald-600 {
-            color: #34d399 !important;
-          }
-
-          .template-list-dark .shadow-lg,
+          .template-list-dark .shadow-sm,
           .template-list-dark .shadow-xl,
           .template-list-dark .shadow-2xl {
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28) !important;
           }
+
+
+          /* Template cards: real dark surfaces, not dimmed light surfaces */
+          .template-list-dark .template-card {
+            background: linear-gradient(
+              145deg,
+              #111B34 0%,
+              #151A38 52%,
+              #10182F 100%
+            ) !important;
+            border-color: #343B68 !important;
+            color: #E8EDFF !important;
+          }
+
+          .template-list-dark .template-card:hover {
+            background: linear-gradient(
+              145deg,
+              #15213D 0%,
+              #1A1F45 52%,
+              #131D37 100%
+            ) !important;
+            border-color: #4A4F82 !important;
+          }
+
+          .template-list-dark .template-card-favourite {
+            border-color: rgba(125, 117, 231, 0.62) !important;
+            box-shadow:
+              0 0 0 1px rgba(125, 117, 231, 0.18),
+              0 18px 38px rgba(2, 6, 23, 0.36) !important;
+          }
+
+          .template-list-dark .template-metric-tile {
+            background-color: rgba(11, 19, 40, 0.72) !important;
+            border-color: #303A62 !important;
+          }
+
+          .template-list-dark .template-org-panel {
+            background-color: rgba(11, 19, 40, 0.66) !important;
+            border-color: #303A62 !important;
+          }
+
+          .template-list-dark .template-org-panel.has-assignments {
+            background: linear-gradient(
+              135deg,
+              rgba(88, 215, 255, 0.08),
+              rgba(125, 117, 231, 0.08)
+            ) !important;
+            border-color: rgba(88, 215, 255, 0.24) !important;
+          }
+
+          .template-list-dark .template-org-title {
+            color: #C8D1EA !important;
+          }
+
+          .template-list-dark .template-org-panel.has-assignments .template-org-title,
+          .template-list-dark .template-org-panel.has-assignments .template-org-count {
+            color: #7DDFFF !important;
+          }
+
+          .template-list-dark .template-org-count {
+            color: #93A2C7 !important;
+          }
+
+          .template-list-dark .template-org-chip {
+            background: linear-gradient(
+              90deg,
+              rgba(88, 215, 255, 0.22),
+              rgba(125, 117, 231, 0.24)
+            ) !important;
+            color: #E8EDFF !important;
+            border: 1px solid rgba(88, 215, 255, 0.24);
+          }
+
+          .template-list-dark .template-action-use {
+            background: linear-gradient(
+              90deg,
+              rgba(88, 215, 255, 0.22),
+              rgba(125, 117, 231, 0.28)
+            ) !important;
+            color: #EAF8FF !important;
+            border-color: rgba(88, 215, 255, 0.30) !important;
+          }
+
+          .template-list-dark .template-action-use:hover {
+            background: linear-gradient(
+              90deg,
+              rgba(88, 215, 255, 0.30),
+              rgba(125, 117, 231, 0.38)
+            ) !important;
+          }
+
+          .template-list-dark .template-action-edit,
+          .template-list-dark .template-action-delete,
+          .template-list-dark .template-action-assign {
+            background-color: #15213D !important;
+          }
+
+          .template-list-dark .template-action-edit {
+            border-color: rgba(255, 214, 107, 0.22) !important;
+            color: #FFD66B !important;
+          }
+
+          .template-list-dark .template-action-delete {
+            border-color: rgba(255, 111, 136, 0.22) !important;
+            color: #FF9AAE !important;
+          }
+
+          .template-list-dark .template-action-assign {
+            border-color: rgba(88, 215, 255, 0.22) !important;
+            color: #7DDFFF !important;
+          }
+
+          .template-list-dark .template-status-assigned {
+            background-color: rgba(88, 215, 255, 0.12) !important;
+            color: #7DDFFF !important;
+          }
+
+          .template-list-dark .template-status-unassigned {
+            background-color: rgba(168, 107, 223, 0.13) !important;
+            color: #D6B7F4 !important;
+          }
         `}</style>
       )}
       {/* HEADER */}
-      <div
-        className="
-          flex flex-col md:flex-row
-          md:items-center
-          md:justify-between
-          gap-3 mb-4
-        "
-      >
-        <div>
-          <h1
-            className="
-              text-xl font-bold
-              dark:text-white
-              flex items-center gap-3
-            "
-          >
-            <FolderOpen
-              className="
-                w-6 h-6 text-emerald-500
-              "
-            />
-
-            Template Management
-          </h1>
-
-          <p
-            className="
-              text-gray-500 dark:text-gray-400 mt-1
-            "
-          >
-            {isSuperadmin
-              ? "Manage dashboard templates, organization assignments, and favourite dashboard templates."
-              : "View assigned dashboard templates and choose your favourite default dashboard."}
-          </p>
-        </div>
-
-        {canCreateOrEdit && (
-          <button
-            onClick={() => setPage("builder")}
-            className="
-              flex items-center gap-2
-              bg-emerald-600
-              hover:bg-emerald-700
-              transition
-              text-white
-              px-4 py-2.5
-              rounded-xl
-              shadow-sm
-            "
-          >
-            <Plus className="w-4 h-4" />
-            Create Template
-          </button>
-        )}
-      </div>
+      <PageHeader
+        icon={FolderOpen}
+        title="Template Management"
+        description={
+          isSuperadmin
+            ? "Manage templates, organization assignments, and favourite dashboards."
+            : "Choose from assigned templates and set your favourite default dashboard."
+        }
+        className="mb-3"
+        actions={
+          canCreateOrEdit ? (
+            <button
+              type="button"
+              onClick={() =>
+                setPage("builder")
+              }
+              className={controlClasses.primary}
+            >
+              <Plus size={14} />
+              Create Template
+            </button>
+          ) : null
+        }
+      />
 
       {/* SUMMARY CARDS */}
       {isSuperadmin ? (
         <div
           className="
-            grid grid-cols-1
-            md:grid-cols-3
-            gap-3
-            mb-4
+            mb-3 grid grid-cols-1
+            gap-2 md:grid-cols-3
           "
         >
-          {/* TOTAL */}
-          <div
-            className="
-              bg-white dark:bg-gray-800
-              border border-gray-200
-              dark:border-gray-700
-              rounded-2xl
-              p-4
-              shadow-lg
-            "
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="
-                  w-10 h-10
-                  rounded-2xl
-                  bg-emerald-500/10
-                  text-emerald-500
-                  flex items-center justify-center
-                "
-              >
-                <LayoutGrid size={24} />
-              </div>
+          <MetricCard
+            icon={LayoutGrid}
+            label="Total Templates"
+            value={templates.length}
+            tone="neutral"
+          />
 
-              <div>
-                <p
-                  className="
-                    text-sm text-gray-500
-                    dark:text-gray-400
-                  "
-                >
-                  Total Templates
-                </p>
+          <MetricCard
+            icon={CheckCircle2}
+            label="Assigned Templates"
+            value={assignedTemplateCount}
+            tone="success"
+          />
 
-                <p
-                  className="
-                    text-xl font-bold
-                    dark:text-white
-                  "
-                >
-                  {templates.length}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* ASSIGNED */}
-          <div
-            className="
-              bg-white dark:bg-gray-800
-              border border-gray-200
-              dark:border-gray-700
-              rounded-2xl
-              p-4
-              shadow-lg
-            "
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="
-                  w-10 h-10
-                  rounded-2xl
-                  bg-emerald-500/10
-                  text-emerald-500
-                  flex items-center justify-center
-                "
-              >
-                <CheckCircle2 size={24} />
-              </div>
-
-              <div>
-                <p
-                  className="
-                    text-sm text-gray-500
-                    dark:text-gray-400
-                  "
-                >
-                  Assigned Templates
-                </p>
-
-                <p
-                  className="
-                    text-xl font-bold
-                    text-emerald-500
-                  "
-                >
-                  {assignedTemplateCount}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* UNASSIGNED */}
-          <div
-            className="
-              bg-white dark:bg-gray-800
-              border border-gray-200
-              dark:border-gray-700
-              rounded-2xl
-              p-4
-              shadow-lg
-            "
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="
-                  w-10 h-10
-                  rounded-2xl
-                  bg-yellow-500/10
-                  text-yellow-500
-                  flex items-center justify-center
-                "
-              >
-                <AlertCircle size={24} />
-              </div>
-
-              <div>
-                <p
-                  className="
-                    text-sm text-gray-500
-                    dark:text-gray-400
-                  "
-                >
-                  Unassigned Templates
-                </p>
-
-                <p
-                  className="
-                    text-xl font-bold
-                    text-yellow-500
-                  "
-                >
-                  {unassignedTemplateCount}
-                </p>
-              </div>
-            </div>
-          </div>
+          <MetricCard
+            icon={AlertCircle}
+            label="Unassigned Templates"
+            value={unassignedTemplateCount}
+            tone="warning"
+          />
         </div>
       ) : (
         <div
           className="
-            grid grid-cols-1
-            md:grid-cols-2
-            gap-3
-            mb-4
+            mb-3 grid grid-cols-1
+            gap-2 md:grid-cols-2
           "
         >
-          <div
-            className="
-              bg-white dark:bg-gray-800
-              border border-gray-200
-              dark:border-gray-700
-              rounded-2xl
-              p-4
-              shadow-lg
-            "
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="
-                  w-10 h-10
-                  rounded-2xl
-                  bg-emerald-500/10
-                  text-emerald-500
-                  flex items-center justify-center
-                "
-              >
-                <LayoutGrid size={24} />
-              </div>
+          <MetricCard
+            icon={LayoutGrid}
+            label="Available Templates"
+            value={templates.length}
+            tone="neutral"
+          />
 
-              <div>
-                <p
-                  className="
-                    text-sm text-gray-500
-                    dark:text-gray-400
-                  "
-                >
-                  Available Templates
-                </p>
-
-                <p
-                  className="
-                    text-xl font-bold
-                    dark:text-white
-                  "
-                >
-                  {templates.length}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="
-              bg-white dark:bg-gray-800
-              border border-gray-200
-              dark:border-gray-700
-              rounded-2xl
-              p-4
-              shadow-lg
-            "
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="
-                  w-10 h-10
-                  rounded-2xl
-                  bg-yellow-500/10
-                  text-yellow-500
-                  flex items-center justify-center
-                "
-              >
-                <Star size={24} />
-              </div>
-
-              <div>
-                <p
-                  className="
-                    text-sm text-gray-500
-                    dark:text-gray-400
-                  "
-                >
-                  Favourite Template
-                </p>
-
-                <p
-                  className="
-                    text-lg font-bold
-                    text-yellow-500
-                    truncate
-                  "
-                >
-                  {favoriteTemplateName ||
-                    (favoriteTemplateId
-                      ? `#${favoriteTemplateId}`
-                      : "Not Set")}
-                </p>
-              </div>
-            </div>
-          </div>
+          <MetricCard
+            icon={Star}
+            label="Favourite Template"
+            value={
+              favoriteTemplateName ||
+              (favoriteTemplateId
+                ? `#${favoriteTemplateId}`
+                : "Not Set")
+            }
+            tone={
+              favoriteTemplateId
+                ? "warning"
+                : "neutral"
+            }
+          />
         </div>
       )}
 
-      {/* SEARCH BAR */}
+      {/* TEMPLATE LIBRARY TOOLBAR */}
       <div
         className="
-          bg-white dark:bg-gray-800
-          border border-gray-200
-          dark:border-gray-700
-          rounded-2xl
-          p-5
-          shadow-lg
-          mb-8
+          mb-3 rounded-xl
+          border border-slate-200
+          bg-white p-3 shadow-sm
+          dark:border-slate-700
+          dark:bg-slate-900
         "
       >
         <div
           className="
-            flex flex-col md:flex-row
+            flex flex-col gap-2
+            md:flex-row
             md:items-center
             md:justify-between
-            gap-4
           "
         >
-          <div>
-            <h2
-              className="
-                text-lg font-bold
-                dark:text-white
-              "
-            >
-              Template Library
-            </h2>
-
-            <p
-              className="
-                text-sm text-gray-500
-                dark:text-gray-400
-              "
-            >
-              {isSuperadmin
-                ? "Search, assign, edit, set favourite, or use saved dashboard templates."
-                : "Search, use, or set your favourite dashboard template."}
-            </p>
-          </div>
+          <SectionHeading
+            title="Template Library"
+            description={
+              isSuperadmin
+                ? "Search, assign, edit, favourite, or open saved dashboards."
+                : "Search, open, or favourite an assigned dashboard."
+            }
+          />
 
           <div
             className="
@@ -1313,7 +1289,7 @@ export default function TemplateList({
               <Search
                 size={17}
                 className="
-                  absolute left-3.5 top-1/2
+                  absolute left-3 top-1/2
                   -translate-y-1/2
                   text-gray-400
                 "
@@ -1327,14 +1303,14 @@ export default function TemplateList({
                   setSearch(e.target.value)
                 }
                 className="
-                  h-10 w-full rounded-xl
-                  border border-gray-300
-                  bg-gray-50 pl-10 pr-3
-                  text-sm outline-none
+                  h-9 w-full rounded-lg
+                  border border-slate-300
+                  bg-white pl-9 pr-3
+                  text-xs outline-none
                   transition
-                  focus:border-emerald-500
+                  focus:border-cyan-500
                   focus:ring-2
-                  focus:ring-emerald-500/15
+                  focus:ring-cyan-500/15
                   dark:border-gray-700
                   dark:bg-gray-900
                   dark:text-white
@@ -1344,10 +1320,10 @@ export default function TemplateList({
 
             <div
               className="
-                inline-flex h-10 shrink-0
-                items-center rounded-xl
-                border border-gray-200
-                bg-gray-50 p-1
+                inline-flex h-9 shrink-0
+                items-center rounded-lg
+                border border-slate-200
+                bg-slate-50 p-1
                 dark:border-gray-700
                 dark:bg-gray-900
               "
@@ -1366,7 +1342,7 @@ export default function TemplateList({
                   font-semibold transition
                   ${
                     viewMode === "grid"
-                      ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                      ? "bg-white text-cyan-700 shadow-sm dark:bg-[#15213D] dark:text-cyan-200"
                       : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
                   }
                 `}
@@ -1394,7 +1370,7 @@ export default function TemplateList({
                   font-semibold transition
                   ${
                     viewMode === "list"
-                      ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                      ? "bg-white text-cyan-700 shadow-sm dark:bg-[#15213D] dark:text-cyan-200"
                       : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
                   }
                 `}
@@ -1418,7 +1394,7 @@ export default function TemplateList({
         <div
           className="
             bg-white dark:bg-gray-800
-            rounded-2xl
+            rounded-xl
             p-12
             shadow-xl
             text-center
@@ -1436,7 +1412,7 @@ export default function TemplateList({
 
           <h2
             className="
-              text-xl font-bold
+              text-base font-bold
               dark:text-white mb-2
             "
           >
@@ -1496,7 +1472,9 @@ export default function TemplateList({
 
             const previewItems =
               Array.isArray(layout?.items)
-                ? layout.items
+                ? layout.items.filter(
+                    (item) => item?.type !== "status"
+                  )
                 : [];
 
             const derivedPreviewCols =
@@ -1571,14 +1549,17 @@ export default function TemplateList({
              * 12 × 12 -> ~0.20
              */
             const previewScale =
-              Math.max(
-                0.18,
-                Math.min(
-                  1,
-                  2.4 / previewRows,
-                  4.5 / previewCols
-                )
-              );
+              previewCols <= 4 &&
+              previewRows <= 3
+                ? 1
+                : Math.max(
+                    0.18,
+                    Math.min(
+                      1,
+                      3 / previewRows,
+                      5 / previewCols
+                    )
+                  );
 
             const previewInverseScale =
               1 / previewScale;
@@ -1597,30 +1578,35 @@ export default function TemplateList({
               <div
                 key={t.id}
                 className={`
+                  template-card
+                  ${isFavorite ? "template-card-favourite" : ""}
                   group relative
-                  bg-white dark:bg-gray-800
-                  border rounded-2xl
-                  shadow-lg
+                  border rounded-xl
+                  shadow-sm
+                  p-3
                   transition-all duration-200
-                  ${
-                    viewMode === "grid"
-                      ? "p-5 hover:-translate-y-0.5 hover:shadow-xl"
-                      : "p-4 hover:shadow-xl"
-                  }
+                  hover:-translate-y-0.5
+                  hover:shadow-md
+
+                  bg-gradient-to-br
+                  from-indigo-50/95
+                  via-violet-50/70
+                  to-slate-50/90
+                  border-indigo-200/80
+                  hover:from-indigo-100/90
+                  hover:via-violet-50/90
+                  hover:to-white
+                  hover:border-indigo-300
+
 
                   ${
                     isFavorite
                       ? `
-                        border-yellow-300
-                        dark:border-yellow-600
-                        ring-2 ring-yellow-400/30
+                        ring-2 ring-violet-300/50
+                        border-violet-300
+                        dark:ring-violet-400/20
                       `
-                      : `
-                        border-gray-200
-                        dark:border-gray-700
-                        hover:border-emerald-300
-                        dark:hover:border-emerald-700
-                      `
+                      : ""
                   }
                 `}
               >
@@ -1631,8 +1617,8 @@ export default function TemplateList({
                     justify-between gap-4
                     ${
                       viewMode === "grid"
-                        ? "mb-4"
-                        : "mb-3"
+                        ? "mb-2.5"
+                        : "mb-2"
                     }
                   `}
                 >
@@ -1646,7 +1632,8 @@ export default function TemplateList({
                     >
                       <LayoutGrid
                         className="
-                          w-5 h-5 text-emerald-500
+                          w-4 h-4 text-cyan-500
+                          dark:text-[#58D7FF]
                           shrink-0
                         "
                       />
@@ -1659,7 +1646,7 @@ export default function TemplateList({
 
                     <p
                       className="
-                        text-sm text-gray-400 mt-2
+                        text-[10px] text-gray-400 mt-1
                       "
                     >
                       Template ID: {t.id}
@@ -1676,23 +1663,25 @@ export default function TemplateList({
                     {isSuperadmin && (
                       <div
                         className={`
-                          px-3 py-1
+                          px-2.5 py-0.5
                           rounded-full
-                          text-xs font-semibold
+                          text-[10px] font-semibold
 
                           ${
                             isAssigned
                               ? `
-                                bg-emerald-100
-                                text-emerald-700
-                                dark:bg-emerald-900/30
-                                dark:text-emerald-300
+                                template-status-assigned
+                                bg-cyan-100
+                                text-cyan-700
+                                dark:bg-cyan-400/10
+                                dark:text-cyan-200
                               `
                               : `
-                                bg-yellow-100
-                                text-yellow-700
-                                dark:bg-yellow-900/30
-                                dark:text-yellow-300
+                                template-status-unassigned
+                                bg-violet-100
+                                text-violet-700
+                                dark:bg-violet-400/10
+                                dark:text-violet-200
                               `
                           }
                         `}
@@ -1716,8 +1705,8 @@ export default function TemplateList({
                         isFavorite
                       }
                       className={`
-                        w-10 h-10
-                        rounded-2xl
+                        w-8 h-8
+                        rounded-lg
                         flex items-center justify-center
                         border
                         transition-all
@@ -1760,7 +1749,7 @@ export default function TemplateList({
                       }
                     >
                       <Star
-                        size={19}
+                        size={15}
                         fill={
                           isFavorite
                             ? "currentColor"
@@ -1787,7 +1776,7 @@ export default function TemplateList({
                 <div
                   className={`
                     overflow-hidden
-                    rounded-2xl border
+                    rounded-xl border
                     border-gray-200 bg-slate-100
                     dark:border-gray-700
                     dark:bg-slate-950
@@ -1812,7 +1801,7 @@ export default function TemplateList({
                     <div className="flex min-w-0 items-center gap-2">
                       <LayoutGrid
                         size={14}
-                        className="shrink-0 text-emerald-500"
+                        className="shrink-0 text-cyan-500"
                       />
 
                       <span className="truncate text-[11px] font-semibold text-slate-600 dark:text-slate-300">
@@ -1964,9 +1953,12 @@ export default function TemplateList({
                                 );
 
                               const showPreviewTitle =
-                                !previewDense ||
-                                itemW >= 2 ||
-                                itemH >= 2;
+                                item?.type ===
+                                "composite"
+                                  ? false
+                                  : !previewDense ||
+                                    itemW >= 2 ||
+                                    itemH >= 2;
 
                               return (
                                 <div
@@ -2021,9 +2013,9 @@ export default function TemplateList({
                                       </span>
 
                                       <span className="flex shrink-0 gap-1">
-                                        <span className="h-1.5 w-1.5 rounded-full bg-[#A4C65A]" />
-                                        <span className="h-1.5 w-1.5 rounded-full bg-[#C5D98B]" />
-                                        <span className="h-1.5 w-1.5 rounded-full bg-[#B65C7A]" />
+                                        <span className="h-1.5 w-1.5 rounded-full bg-[#58D7FF]" />
+                                        <span className="h-1.5 w-1.5 rounded-full bg-[#A86BDF]" />
+                                        <span className="h-1.5 w-1.5 rounded-full bg-[#FF6F88]" />
                                       </span>
                                     </div>
                                   )}
@@ -2117,11 +2109,15 @@ export default function TemplateList({
                 >
                   <div
                     className="
-                      bg-gray-100
-                      dark:bg-gray-700
-                      rounded-2xl
+                      template-metric-tile
+                      rounded-xl
+                      border border-indigo-100/80
+                      bg-white/45
                       p-3
                       text-center
+                      backdrop-blur-sm
+                      dark:border-[#303A62]
+                      dark:bg-[#0B1328]/55
                     "
                   >
                     <p
@@ -2145,11 +2141,15 @@ export default function TemplateList({
 
                   <div
                     className="
-                      bg-gray-100
-                      dark:bg-gray-700
-                      rounded-2xl
+                      template-metric-tile
+                      rounded-xl
+                      border border-indigo-100/80
+                      bg-white/45
                       p-3
                       text-center
+                      backdrop-blur-sm
+                      dark:border-[#303A62]
+                      dark:bg-[#0B1328]/55
                     "
                   >
                     <p
@@ -2173,11 +2173,15 @@ export default function TemplateList({
 
                   <div
                     className="
-                      bg-gray-100
-                      dark:bg-gray-700
-                      rounded-2xl
+                      template-metric-tile
+                      rounded-xl
+                      border border-indigo-100/80
+                      bg-white/45
                       p-3
                       text-center
+                      backdrop-blur-sm
+                      dark:border-[#303A62]
+                      dark:bg-[#0B1328]/55
                     "
                   >
                     <p
@@ -2196,8 +2200,9 @@ export default function TemplateList({
                       "
                     >
                       {
-                        (layout?.items || [])
-                          .length
+                        (layout?.items || []).filter(
+                          (item) => item?.type !== "status"
+                        ).length
                       }
                     </p>
                   </div>
@@ -2206,15 +2211,25 @@ export default function TemplateList({
                 {/* ASSIGNED ORGANIZATIONS */}
                 {isSuperadmin && (
                   <div
-                    className="
+                    className={`
+                      template-org-panel
+                      ${assignedOrgs.length > 0 ? "has-assignments" : ""}
                       mb-4
-                      bg-emerald-50
-                      dark:bg-emerald-900/20
-                      border border-emerald-200
-                      dark:border-emerald-800
-                      rounded-2xl
+                      rounded-xl
+                      border
                       p-4
-                    "
+                      ${
+                        assignedOrgs.length > 0
+                          ? `
+                              bg-indigo-50/65
+                              border-indigo-200
+                            `
+                          : `
+                              bg-slate-50/70
+                              border-slate-200
+                            `
+                      }
+                    `}
                   >
                     <div
                       className="
@@ -2226,11 +2241,12 @@ export default function TemplateList({
                     >
                       <div
                         className="
+                          template-org-title
                           flex items-center gap-2
-                          text-emerald-700
-                          dark:text-emerald-300
                           font-semibold
                           text-sm
+                          text-indigo-700
+                          dark:text-slate-200
                         "
                       >
                         <Building2
@@ -2244,11 +2260,12 @@ export default function TemplateList({
 
                       <span
                         className="
+                          template-org-count
                           inline-flex items-center
                           gap-1
                           text-xs
-                          text-emerald-600
-                          dark:text-emerald-300
+                          text-indigo-600
+                          dark:text-slate-400
                         "
                       >
                         <Layers size={13} />
@@ -2266,9 +2283,12 @@ export default function TemplateList({
                           <div
                             key={`${a.template_id}-${a.org_id}`}
                             className="
+                              template-org-chip
                               flex items-center gap-2
                               text-xs
-                              bg-emerald-600
+                              bg-gradient-to-r
+                              from-cyan-500
+                              to-indigo-500
                               text-white
                               px-3 py-1
                               rounded-full
@@ -2322,7 +2342,7 @@ export default function TemplateList({
                 {/* ACTIONS */}
                 <div
                   className={`
-                    flex flex-wrap gap-2.5
+                    flex flex-wrap items-center gap-1.5
                     ${
                       viewMode === "list"
                         ? "lg:justify-end"
@@ -2333,22 +2353,30 @@ export default function TemplateList({
                   {/* USE */}
                   <button
                     onClick={() => selectTemplate(t)}
-                    className="
-                      flex-1
-                      min-w-[130px]
-                      bg-emerald-500
-                      hover:bg-emerald-600
-                      transition
+                    className={`
+                      inline-flex h-8 items-center
+                      justify-center gap-1.5
+                      rounded-lg px-2.5
+                      template-action-use
+                      text-[11px] font-semibold
                       text-white
-                      px-3 py-2.5
-                      rounded-2xl
-                      font-medium
-                      flex items-center
-                      justify-center gap-2
-                    "
+                      border border-cyan-400/20
+                      bg-gradient-to-r
+                      from-cyan-500
+                      to-indigo-500
+                      hover:from-cyan-400
+                      hover:to-indigo-400
+                      shadow-sm
+                      transition-colors
+                      ${
+                        viewMode === "grid"
+                          ? "flex-1 min-w-[96px]"
+                          : "min-w-[92px]"
+                      }
+                    `}
                   >
-                    <Play className="w-4 h-4" />
-                    Use Template
+                    <Play size={13} />
+                    Use
                   </button>
 
                   {/* EDIT */}
@@ -2363,22 +2391,31 @@ export default function TemplateList({
                         setSelectedTemplate(t);
                         setPage("editor");
                       }}
-                      className="
-                        flex-1
-                        min-w-[110px]
-                        bg-yellow-500
-                        hover:bg-yellow-600
-                        transition
-                        text-white
-                        px-3 py-2.5
-                        rounded-2xl
-                        flex items-center
-                        justify-center gap-2
-                        font-medium
-                      "
+                      className={`
+                        template-action-edit
+                        inline-flex h-8 items-center
+                        justify-center gap-1.5
+                        rounded-lg border
+                        border-amber-200
+                        bg-amber-50 px-2.5
+                        text-[11px] font-semibold
+                        text-amber-700
+                        hover:border-amber-300
+                        hover:bg-amber-100
+                        dark:border-amber-700/50
+                        dark:bg-amber-500/10
+                        dark:text-amber-300
+                        dark:hover:bg-amber-500/15
+                        transition-colors
+                        ${
+                          viewMode === "grid"
+                            ? "flex-1 min-w-[82px]"
+                            : "min-w-[78px]"
+                        }
+                      `}
                       title="Edit template"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil size={13} />
                       Edit
                     </button>
                   )}
@@ -2389,22 +2426,31 @@ export default function TemplateList({
                       onClick={() =>
                         deleteTemplate(t.id)
                       }
-                      className="
-                        flex-1
-                        min-w-[110px]
-                        bg-red-500
-                        hover:bg-red-600
-                        transition
-                        text-white
-                        px-3 py-2.5
-                        rounded-2xl
-                        flex items-center
-                        justify-center gap-2
-                        font-medium
-                      "
+                      className={`
+                        template-action-delete
+                        inline-flex h-8 items-center
+                        justify-center gap-1.5
+                        rounded-lg border
+                        border-rose-200
+                        bg-rose-50 px-2.5
+                        text-[11px] font-semibold
+                        text-rose-700
+                        hover:border-rose-300
+                        hover:bg-rose-100
+                        dark:border-rose-700/50
+                        dark:bg-rose-500/10
+                        dark:text-rose-300
+                        dark:hover:bg-rose-500/15
+                        transition-colors
+                        ${
+                          viewMode === "grid"
+                            ? "flex-1 min-w-[82px]"
+                            : "min-w-[78px]"
+                        }
+                      `}
                       title="Delete template"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 size={13} />
                       Delete
                     </button>
                   )}
@@ -2416,22 +2462,31 @@ export default function TemplateList({
                         setSelectedTemplateLocal(t);
                         setShowAssign(true);
                       }}
-                      className="
-                        flex-1
-                        min-w-[110px]
-                        bg-emerald-600
-                        hover:bg-emerald-700
-                        transition
-                        text-white
-                        px-3 py-2.5
-                        rounded-2xl
-                        flex items-center
-                        justify-center gap-2
-                        font-medium
-                      "
+                      className={`
+                        template-action-assign
+                        inline-flex h-8 items-center
+                        justify-center gap-1.5
+                        rounded-lg border
+                        border-cyan-200
+                        bg-cyan-50 px-2.5
+                        text-[11px] font-semibold
+                        text-cyan-700
+                        hover:border-cyan-300
+                        hover:bg-cyan-100
+                        dark:border-cyan-400/20
+                        dark:bg-[#15213D]
+                        dark:text-cyan-200
+                        dark:hover:bg-cyan-400/10
+                        transition-colors
+                        ${
+                          viewMode === "grid"
+                            ? "flex-1 min-w-[82px]"
+                            : "min-w-[78px]"
+                        }
+                      `}
                       title="Assign template"
                     >
-                      <Link className="w-4 h-4" />
+                      <Link size={13} />
                       Assign
                     </button>
                   )}
@@ -2486,8 +2541,8 @@ export default function TemplateList({
                 className="
                   w-10 h-10
                   rounded-2xl
-                  bg-emerald-500/10
-                  text-emerald-500
+                  bg-cyan-500/10
+                  text-cyan-500
                   flex items-center justify-center
                 "
               >
@@ -2520,10 +2575,10 @@ export default function TemplateList({
               <div
                 className="
                   mb-5
-                  bg-emerald-50
-                  dark:bg-emerald-900/20
-                  border border-emerald-200
-                  dark:border-emerald-800
+                  bg-indigo-50
+                  dark:bg-[#151A38]
+                  border border-indigo-200
+                  dark:border-[#343B68]
                   rounded-2xl
                   p-4
                 "
@@ -2541,8 +2596,8 @@ export default function TemplateList({
                 <p
                   className="
                     font-bold
-                    text-emerald-700
-                    dark:text-emerald-300
+                    text-indigo-700
+                    dark:text-cyan-200
                   "
                 >
                   {selectedTemplateLocal.name ||
@@ -2573,7 +2628,7 @@ export default function TemplateList({
                 mb-6
                 outline-none
                 focus:ring-2
-                focus:ring-emerald-500
+                focus:ring-cyan-500
               "
               onChange={(e) =>
                 setSelectedOrg(e.target.value)
@@ -2622,8 +2677,8 @@ export default function TemplateList({
                 onClick={handleAssign}
                 className="
                   px-5 py-3
-                  bg-emerald-600
-                  hover:bg-emerald-700
+                  bg-cyan-600
+                  hover:bg-cyan-700
                   transition
                   text-white
                   rounded-2xl

@@ -1,31 +1,33 @@
 import { useEffect, useState } from "react";
 
-// Editorial / botanical palette inspired by the user's green dashboard reference.
-// Keep the palette shared so every visualization feels like one product.
+// Visualization palette derived from the supplied dark analytics reference:
+// electric cyan, indigo, violet, coral, amber and steel blue on deep navy surfaces.
 export const TECH_SERIES = [
-  "#7CB342", // fresh leaf
-  "#2E7D32", // forest
-  "#A4C65A", // soft lime
-  "#6D254D", // plum
-  "#4F8A5B", // sage green
-  "#B65C7A", // berry
-  "#C5D98B", // pale olive
-  "#365F3C", // deep moss
+  "#58D7FF", // electric cyan
+  "#7D75E7", // indigo
+  "#A86BDF", // violet
+  "#FF6F88", // coral pink
+  "#FF9C63", // coral orange
+  "#FFD66B", // warm amber
+  "#4D91C9", // steel blue
+  "#8DA2FF", // periwinkle
 ];
 
+// Keep the legacy property names so existing widgets do not need a large API
+// refactor; the values now point to the new visual system.
 export const TECH_ACCENT = {
-  lime: "#7CB342",
-  forest: "#2E7D32",
-  olive: "#A4C65A",
-  plum: "#6D254D",
-  berry: "#B65C7A",
-  sage: "#4F8A5B",
-  pale: "#C5D98B",
-  ink: "#172019",
+  lime: "#58D7FF",
+  forest: "#7D75E7",
+  olive: "#A86BDF",
+  plum: "#FF6F88",
+  berry: "#A86BDF",
+  sage: "#4D91C9",
+  pale: "#FFD66B",
+  ink: "#101A31",
   paper: "#FFFFFF",
-  canvas: "#F2F3F0",
-  darkPaper: "#121816",
-  darkCanvas: "#0B100E",
+  canvas: "#F2F4F8",
+  darkPaper: "#0E172D",
+  darkCanvas: "#081022",
 };
 
 export const TECH_SURFACE_CLASS = `
@@ -33,8 +35,8 @@ export const TECH_SURFACE_CLASS = `
   rounded-[11px]
   bg-white text-slate-950
   shadow-[0_4px_14px_rgba(30,41,35,0.10)]
-  dark:bg-[#121816] dark:text-slate-100
-  dark:shadow-[0_4px_14px_rgba(0,0,0,0.22)]
+  dark:bg-[#0E172D] dark:text-slate-100
+  dark:shadow-[0_8px_24px_rgba(2,7,22,0.38)]
 `;
 
 export const TECH_HEADER_CLASS = `
@@ -43,12 +45,12 @@ export const TECH_HEADER_CLASS = `
 `;
 
 export const TECH_MUTED_CLASS =
-  "text-slate-400 dark:text-slate-400";
+  "text-slate-400 dark:text-[#96A4C7]";
 
 export const TECH_DOT_SAFE_HEADER = "pr-14";
 
-export const TECH_GRID_STROKE = "#DDE3D8";
-export const TECH_AXIS_STROKE = "#9AA69A";
+export const TECH_GRID_STROKE = "#DDE3EA";
+export const TECH_AXIS_STROKE = "#94A3B8";
 
 export const clamp = (value, min, max) =>
   Math.min(max, Math.max(min, value));
@@ -88,12 +90,13 @@ export const formatCompactValue = (value, decimals = 1) => {
 };
 
 export const botanicalTooltipStyle = {
-  background: "rgba(18,24,22,0.97)",
-  border: "1px solid rgba(164,198,90,0.28)",
+  background: "rgba(13, 22, 44, 0.97)",
+  border: "1px solid rgba(88, 215, 255, 0.28)",
   borderRadius: "12px",
-  color: "#f8fafc",
+  color: "#F5F7FF",
   fontSize: "11px",
-  boxShadow: "0 12px 30px rgba(0,0,0,0.20)",
+  boxShadow:
+    "0 14px 34px rgba(2,7,22,0.42), 0 0 22px rgba(88,215,255,0.06)",
 };
 
 export function useWidgetSize(ref) {
@@ -141,23 +144,24 @@ export function useWidgetSize(ref) {
   };
 }
 
-// Subtle visual signature shared by every widget: no card gradient, no metallic
-// effect; only a tiny botanical corner mark so the cards feel related.
+// Three tiny accent LEDs echo the supplied reference and provide a subtle
+// shared signature across widget cards. The animation is defined globally and
+// automatically respects prefers-reduced-motion.
 export function TechBackdrop() {
   return (
     <>
       <div
         className="
+          widget-tech-backdrop
           pointer-events-none absolute right-3.5 top-3.5 z-20
-          flex items-center gap-1 opacity-50 dark:opacity-35
+          flex items-center gap-1 opacity-60 dark:opacity-70
         "
         aria-hidden="true"
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-[#7CB342]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-[#B7D27C]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-[#7C355D]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#58D7FF] shadow-[0_0_8px_rgba(88,215,255,0.45)]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#A86BDF] shadow-[0_0_8px_rgba(168,107,223,0.38)]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#FF6F88] shadow-[0_0_8px_rgba(255,111,136,0.34)]" />
       </div>
-      {/* Intentionally no border/underline: cards are separated by shadow only. */}
     </>
   );
 }

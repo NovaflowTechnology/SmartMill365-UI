@@ -36,6 +36,679 @@ const TRANSIENT_HTTP_STATUSES =
     504,
   ]);
 
+
+const MAX_RUNTIME_LOGS = 250;
+const RUNTIME_LOG_STREAM_TTL_MS =
+  6 * 60 * 60 * 1000;
+
+// Runtime event history for the Logs widget.
+//
+// This intentionally lives in memory because the current project does not
+// have a separate event/alarm database yet. It survives normal dashboard
+// polling, but resets when the Node server restarts.
+const runtimeLogStreams = new Map();
+
+const toFiniteNumberOrNull = (value) => {
+  const numeric = Number(value);
+
+  return Number.isFinite(numeric)
+    ? numeric
+    : null;
+};
+
+const formatRuntimeValue = (value) => {
+  const numeric =
+    toFiniteNumberOrNull(value);
+
+  if (numeric === null) {
+    return String(value ?? "—");
+  }
+
+  return Number.isInteger(numeric)
+    ? String(numeric)
+    : numeric.toLocaleString(
+        undefined,
+        {
+          maximumFractionDigits: 3,
+        }
+      );
+};
+
+const getRuntimeUserKey = (user = {}) =>
+  String(
+    user.id ||
+      user.userId ||
+      user.sub ||
+      user.email ||
+      user.username ||
+      "user"
+  );
+
+const getRuntimeLayoutKey = (
+  items = []
+) =>
+  (Array.isArray(items) ? items : [])
+    .map((item, index) =>
+      String(
+        item?.id ??
+          `${item?.type || "widget"}:${item?.label || index}`
+      )
+    )
+    .sort()
+    .join("|") || "no-items";
+
+const pruneRuntimeLogStreams = (
+  nowMs = Date.now()
+) => {
+  for (const [
+    key,
+    stream,
+  ] of runtimeLogStreams) {
+    if (
+      nowMs -
+        (stream?.lastAccessAt || 0) >
+      RUNTIME_LOG_STREAM_TTL_MS
+    ) {
+      runtimeLogStreams.delete(key);
+    }
+  }
+};
+
+const getRuntimeLogStream = (
+  streamKey
+) => {
+  const nowMs = Date.now();
+
+  pruneRuntimeLogStreams(nowMs);
+
+  let stream =
+    runtimeLogStreams.get(
+      streamKey
+    );
+
+  if (!stream) {
+    stream = {
+      logs: [],
+      states: new Map(),
+      sequence: 0,
+      lastAccessAt: nowMs,
+    };
+
+    runtimeLogStreams.set(
+      streamKey,
+      stream
+    );
+  }
+
+  stream.lastAccessAt = nowMs;
+
+  return stream;
+};
+
+const pushRuntimeLog = (
+  stream,
+  {
+    timestamp,
+    level = "info",
+    source = "System",
+    message,
+    eventKey = "event",
+  }
+) => {
+  if (!message) return;
+
+  const safeTimestamp =
+    timestamp &&
+    !Number.isNaN(
+      new Date(timestamp).getTime()
+    )
+      ? new Date(
+          timestamp
+        ).toISOString()
+      : new Date().toISOString();
+
+  stream.sequence += 1;
+
+  stream.logs.push({
+    id:
+      `${eventKey}-${safeTimestamp}-${stream.sequence}`,
+    timestamp:
+      safeTimestamp,
+    level,
+    source,
+    message,
+  });
+
+  if (
+    stream.logs.length >
+    MAX_RUNTIME_LOGS
+  ) {
+    stream.logs.splice(
+      0,
+      stream.logs.length -
+        MAX_RUNTIME_LOGS
+    );
+  }
+};
+
+const addThresholdTarget = (
+  targets,
+  {
+    dataKey,
+    label,
+    rangeConfig,
+  }
+) => {
+  if (!dataKey || !rangeConfig) {
+    return;
+  }
+
+  const warning =
+    toFiniteNumberOrNull(
+      rangeConfig.warning
+    );
+
+  const danger =
+    toFiniteNumberOrNull(
+      rangeConfig.danger
+    );
+
+  if (
+    warning === null &&
+    danger === null
+  ) {
+    return;
+  }
+
+  // Avoid duplicate events when the same data key appears in multiple
+  // widgets. The first configured threshold definition wins.
+  if (targets.has(dataKey)) {
+    return;
+  }
+
+  targets.set(dataKey, {
+    dataKey,
+    label:
+      String(
+        label ||
+          dataKey
+      ),
+    warning,
+    danger,
+    unit:
+      String(
+        rangeConfig.unit ||
+          ""
+      ).trim(),
+  });
+};
+
+const collectThresholdTargets = (
+  items = []
+) => {
+  const targets = new Map();
+
+  for (const item of (
+    Array.isArray(items)
+      ? items
+      : []
+  )) {
+    if (!item) continue;
+
+    if (
+      item.type ===
+      "composite"
+    ) {
+      const parts = [
+        item
+          ?.compositeConfig
+          ?.primaryConfig,
+        item
+          ?.compositeConfig
+          ?.secondaryConfig,
+      ];
+
+      for (const part of parts) {
+        if (!part) continue;
+
+        const keys =
+          Array.isArray(
+            part.dataKeys
+          ) &&
+          part.dataKeys.length
+            ? part.dataKeys
+            : part.dataKey
+            ? [
+                part.dataKey,
+              ]
+            : [];
+
+        for (const key of keys) {
+          addThresholdTarget(
+            targets,
+            {
+              dataKey: key,
+              label:
+                part.label ||
+                item.label ||
+                key,
+              rangeConfig:
+                part.rangeConfig,
+            }
+          );
+        }
+      }
+
+      continue;
+    }
+
+    const keys =
+      Array.isArray(
+        item.dataKeys
+      ) &&
+      item.dataKeys.length
+        ? item.dataKeys
+        : item.dataKey
+        ? [
+            item.dataKey,
+          ]
+        : [];
+
+    for (const key of keys) {
+      addThresholdTarget(
+        targets,
+        {
+          dataKey: key,
+          label:
+            item.label ||
+            key,
+          rangeConfig:
+            item.rangeConfig,
+        }
+      );
+    }
+  }
+
+  return [
+    ...targets.values(),
+  ];
+};
+
+const getThresholdState = ({
+  value,
+  warning,
+  danger,
+}) => {
+  const numericValue =
+    toFiniteNumberOrNull(
+      value
+    );
+
+  if (
+    numericValue === null
+  ) {
+    return "unknown";
+  }
+
+  if (
+    danger !== null &&
+    numericValue >= danger
+  ) {
+    return "danger";
+  }
+
+  if (
+    warning !== null &&
+    numericValue >= warning
+  ) {
+    return "warning";
+  }
+
+  return "normal";
+};
+
+const appendLiveStatusEvent = ({
+  stream,
+  liveStatus,
+}) => {
+  const missingSignature =
+    Array.isArray(
+      liveStatus?.missingFields
+    )
+      ? [
+          ...liveStatus
+            .missingFields,
+        ]
+          .sort()
+          .join(",")
+      : "";
+
+  const signature =
+    [
+      liveStatus?.status ||
+        "unknown",
+      liveStatus?.message ||
+        "",
+      missingSignature,
+    ].join("|");
+
+  const previousSignature =
+    stream.states.get(
+      "live-status-signature"
+    );
+
+  if (
+    previousSignature ===
+    signature
+  ) {
+    return;
+  }
+
+  stream.states.set(
+    "live-status-signature",
+    signature
+  );
+
+  const status =
+    liveStatus?.status ||
+    "unknown";
+
+  const timestamp =
+    liveStatus
+      ?.sourceTimestamp ||
+    new Date().toISOString();
+
+  if (
+    previousSignature ===
+      undefined &&
+    status === "online"
+  ) {
+    pushRuntimeLog(
+      stream,
+      {
+        timestamp,
+        level: "info",
+        source: "Monitoring",
+        eventKey:
+          "monitoring-started",
+        message:
+          "Live monitoring started and data is updating normally.",
+      }
+    );
+
+    return;
+  }
+
+  if (status === "online") {
+    pushRuntimeLog(
+      stream,
+      {
+        timestamp,
+        level: "success",
+        source: "InfluxDB",
+        eventKey:
+          "connection-recovered",
+        message:
+          "Live data connection recovered and readings are updating normally.",
+      }
+    );
+
+    return;
+  }
+
+  pushRuntimeLog(
+    stream,
+    {
+      timestamp,
+      level:
+        status ===
+          "warning"
+          ? "warning"
+          : "error",
+      source: "InfluxDB",
+      eventKey:
+        `live-${status}`,
+      message:
+        liveStatus?.message ||
+        "Live data status changed.",
+    }
+  );
+};
+
+const appendThresholdEvents = ({
+  stream,
+  items,
+  data,
+  fieldTimestamps,
+  fallbackTimestamp,
+}) => {
+  const targets =
+    collectThresholdTargets(
+      items
+    );
+
+  for (const target of targets) {
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        data || {},
+        target.dataKey
+      )
+    ) {
+      continue;
+    }
+
+    const value =
+      data[
+        target.dataKey
+      ];
+
+    const currentState =
+      getThresholdState({
+        value,
+        warning:
+          target.warning,
+        danger:
+          target.danger,
+      });
+
+    if (
+      currentState ===
+      "unknown"
+    ) {
+      continue;
+    }
+
+    const stateKey =
+      `threshold:${target.dataKey}`;
+
+    const previousState =
+      stream.states.get(
+        stateKey
+      );
+
+    stream.states.set(
+      stateKey,
+      currentState
+    );
+
+    if (
+      previousState ===
+      currentState
+    ) {
+      continue;
+    }
+
+    const unitSuffix =
+      target.unit
+        ? ` ${target.unit}`
+        : "";
+
+    const valueText =
+      `${formatRuntimeValue(
+        value
+      )}${unitSuffix}`;
+
+    const timestamp =
+      fieldTimestamps?.[
+        target.dataKey
+      ] ||
+      fallbackTimestamp ||
+      new Date().toISOString();
+
+    // Do not create a "normal" message for every field on the very first poll.
+    if (
+      previousState ===
+        undefined &&
+      currentState ===
+        "normal"
+    ) {
+      continue;
+    }
+
+    if (
+      currentState ===
+      "danger"
+    ) {
+      const thresholdText =
+        target.danger !==
+        null
+          ? `${formatRuntimeValue(
+              target.danger
+            )}${unitSuffix}`
+          : "configured danger level";
+
+      pushRuntimeLog(
+        stream,
+        {
+          timestamp,
+          level: "error",
+          source:
+            target.label,
+          eventKey:
+            `danger-${target.dataKey}`,
+          message:
+            `${target.label} exceeded the danger threshold: ${valueText} (danger ${thresholdText}).`,
+        }
+      );
+
+      continue;
+    }
+
+    if (
+      currentState ===
+      "warning"
+    ) {
+      const thresholdText =
+        target.warning !==
+        null
+          ? `${formatRuntimeValue(
+              target.warning
+            )}${unitSuffix}`
+          : "configured warning level";
+
+      const fromDanger =
+        previousState ===
+        "danger";
+
+      pushRuntimeLog(
+        stream,
+        {
+          timestamp,
+          level: "warning",
+          source:
+            target.label,
+          eventKey:
+            `warning-${target.dataKey}`,
+          message:
+            fromDanger
+              ? `${target.label} dropped below the danger level but remains above warning: ${valueText}.`
+              : `${target.label} exceeded the warning threshold: ${valueText} (warning ${thresholdText}).`,
+        }
+      );
+
+      continue;
+    }
+
+    if (
+      currentState ===
+        "normal" &&
+      previousState &&
+      previousState !==
+        "normal"
+    ) {
+      pushRuntimeLog(
+        stream,
+        {
+          timestamp,
+          level: "success",
+          source:
+            target.label,
+          eventKey:
+            `normal-${target.dataKey}`,
+          message:
+            `${target.label} returned to the normal range: ${valueText}.`,
+        }
+      );
+    }
+  }
+};
+
+const buildRuntimeLogs = ({
+  req,
+  monitorKey,
+  items,
+  data,
+  liveStatus,
+  fieldTimestamps,
+  liveTimestamp,
+}) => {
+  const streamKey =
+    [
+      getRuntimeUserKey(
+        req?.user
+      ),
+      monitorKey ||
+        "monitor",
+      getRuntimeLayoutKey(
+        items
+      ),
+    ].join("||");
+
+  const stream =
+    getRuntimeLogStream(
+      streamKey
+    );
+
+  appendLiveStatusEvent({
+    stream,
+    liveStatus,
+  });
+
+  appendThresholdEvents({
+    stream,
+    items,
+    data,
+    fieldTimestamps,
+    fallbackTimestamp:
+      liveStatus
+        ?.sourceTimestamp ||
+      (liveTimestamp
+        ? new Date(
+            liveTimestamp
+          ).toISOString()
+        : null),
+  });
+
+  // LogsWidget can sort either direction itself. Returning a fresh array
+  // avoids exposing the mutable stream storage to the response object.
+  return stream.logs.map(
+    (log) => ({
+      ...log,
+    })
+  );
+};
+
+
 /**
  * HTTP retry helper for the InfluxDB REST API.
  *
@@ -1158,6 +1831,17 @@ router.post(
             : null,
       };
 
+      const logs =
+        buildRuntimeLogs({
+          req,
+          monitorKey,
+          items,
+          data,
+          liveStatus,
+          fieldTimestamps,
+          liveTimestamp,
+        });
+
       console.log(
         "📊 SmartMill Influx fetch:",
         {
@@ -1184,6 +1868,8 @@ router.post(
             Object.keys(
               sankeyValues || {}
             ).length,
+          logCount:
+            logs.length,
         }
       );
 
@@ -1228,6 +1914,7 @@ router.post(
         data,
         history,
         sankeyValues,
+        logs,
 
         message:
           liveTimestamp

@@ -18,7 +18,6 @@ import {
 } from "react";
 import {
   TECH_AXIS_STROKE,
-  TECH_GRID_STROKE,
   TECH_HEADER_CLASS,
   TECH_MUTED_CLASS,
   TECH_SURFACE_CLASS,
@@ -29,22 +28,28 @@ import {
 } from "./widgetTech";
 
 const DEFAULT_CHART_DISPLAY = {
+  // Background reference grid. Widget Studio can turn this on/off.
   showGrid: true,
+  // Balanced is easier to read than a fully dense engineering grid.
+  gridDensity: "normal",
   showLegend: true,
   showTooltip: true,
   showXAxis: true,
   showYAxis: true,
   showDots: false,
   xAxisFormat: "auto",
-  xAxisTickGap: 30,
-  yAxisMode: "range",
+  xAxisTickGap: 56,
+  // Smart Auto is the default. Fixed Scale lets the user control the exact
+  // minimum, maximum, and major tick interval (for example 0-400 by 100).
+  yAxisMode: "auto", // "auto" | "fixed"
   yAxisMin: "",
   yAxisMax: "",
+  yAxisInterval: "",
   yAxisTickCount: 5,
   strokeWidth: 2.5,
   lineWeight: "normal", // "thin" | "normal" | "bold"
-  curveType: "linear", // "linear" | "monotone" | "step"
   linePattern: "solid", // "solid" | "dashed" | "dotted"
+  curveType: "linear", // "linear" | "monotone" | "step"
 
   // LineWidget now supports both Line and Area rendering.
   // Keep the widget type as "line" and switch this setting only.
@@ -69,14 +74,26 @@ const normaliseTimestamp = (value) => {
 const formatXAxisTime = (
   timestamp,
   historyWindow,
-  formatMode = "auto"
+  formatMode = "auto",
+  visibleDurationMs = null
 ) => {
   const date = new Date(timestamp);
+
+  const duration =
+    Number(visibleDurationMs);
+
+  const veryShortRange =
+    Number.isFinite(duration) &&
+    duration > 0 &&
+    duration <= 5 * 60 * 1000;
 
   if (formatMode === "time") {
     return date.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
+      ...(veryShortRange
+        ? { second: "2-digit" }
+        : {}),
     });
   }
 
@@ -139,6 +156,9 @@ const formatXAxisTime = (
   return date.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
+    ...(veryShortRange
+      ? { second: "2-digit" }
+      : {}),
   });
 };
 
@@ -167,13 +187,26 @@ const formatYAxisTick = (value) => {
     return value;
   }
 
-  // Y-axis labels are intentionally shown as whole numbers.
-  return Math.round(numeric).toLocaleString(undefined, {
-    maximumFractionDigits: 0,
+  const isInteger =
+    Number.isInteger(numeric);
+  const absoluteValue =
+    Math.abs(numeric);
+
+  // Smart scaling can legitimately produce fractional ticks for small ranges.
+  // Keep large engineering values clean, but do not turn 2.5 into a misleading 3.
+  const maximumFractionDigits =
+    isInteger
+      ? 0
+      : absoluteValue < 1
+      ? 2
+      : 1;
+
+  return numeric.toLocaleString(undefined, {
+    maximumFractionDigits,
   });
 };
 
-const getNiceStep = (rawStep) => {
+const getNiceStepCandidates = (rawStep) => {
   const numeric = Math.abs(
     Number(rawStep)
   );
@@ -182,7 +215,7 @@ const getNiceStep = (rawStep) => {
     !Number.isFinite(numeric) ||
     numeric <= 0
   ) {
-    return 1;
+    return [1];
   }
 
   const magnitude = Math.pow(
@@ -192,30 +225,39 @@ const getNiceStep = (rawStep) => {
     )
   );
 
-  const normalized =
-    numeric / magnitude;
-
-  // Includes 7 so values such as 2448 can produce
-  // 0, 700, 1400, 2100, 2800 instead of 2688.
-  const niceSteps = [
+  // Try neighboring engineering-friendly steps and choose the one that
+  // produces a tick count closest to the requested count. This avoids
+  // overly large jumps such as 0-60 for data whose natural ceiling is 50.
+  const bases = [
     1,
     2,
     2.5,
     5,
-    7,
     10,
   ];
 
-  const niceNormalized =
-    niceSteps.find(
+  return Array.from(
+    new Set(
+      [-1, 0, 1].flatMap(
+        (powerOffset) =>
+          bases.map(
+            (base) =>
+              base *
+              magnitude *
+              Math.pow(
+                10,
+                powerOffset
+              )
+          )
+      )
+    )
+  )
+    .filter(
       (step) =>
-        normalized <= step
-    ) || 10;
-
-  return (
-    niceNormalized *
-    magnitude
-  );
+        Number.isFinite(step) &&
+        step > 0
+    )
+    .sort((a, b) => a - b);
 };
 
 const buildNiceAxis = (
@@ -263,24 +305,71 @@ const buildNiceAxis = (
       tickCount - 1
     );
 
+  const candidates =
+    getNiceStepCandidates(rawStep);
+
+  const scoredCandidates =
+    candidates.map((candidateStep) => {
+      const candidateMin =
+        Math.floor(
+          rawMin / candidateStep
+        ) * candidateStep;
+      const candidateMax =
+        Math.ceil(
+          rawMax / candidateStep
+        ) * candidateStep;
+      const candidateTickCount = Math.max(
+        2,
+        Math.round(
+          (candidateMax - candidateMin) /
+            candidateStep
+        ) + 1
+      );
+
+      return {
+        step: candidateStep,
+        min: candidateMin,
+        max: candidateMax,
+        count: candidateTickCount,
+        score: Math.abs(
+          candidateTickCount - tickCount
+        ),
+      };
+    });
+
+  scoredCandidates.sort((a, b) => {
+    if (a.score !== b.score) {
+      return a.score - b.score;
+    }
+
+    // On a tie, prefer a slightly denser axis over an overly sparse one.
+    const aHasEnough =
+      a.count >= tickCount;
+    const bHasEnough =
+      b.count >= tickCount;
+
+    if (aHasEnough !== bHasEnough) {
+      return aHasEnough ? -1 : 1;
+    }
+
+    return (
+      Math.abs(a.step - rawStep) -
+      Math.abs(b.step - rawStep)
+    );
+  });
+
+  const selected =
+    scoredCandidates[0];
   const step =
-    getNiceStep(rawStep);
+    selected?.step || 1;
 
   let niceMin =
-    Math.floor(
-      rawMin / step
-    ) * step;
-
+    selected?.min ?? rawMin;
   let niceMax =
-    Math.ceil(
-      rawMax / step
-    ) * step;
+    selected?.max ?? rawMax;
 
-  // Do not force Automatic mode to zero here.
-  // The caller decides the input domain:
-  // - Auto = observed data
-  // - Range = configured widget range
-  // - Custom = explicit user limits
+  // Do not force any baseline here. The selected Y-axis mode decides the
+  // raw domain first; this function only rounds it to stable, readable ticks.
 
   if (niceMax <= niceMin) {
     niceMax =
@@ -316,76 +405,220 @@ const buildNiceAxis = (
   };
 };
 
-const getSeriesDomain = (
-  chartData,
-  key,
-  fallbackRange
+const buildFixedAxis = (
+  domain,
+  configuredInterval = "",
+  fallbackTickCount = 5
 ) => {
-  const values = chartData
-    .map((row) => Number(row?.[key]))
-    .filter(Number.isFinite);
-
-  if (!values.length) {
-    return [
-      fallbackRange.min,
-      fallbackRange.max,
-    ];
+  if (!Array.isArray(domain) || domain.length < 2) {
+    return {
+      domain,
+      ticks: undefined,
+    };
   }
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const min = Number(domain[0]);
+  const max = Number(domain[1]);
 
-  if (min === max) {
-    const pad = Math.max(
-      Math.abs(min) * 0.08,
-      1
+  if (
+    !Number.isFinite(min) ||
+    !Number.isFinite(max) ||
+    max <= min
+  ) {
+    return buildNiceAxis(
+      domain,
+      fallbackTickCount
     );
-
-    return [min - pad, max + pad];
   }
 
-  const span = max - min;
-  const pad = span * 0.08;
+  const configured = Number(configuredInterval);
+  const fallbackCount = Math.max(
+    2,
+    Math.round(Number(fallbackTickCount) || 5)
+  );
 
-  return [min - pad, max + pad];
+  // If the user leaves Interval blank, keep the requested min/max exact and
+  // divide that fixed span into the normal number of major sections.
+  const interval =
+    Number.isFinite(configured) && configured > 0
+      ? configured
+      : (max - min) / Math.max(1, fallbackCount - 1);
+
+  if (!Number.isFinite(interval) || interval <= 0) {
+    return {
+      domain: [min, max],
+      ticks: [min, max],
+    };
+  }
+
+  const ticks = [];
+  const epsilon = Math.abs(interval) * 0.000001;
+
+  for (
+    let value = min;
+    value <= max + epsilon;
+    value += interval
+  ) {
+    ticks.push(Number(value.toFixed(10)));
+
+    if (ticks.length > 100) {
+      break;
+    }
+  }
+
+  // Always label the configured maximum. When the interval divides the span
+  // exactly (0,100,200,300,400), this does not add a duplicate.
+  const lastTick = ticks[ticks.length - 1];
+  if (
+    !Number.isFinite(lastTick) ||
+    Math.abs(lastTick - max) > epsilon
+  ) {
+    ticks.push(max);
+  }
+
+  return {
+    domain: [min, max],
+    ticks,
+  };
 };
 
-const getCombinedSeriesDomain = (
-  chartData,
-  keys = [],
-  fallbackRange = { min: 0, max: 100 }
+const getMajorGridTicks = (
+  ticks,
+  domain,
+  fallbackCount = 5
 ) => {
-  const values = [];
-
-  chartData.forEach((row) => {
-    keys.forEach((key) => {
-      const numeric =
-        Number(row?.[key]);
-
-      if (Number.isFinite(numeric)) {
-        values.push(numeric);
-      }
-    });
-  });
-
-  // Auto mode uses the configured Data Range only as a no-data fallback.
-  // As soon as real data exists, the observed values determine the axis.
-  if (!values.length) {
-    return [
-      fallbackRange.min,
-      fallbackRange.max,
-    ];
+  if (
+    Array.isArray(ticks) &&
+    ticks.length >= 2
+  ) {
+    return ticks
+      .map(Number)
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
   }
 
-  const observedMin =
-    Math.min(...values);
-  const observedMax =
-    Math.max(...values);
+  const min = Number(domain?.[0]);
+  const max = Number(domain?.[1]);
+
+  if (
+    !Number.isFinite(min) ||
+    !Number.isFinite(max) ||
+    max <= min
+  ) {
+    return [];
+  }
+
+  const count = Math.max(
+    2,
+    Number(fallbackCount) || 5
+  );
+
+  return Array.from(
+    { length: count },
+    (_, index) =>
+      min +
+      ((max - min) * index) /
+        (count - 1)
+  );
+};
+
+const buildMinorGridTicks = (
+  majorTicks,
+  subdivisions = 0
+) => {
+  if (
+    !Array.isArray(majorTicks) ||
+    majorTicks.length < 2 ||
+    subdivisions <= 0
+  ) {
+    return [];
+  }
+
+  const minorTicks = [];
+
+  for (
+    let index = 0;
+    index < majorTicks.length - 1;
+    index += 1
+  ) {
+    const start =
+      Number(majorTicks[index]);
+
+    const end =
+      Number(
+        majorTicks[index + 1]
+      );
+
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      end <= start
+    ) {
+      continue;
+    }
+
+    for (
+      let division = 1;
+      division <= subdivisions;
+      division += 1
+    ) {
+      minorTicks.push(
+        start +
+          ((end - start) *
+            division) /
+            (subdivisions + 1)
+      );
+    }
+  }
+
+  return minorTicks;
+};
+
+const getFallbackDomain = (
+  fallbackRange = { min: 0, max: 100 }
+) => {
+  const fallbackMin = toFiniteNumber(
+    fallbackRange?.min,
+    0
+  );
+  const fallbackMax = toFiniteNumber(
+    fallbackRange?.max,
+    100
+  );
+
+  if (fallbackMax > fallbackMin) {
+    return [fallbackMin, fallbackMax];
+  }
+
+  return [fallbackMin, fallbackMin + 1];
+};
+
+const getFiniteValues = (values = []) =>
+  values
+    .map(Number)
+    .filter(Number.isFinite);
+
+const buildFitDataDomain = (
+  values = [],
+  fallbackRange = { min: 0, max: 100 },
+  paddingRatio = 0.08
+) => {
+  const finiteValues = getFiniteValues(values);
+
+  if (!finiteValues.length) {
+    return getFallbackDomain(fallbackRange);
+  }
+
+  const observedMin = Math.min(...finiteValues);
+  const observedMax = Math.max(...finiteValues);
 
   if (observedMin === observedMax) {
+    // A completely flat signal still needs visible breathing room.
+    // One percent of the signal magnitude keeps values such as 44 psi
+    // near 44 instead of expanding all the way to zero.
     const pad = Math.max(
-      Math.abs(observedMin) * 0.08,
-      1
+      Math.abs(observedMin) * 0.01,
+      0.5
     );
 
     return [
@@ -394,16 +627,190 @@ const getCombinedSeriesDomain = (
     ];
   }
 
-  const span =
-    observedMax - observedMin;
-
-  const pad =
-    span * 0.08;
+  const span = observedMax - observedMin;
+  const pad = Math.max(
+    span * paddingRatio,
+    Number.EPSILON
+  );
 
   return [
     observedMin - pad,
     observedMax + pad,
   ];
+};
+
+const buildIncludeZeroDomain = (
+  values = [],
+  fallbackRange = { min: 0, max: 100 }
+) => {
+  const finiteValues = getFiniteValues(values);
+
+  if (!finiteValues.length) {
+    const [fallbackMin, fallbackMax] =
+      getFallbackDomain(fallbackRange);
+
+    return [
+      Math.min(0, fallbackMin),
+      Math.max(0, fallbackMax),
+    ];
+  }
+
+  const observedMin = Math.min(...finiteValues);
+  const observedMax = Math.max(...finiteValues);
+
+  if (observedMin === 0 && observedMax === 0) {
+    return [0, 1];
+  }
+
+  if (observedMin >= 0) {
+    return [0, observedMax];
+  }
+
+  if (observedMax <= 0) {
+    return [observedMin, 0];
+  }
+
+  return [
+    observedMin,
+    observedMax,
+  ];
+};
+
+const buildSmartAutoDomain = (
+  values = [],
+  fallbackRange = { min: 0, max: 100 },
+  paddingRatio = 0.08
+) => {
+  const finiteValues = getFiniteValues(values);
+
+  if (!finiteValues.length) {
+    // With no live/history values there is nothing to auto-scale, so the
+    // configured engineering range is the most useful fallback.
+    return getFallbackDomain(fallbackRange);
+  }
+
+  const observedMin = Math.min(...finiteValues);
+  const observedMax = Math.max(...finiteValues);
+
+  if (observedMin === 0 && observedMax === 0) {
+    return [0, 1];
+  }
+
+  // If the signal crosses zero, zero is inherently meaningful and must stay
+  // visible. This also handles one side landing exactly on zero.
+  if (observedMin <= 0 && observedMax >= 0) {
+    return buildIncludeZeroDomain(
+      finiteValues,
+      fallbackRange,
+      paddingRatio
+    );
+  }
+
+  const [fallbackMin, fallbackMax] =
+    getFallbackDomain(fallbackRange);
+  const configuredSpan = Math.max(
+    0,
+    fallbackMax - fallbackMin
+  );
+
+  // "Near zero" is relative to both what is currently visible and the
+  // configured engineering range. This lets a 0.5 psi reading count as close
+  // to zero on a 0-50 psi sensor, while 43-47 psi remains tightly zoomed.
+  const observedMagnitude = Math.max(
+    Math.abs(observedMin),
+    Math.abs(observedMax),
+    Number.EPSILON
+  );
+  const nearZeroThreshold = Math.max(
+    observedMagnitude * 0.2,
+    configuredSpan * 0.05
+  );
+
+  const isNearZero =
+    observedMin > 0
+      ? observedMin <= nearZeroThreshold
+      : Math.abs(observedMax) <= nearZeroThreshold;
+
+  if (isNearZero) {
+    return buildIncludeZeroDomain(
+      finiteValues,
+      fallbackRange,
+      paddingRatio
+    );
+  }
+
+  // Normal steady operation far from zero is easier to inspect with a fitted
+  // data domain. Nice-number rounding below keeps the axis calm rather than
+  // changing for every tiny live-data movement.
+  return buildFitDataDomain(
+    finiteValues,
+    fallbackRange,
+    paddingRatio
+  );
+};
+
+const buildObservedDomain = (
+  values = [],
+  fallbackRange = { min: 0, max: 100 },
+  mode = "auto",
+  paddingRatio = 0.08
+) => {
+  if (mode === "zero") {
+    return buildIncludeZeroDomain(
+      values,
+      fallbackRange,
+      paddingRatio
+    );
+  }
+
+  if (mode === "fit") {
+    return buildFitDataDomain(
+      values,
+      fallbackRange,
+      paddingRatio
+    );
+  }
+
+  return buildSmartAutoDomain(
+    values,
+    fallbackRange,
+    paddingRatio
+  );
+};
+
+const getSeriesDomain = (
+  chartData,
+  key,
+  fallbackRange,
+  mode = "auto"
+) =>
+  buildObservedDomain(
+    chartData.map((row) => row?.[key]),
+    fallbackRange,
+    mode,
+    0.08
+  );
+
+const getCombinedSeriesDomain = (
+  chartData,
+  keys = [],
+  fallbackRange = { min: 0, max: 100 },
+  mode = "auto"
+) => {
+  const values = [];
+
+  chartData.forEach((row) => {
+    keys.forEach((key) => {
+      values.push(row?.[key]);
+    });
+  });
+
+  return buildObservedDomain(
+    values,
+    fallbackRange,
+    mode,
+    0.1
+  );
 };
 
 export default function LineWidget({
@@ -415,15 +822,69 @@ export default function LineWidget({
   rangeConfigs = {},
   dataLabels = {},
   chartDisplay = {},
+  gridWidth = null,
+  gridHeight = null,
 }) {
   const rootRef = useRef(null);
-  const {
-    width,
-    height,
-    tiny,
-    compact,
-    wide,
-  } = useWidgetSize(rootRef);
+
+  const measuredSize =
+    useWidgetSize(rootRef);
+
+  const width =
+    measuredSize.width;
+
+  const height =
+    measuredSize.height;
+
+  const parsedGridWidth =
+    Number(gridWidth);
+
+  const parsedGridHeight =
+    Number(gridHeight);
+
+  const hasGridGeometry =
+    Number.isFinite(
+      parsedGridWidth
+    ) &&
+    Number.isFinite(
+      parsedGridHeight
+    ) &&
+    parsedGridWidth > 0 &&
+    parsedGridHeight > 0;
+
+  /*
+   * IMPORTANT:
+   * Builder and Dashboard can have different physical pixel heights because
+   * one is an editing workspace and the other fills the runtime viewport.
+   *
+   * Responsive presentation should therefore follow the SAVED grid span
+   * first, not whichever pixel height happens to be measured.
+   *
+   * Examples:
+   *   1x1 -> tiny
+   *   2x1 -> compact
+   *   4x1 -> compact, but NOT tiny
+   *   4x2 -> normal
+   *
+   * This keeps the same widget configuration visually consistent in
+   * Template Builder/Editor and Dashboard.
+   */
+  const tiny =
+    hasGridGeometry
+      ? parsedGridWidth <= 1 &&
+        parsedGridHeight <= 1
+      : measuredSize.tiny;
+
+  const compact =
+    hasGridGeometry
+      ? parsedGridHeight <= 1 ||
+        parsedGridWidth <= 2
+      : measuredSize.compact;
+
+  const wide =
+    hasGridGeometry
+      ? parsedGridWidth >= 3
+      : measuredSize.wide;
 
   const widgetId =
     useId().replace(/:/g, "");
@@ -432,6 +893,19 @@ export default function LineWidget({
     ...DEFAULT_CHART_DISPLAY,
     ...(chartDisplay || {}),
   };
+
+  // Older templates may contain custom/range/fit/zero. The editor now exposes
+  // only two meaningful choices: Smart Auto and Fixed Scale. Preserve old
+  // custom/range templates as Fixed; older data-fit modes migrate to Smart Auto.
+  const resolvedYAxisMode =
+    ["fixed", "custom", "range"].includes(
+      display.yAxisMode
+    )
+      ? "fixed"
+      : "auto";
+
+  const isObservedYAxisMode =
+    resolvedYAxisMode === "auto";
 
   const chartStyle =
     display.chartStyle === "area"
@@ -458,9 +932,9 @@ export default function LineWidget({
   );
 
   const lineWeightWidths = {
-    thin: 1.5,
-    normal: 2.5,
-    bold: 4,
+    thin: 1.25,
+    normal: 2,
+    bold: 3.25,
   };
 
   const resolvedLineWeight =
@@ -501,25 +975,23 @@ export default function LineWidget({
       ? display.curveType
       : "linear";
 
-  const allowedLinePatterns = [
-    "solid",
-    "dashed",
-    "dotted",
-  ];
+  const linePatternMap = {
+    solid: undefined,
+    dashed: "8 5",
+    dotted: "2 5",
+  };
 
   const resolvedLinePattern =
-    allowedLinePatterns.includes(
+    ["solid", "dashed", "dotted"].includes(
       display.linePattern
     )
       ? display.linePattern
       : "solid";
 
   const resolvedStrokeDasharray =
-    resolvedLinePattern === "dashed"
-      ? "8 5"
-      : resolvedLinePattern === "dotted"
-      ? "1 6"
-      : undefined;
+    linePatternMap[
+      resolvedLinePattern
+    ];
 
   const chartData = useMemo(
     () =>
@@ -578,6 +1050,10 @@ export default function LineWidget({
       chartData.length - 1
     ]?.timestamp;
 
+  const visibleDurationMs =
+    Number(lastTimestamp) -
+    Number(firstTimestamp);
+
   const visibleLines = lines.filter(
     (line) => line?.key
   );
@@ -618,6 +1094,14 @@ export default function LineWidget({
     }
   );
 
+  const isSingleSeries =
+    visibleLines.length === 1;
+
+  const singleLatestItem =
+    isSingleSeries
+      ? latestItems[0]
+      : null;
+
   const leftLine =
     visibleLines[0];
 
@@ -652,14 +1136,14 @@ export default function LineWidget({
       visibleLines.map(
         (line) => line.key
       ),
-      combinedRange
+      combinedRange,
+      resolvedYAxisMode
     );
 
   const defaultDomain =
-    display.yAxisMode === "auto"
+    isObservedYAxisMode
       ? observedCombinedDomain
-      : display.yAxisMode === "custom"
-      ? [
+      : [
           display.yAxisMin === ""
             ? combinedRange.min
             : toFiniteNumber(
@@ -672,10 +1156,6 @@ export default function LineWidget({
                 display.yAxisMax,
                 combinedRange.max
               ),
-        ]
-      : [
-          combinedRange.min,
-          combinedRange.max,
         ];
 
   const yAxisTickCount = Math.max(
@@ -685,15 +1165,32 @@ export default function LineWidget({
     ) || 5
   );
 
+  const gridDensity =
+    display.gridDensity ||
+    "dense";
+
+  // Keep axis labels relatively sparse even when the user asks for a denser
+  // background grid. Dense labels are much harder to scan than dense grid lines.
+  const gridYAxisTickCount =
+    yAxisTickCount;
+
+  const gridXAxisTickGap =
+    gridDensity === "sparse"
+      ? 92
+      : gridDensity === "normal"
+      ? 64
+      : 46;
+
   const defaultNiceAxis =
-    display.yAxisMode === "custom"
-      ? {
-          domain: defaultDomain,
-          ticks: undefined,
-        }
+    resolvedYAxisMode === "fixed"
+      ? buildFixedAxis(
+          defaultDomain,
+          display.yAxisInterval,
+          gridYAxisTickCount
+        )
       : buildNiceAxis(
           defaultDomain,
-          yAxisTickCount
+          gridYAxisTickCount
         );
 
   const areaRanges =
@@ -730,14 +1227,14 @@ export default function LineWidget({
       visibleLines.map(
         (line) => line.key
       ),
-      areaConfiguredRange
+      areaConfiguredRange,
+      resolvedYAxisMode
     );
 
   const areaDomain =
-    display.yAxisMode === "auto"
+    isObservedYAxisMode
       ? areaObservedDomain
-      : display.yAxisMode === "custom"
-      ? [
+      : [
           display.yAxisMin === ""
             ? areaGlobalMin
             : toFiniteNumber(
@@ -750,21 +1247,18 @@ export default function LineWidget({
                 display.yAxisMax,
                 areaGlobalMax
               ),
-        ]
-      : [
-          areaGlobalMin,
-          areaGlobalMax,
         ];
 
   const areaNiceAxis =
-    display.yAxisMode === "custom"
-      ? {
-          domain: areaDomain,
-          ticks: undefined,
-        }
+    resolvedYAxisMode === "fixed"
+      ? buildFixedAxis(
+          areaDomain,
+          display.yAxisInterval,
+          gridYAxisTickCount
+        )
       : buildNiceAxis(
           areaDomain,
-          yAxisTickCount
+          gridYAxisTickCount
         );
 
   const useMultipleAxes =
@@ -786,8 +1280,8 @@ export default function LineWidget({
               getRangeForKey(line.key);
 
             const rawDomain =
-              display.yAxisMode ===
-              "custom"
+              resolvedYAxisMode ===
+              "fixed"
                 ? [
                     display.yAxisMin === ""
                       ? range.min
@@ -802,30 +1296,24 @@ export default function LineWidget({
                           range.max
                         ),
                   ]
-                : display.yAxisMode ===
-                  "range"
-                ? [
-                    range.min,
-                    range.max,
-                  ]
                 : getSeriesDomain(
                     chartData,
                     line.key,
-                    range
+                    range,
+                    resolvedYAxisMode
                   );
 
             const niceAxis =
-              display.yAxisMode ===
-              "custom"
-                ? {
-                    domain:
-                      rawDomain,
-                    ticks:
-                      undefined,
-                  }
+              resolvedYAxisMode ===
+              "fixed"
+                ? buildFixedAxis(
+                    rawDomain,
+                    display.yAxisInterval,
+                    gridYAxisTickCount
+                  )
                 : buildNiceAxis(
                     rawDomain,
-                    yAxisTickCount
+                    gridYAxisTickCount
                   );
 
             return {
@@ -862,15 +1350,60 @@ export default function LineWidget({
           },
         ];
 
+  /*
+   * Minor grid lines are separate from axis labels.
+   *
+   * Example major labels:
+   * 0, 20, 40, 60, 80, 100
+   *
+   * normal -> adds 10, 30, 50, 70, 90
+   * dense  -> adds two lighter lines inside every 20-unit interval
+   */
+  const minorGridSubdivisions =
+    gridDensity === "dense"
+      ? 3
+      : gridDensity === "normal"
+      ? 1
+      : 0;
+
+  const areaMajorGridTicks =
+    getMajorGridTicks(
+      areaNiceAxis.ticks,
+      areaNiceAxis.domain,
+      yAxisTickCount
+    );
+
+  const areaMinorGridTicks =
+    buildMinorGridTicks(
+      areaMajorGridTicks,
+      minorGridSubdivisions
+    );
+
+  const primaryAxis =
+    axisDefinitions?.[0];
+
+  const lineMajorGridTicks =
+    getMajorGridTicks(
+      primaryAxis?.ticks,
+      primaryAxis?.domain,
+      yAxisTickCount
+    );
+
+  const lineMinorGridTicks =
+    buildMinorGridTicks(
+      lineMajorGridTicks,
+      minorGridSubdivisions
+    );
+
   if (isAreaStyle) {
     return (
       <div
         ref={rootRef}
         className={`${TECH_SURFACE_CLASS} ${
           tiny
-            ? "p-2.5"
-            : "p-3.5"
-        }`}
+            ? "p-2"
+            : "p-2.5"
+        } [--chart-grid-major:#94a3b8] [--chart-grid-minor:#cbd5e1] dark:[--chart-grid-major:#64748b] dark:[--chart-grid-minor:#475569]`}
       >
         <TechBackdrop />
 
@@ -878,7 +1411,7 @@ export default function LineWidget({
           {/* Keep Area mode visually consistent with the original AreaWidget. */}
           <div
             className="
-              mb-2 flex min-w-0
+              mb-1 flex min-w-0
               items-center gap-2
               px-1 pr-14
             "
@@ -895,7 +1428,7 @@ export default function LineWidget({
                 className="
                   shrink-0 rounded-full
                   border border-slate-200
-                  bg-slate-50 px-2 py-1
+                  bg-slate-50 px-2 py-0.5
                   text-[9px] font-medium
                   text-slate-500
                   dark:border-slate-700
@@ -906,6 +1439,48 @@ export default function LineWidget({
                 {historyWindow}
               </div>
             )}
+
+            {!tiny &&
+              isSingleSeries &&
+              display.showLatestValues &&
+              singleLatestItem && (
+                <div
+                  className="
+                    ml-auto flex shrink-0
+                    items-center gap-1.5
+                    text-[9px]
+                  "
+                  title={
+                    singleLatestItem.name
+                  }
+                >
+                  <span
+                    className="
+                      h-1.5 w-1.5
+                      rounded-full
+                    "
+                    style={{
+                      backgroundColor:
+                        singleLatestItem.color,
+                    }}
+                  />
+
+                  <span
+                    className="
+                      font-semibold
+                      text-slate-700
+                      dark:text-slate-200
+                    "
+                  >
+                    {
+                      singleLatestItem.formattedValue
+                    }
+                    {singleLatestItem.range.unit
+                      ? ` ${singleLatestItem.range.unit}`
+                      : ""}
+                  </span>
+                </div>
+              )}
           </div>
 
           <div className="min-h-0 min-w-0 flex-1">
@@ -927,10 +1502,10 @@ export default function LineWidget({
                 <AreaChart
                   data={chartData}
                   margin={{
-                    top: 8,
-                    right: tiny ? 4 : 10,
-                    left: tiny ? -24 : -8,
-                    bottom: tiny ? -6 : 0,
+                    top: tiny ? 0 : 2,
+                    right: tiny ? 2 : 5,
+                    left: tiny ? -26 : -12,
+                    bottom: tiny ? -8 : -4,
                   }}
                 >
                   <defs>
@@ -970,16 +1545,44 @@ export default function LineWidget({
                     )}
                   </defs>
 
+                  {/* Background grid is rendered before the series so it stays behind the data. */}
                   {display.showGrid && (
                     <CartesianGrid
-                      strokeDasharray="3 5"
-                      stroke={
-                        TECH_GRID_STROKE
-                      }
-                      opacity={0.14}
-                      vertical={!compact}
+                      stroke="var(--chart-grid-major)"
+                      strokeWidth={0.65}
+                      opacity={0.12}
+                      horizontal={false}
+                      vertical
                     />
                   )}
+
+                  {display.showGrid &&
+                    areaMajorGridTicks.map(
+                      (tick) => (
+                        <ReferenceLine
+                          key={`area-major-grid-${tick}`}
+                          y={tick}
+                          stroke="var(--chart-grid-major)"
+                          strokeWidth={0.7}
+                          opacity={0.18}
+                          ifOverflow="extendDomain"
+                        />
+                      )
+                    )}
+
+                  {display.showGrid &&
+                    areaMinorGridTicks.map(
+                      (tick) => (
+                        <ReferenceLine
+                          key={`area-minor-grid-${tick}`}
+                          y={tick}
+                          stroke="var(--chart-grid-minor)"
+                          strokeWidth={0.55}
+                          opacity={0.07}
+                          ifOverflow="extendDomain"
+                        />
+                      )
+                    )}
 
                   {display.showXAxis && (
                     <XAxis
@@ -998,7 +1601,8 @@ export default function LineWidget({
                         formatXAxisTime(
                           value,
                           historyWindow,
-                          display.xAxisFormat
+                          display.xAxisFormat,
+                          visibleDurationMs
                         )
                       }
                       tick={{
@@ -1013,10 +1617,13 @@ export default function LineWidget({
                       axisLine={false}
                       tickLine={false}
                       minTickGap={Math.max(
-                        12,
-                        Number(
-                          display.xAxisTickGap
-                        ) || 30
+                        8,
+                        Math.min(
+                          Number(
+                            display.xAxisTickGap
+                          ) || 30,
+                          gridXAxisTickGap
+                        )
                       )}
                       interval="preserveStartEnd"
                     />
@@ -1048,8 +1655,7 @@ export default function LineWidget({
                         yAxisTickCount
                       }
                       allowDataOverflow={
-                        display.yAxisMode !==
-                        "auto"
+                        !isObservedYAxisMode
                       }
                     />
                   )}
@@ -1168,8 +1774,6 @@ export default function LineWidget({
                           strokeDasharray={
                             resolvedStrokeDasharray
                           }
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
                           fill={`url(#area-tech-${widgetId}-${index})`}
                           dot={
                             display.showDots &&
@@ -1206,11 +1810,11 @@ export default function LineWidget({
       ref={rootRef}
       className={`${TECH_SURFACE_CLASS} ${
         tiny
-          ? "p-2"
+          ? "p-1.5"
           : compact
-          ? "p-2.5"
-          : "p-3"
-      }`}
+          ? "p-2"
+          : "p-2.5"
+      } [--chart-grid-major:#94a3b8] [--chart-grid-minor:#cbd5e1] dark:[--chart-grid-major:#64748b] dark:[--chart-grid-minor:#475569]`}
     >
       <TechBackdrop />
 
@@ -1218,11 +1822,16 @@ export default function LineWidget({
         {/* HEADER */}
         <div
           className={`
-            mb-1.5 min-w-0 pr-14
+            mb-1 min-w-0 pr-14
             ${tiny ? "px-0.5" : "px-1"}
           `}
         >
-          <div className="flex min-w-0 items-center gap-2">
+          <div
+            className="
+              flex min-w-0
+              items-center gap-2
+            "
+          >
             <div
               className={`${TECH_HEADER_CLASS} min-w-0 truncate`}
               title={label}
@@ -1235,7 +1844,7 @@ export default function LineWidget({
                 className="
                   shrink-0 rounded-full
                   border border-slate-200
-                  bg-slate-50 px-2 py-1
+                  bg-slate-50 px-2 py-0.5
                   text-[9px] font-medium
                   text-slate-500
                   dark:border-slate-700
@@ -1246,12 +1855,60 @@ export default function LineWidget({
                 {historyWindow}
               </div>
             )}
+
+            {!tiny &&
+              isSingleSeries &&
+              display.showLatestValues &&
+              singleLatestItem && (
+                <div
+                  className="
+                    ml-auto flex
+                    shrink-0 items-center
+                    gap-1.5 text-[9px]
+                  "
+                  title={
+                    singleLatestItem.name
+                  }
+                >
+                  <span
+                    className="
+                      h-1.5 w-1.5
+                      rounded-full
+                    "
+                    style={{
+                      backgroundColor:
+                        singleLatestItem.color,
+                    }}
+                  />
+
+                  <span
+                    className="
+                      font-semibold
+                      text-slate-700
+                      dark:text-slate-200
+                    "
+                  >
+                    {
+                      singleLatestItem.formattedValue
+                    }
+                    {singleLatestItem.range.unit
+                      ? ` ${singleLatestItem.range.unit}`
+                      : ""}
+                  </span>
+                </div>
+              )}
           </div>
 
           {!tiny &&
+            !isSingleSeries &&
             display.showLatestValues &&
             latestItems.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+              <div
+                className="
+                  mt-1 flex flex-wrap
+                  gap-x-3.5 gap-y-1
+                "
+              >
                 {latestItems.map(
                   (item) => (
                     <div
@@ -1262,18 +1919,34 @@ export default function LineWidget({
                       "
                     >
                       <span
-                        className="h-1.5 w-1.5 rounded-full"
+                        className="
+                          h-1.5 w-1.5
+                          rounded-full
+                        "
                         style={{
                           backgroundColor:
                             item.color,
                         }}
                       />
 
-                      <span className="max-w-[90px] truncate text-slate-500 dark:text-slate-400">
+                      <span
+                        className="
+                          max-w-[110px]
+                          truncate
+                          text-slate-600
+                          dark:text-slate-300
+                        "
+                      >
                         {item.name}
                       </span>
 
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      <span
+                        className="
+                          font-semibold
+                          text-slate-800
+                          dark:text-slate-200
+                        "
+                      >
                         {item.formattedValue}
                         {item.range.unit
                           ? ` ${item.range.unit}`
@@ -1306,40 +1979,72 @@ export default function LineWidget({
               <ComposedChart
                 data={chartData}
                 margin={{
-                  top: 8,
+                  top: tiny ? 0 : 2,
                   right:
                     useMultipleAxes
-                      ? 22
+                      ? 18
                       : tiny
-                      ? 4
-                      : 10,
+                      ? 2
+                      : 5,
                   left:
                     useMultipleAxes
-                      ? 8
+                      ? 6
                       : tiny
-                      ? -24
-                      : -8,
+                      ? -26
+                      : -12,
                   bottom:
                     showLegend &&
                     !display.compactLegend
-                      ? 6
+                      ? 4
                       : tiny
-                      ? -4
-                      : 0,
+                      ? -8
+                      : -4,
                 }}
               >
-{display.showGrid && (
+{/* Background grid is rendered before the series so it stays behind the data. */}
+                {display.showGrid && (
                   <CartesianGrid
-                    strokeDasharray="2 4"
-                    stroke={
-                      TECH_GRID_STROKE
-                    }
-                    opacity={0.14}
-                    vertical={
-                      !compact
-                    }
+                    stroke="var(--chart-grid-major)"
+                    strokeWidth={0.65}
+                    opacity={0.12}
+                    horizontal={false}
+                    vertical
                   />
                 )}
+
+                {display.showGrid &&
+                  lineMajorGridTicks.map(
+                    (tick) => (
+                      <ReferenceLine
+                        key={`line-major-grid-${tick}`}
+                        y={tick}
+                        yAxisId={
+                          primaryAxis?.id
+                        }
+                        stroke="var(--chart-grid-major)"
+                        strokeWidth={0.7}
+                        opacity={0.18}
+                        ifOverflow="extendDomain"
+                      />
+                    )
+                  )}
+
+                {display.showGrid &&
+                  lineMinorGridTicks.map(
+                    (tick) => (
+                      <ReferenceLine
+                        key={`line-minor-grid-${tick}`}
+                        y={tick}
+                        yAxisId={
+                          primaryAxis?.id
+                        }
+                        stroke="var(--chart-grid-minor)"
+                        strokeWidth={0.55}
+                        opacity={0.07}
+                        ifOverflow="extendDomain"
+                      />
+                    )
+                  )}
 
                 {display.showXAxis && (
                   <XAxis
@@ -1373,10 +2078,13 @@ export default function LineWidget({
                     axisLine={false}
                     tickLine={false}
                     minTickGap={Math.max(
-                      12,
-                      Number(
-                        display.xAxisTickGap
-                      ) || 30
+                      8,
+                      Math.min(
+                        Number(
+                          display.xAxisTickGap
+                        ) || 30,
+                        gridXAxisTickGap
+                      )
                     )}
                     interval="preserveStartEnd"
                   />
@@ -1430,8 +2138,7 @@ export default function LineWidget({
                           yAxisTickCount
                         }
                         allowDataOverflow={
-                          display.yAxisMode !==
-                          "auto"
+                          !isObservedYAxisMode
                         }
                         hide={
                           useMultipleAxes &&
@@ -1446,8 +2153,8 @@ export default function LineWidget({
                   <ReferenceLine
                     y={0}
                     stroke="#94a3b8"
-                    strokeDasharray="3 4"
-                    opacity={0.35}
+                    strokeWidth={0.75}
+                    opacity={0.22}
                   />
                 )}
 
@@ -1608,7 +2315,9 @@ export default function LineWidget({
 
         {/* COMPACT LEGEND */}
         {showLegend &&
-          display.compactLegend && (
+          visibleLines.length > 1 &&
+          display.compactLegend &&
+          !display.showLatestValues && (
             <div
               className={`
                 mt-1.5 flex flex-wrap

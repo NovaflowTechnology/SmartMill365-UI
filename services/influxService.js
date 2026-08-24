@@ -602,60 +602,72 @@ export const fetchSankeyRuntimeValues = async ({
 
     sankeyValues[item.id] = {};
 
-    for (const output of outputs) {
-      const dataSource = output?.dataSource || {};
+    // Fetch branches in parallel so a Sankey with many branches does not
+    // multiply dashboard latency by querying every output sequentially.
+    const branchResults = await Promise.all(
+      outputs.map(async (output) => {
+        const dataSource = output?.dataSource || {};
 
-      const bucketName = dataSource.bucket;
-      const measurementName = dataSource.measurement;
-      const tagKey = dataSource.tagKey || "id";
-      const tagValue =
-        dataSource.tagValue ||
-        dataSource.id ||
-        "";
-      const channel = dataSource.channel;
+        const bucketName = dataSource.bucket;
+        const measurementName = dataSource.measurement;
+        const tagKey = dataSource.tagKey || "id";
+        const tagValue =
+          dataSource.tagValue ||
+          dataSource.id ||
+          "";
+        const channel = dataSource.channel;
 
-      try {
-        const result = await fetchLatestSankeyOutputValue({
-          queryApi,
-          user,
-          bucketName,
-          measurementName,
+        const source = {
+          bucket: bucketName,
+          measurement: measurementName,
           tagKey,
           tagValue,
           channel,
-        });
+        };
 
-        sankeyValues[item.id][output.id] = {
-          value: result.value,
-          timestamp: result.timestamp,
-          error: result.error,
-          source: {
-            bucket: bucketName,
-            measurement: measurementName,
+        try {
+          const result = await fetchLatestSankeyOutputValue({
+            queryApi,
+            user,
+            bucketName,
+            measurementName,
             tagKey,
             tagValue,
             channel,
-          },
-        };
-      } catch (err) {
-        console.error("❌ Sankey output fetch error:", err);
+          });
 
-        sankeyValues[item.id][output.id] = {
-          value: null,
-          timestamp: null,
-          error:
-            err.message ||
-            "Failed to fetch Sankey output value",
-          source: {
-            bucket: bucketName,
-            measurement: measurementName,
-            tagKey,
-            tagValue,
-            channel,
-          },
-        };
+          return {
+            outputId: output.id,
+            payload: {
+              value: result.value,
+              timestamp: result.timestamp,
+              error: result.error,
+              source,
+            },
+          };
+        } catch (err) {
+          console.error("❌ Sankey branch fetch error:", err);
+
+          return {
+            outputId: output.id,
+            payload: {
+              value: null,
+              timestamp: null,
+              error:
+                err.message ||
+                "Failed to fetch Sankey branch value",
+              source,
+            },
+          };
+        }
+      })
+    );
+
+    branchResults.forEach(({ outputId, payload }) => {
+      if (outputId) {
+        sankeyValues[item.id][outputId] = payload;
       }
-    }
+    });
   }
 
   return sankeyValues;

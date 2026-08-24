@@ -1,12 +1,11 @@
 import { TECH_SERIES } from "../widgets/widgetTech";
 import BarWidget from "../widgets/BarWidget";
-import BigNumberWidget from "../widgets/BigNumberWidget";
+import NumStatWidget from "../widgets/NumStatWidget";
 import GaugeWidget from "../widgets/GaugeWidget";
 import LineWidget from "../widgets/LineWidget";
 import LinearGaugeWidget from "../widgets/LinearGaugeWidget";
 import ImageWidget from "../widgets/ImageWidget";
 import ImageWidgetConfigurator from "../widgets/ImageWidgetConfigurator";
-import StatusWidget from "../widgets/StatusWidget";
 import PieWidget from "../widgets/PieWidget";
 import SankeyWidget from "../widgets/SankeyWidget";
 import LogsWidget from "../widgets/LogsWidget";
@@ -33,13 +32,6 @@ export default function WidgetRenderer({
           liveStatus={liveStatus}
           historyWindow={historyWindow}
           item={item}
-        />
-      );
-
-    case "status":
-      return (
-        <StatusWidget
-          liveStatus={liveStatus}
         />
       );
 
@@ -152,7 +144,8 @@ export default function WidgetRenderer({
 
     case "bignumber": {
       const statusDataKey =
-        item?.bigNumberDisplay?.statusDataKey ||
+        item?.bigNumberDisplay
+          ?.statusDataKey ||
         item?.dataKeys?.[1] ||
         "";
 
@@ -162,13 +155,14 @@ export default function WidgetRenderer({
           : undefined;
 
       return (
-        <BigNumberWidget
+        <NumStatWidget
           value={value}
           statusValue={statusValue}
           label={item?.label || dataKey}
           dataKey={dataKey}
           display={{
-            ...(item?.bigNumberDisplay || {}),
+            ...(item?.bigNumberDisplay ||
+              {}),
             statusDataKey,
           }}
           rangeConfig={
@@ -179,67 +173,13 @@ export default function WidgetRenderer({
     }
 
     /*
-     * Backward compatibility for older saved templates.
-     *
-     * New widgets should no longer save:
-     *   type: "area"
-     *
-     * They should save:
-     *   type: "line"
-     *   chartDisplay.chartStyle: "area"
-     *
-     * Keeping this case means old Area widgets still render correctly
-     * even after AreaWidget.jsx is removed.
+     * "area" remains as a compatibility alias for old saved templates.
+     * New templates use type="line" + chartDisplay.chartStyle="area".
      */
-    case "area": {
-      const colors = TECH_SERIES;
-
-      const selectedKeys =
-        item?.dataKeys?.length > 0
-          ? item.dataKeys
-          : dataKey
-          ? [dataKey]
-          : [];
-
-      return (
-        <LineWidget
-          data={history}
-          label={
-            item?.label ||
-            "Area Trend"
-          }
-          historyWindow={
-            historyWindow
-          }
-          rangeConfig={
-            item?.rangeConfig
-          }
-          rangeConfigs={
-            item?.rangeConfigs || {}
-          }
-          dataLabels={
-            item?.dataLabels || {}
-          }
-          chartDisplay={{
-            ...(item?.chartDisplay || {}),
-            chartStyle: "area",
-          }}
-          lines={selectedKeys.map(
-            (key, index) => ({
-              key,
-              color:
-                colors[
-                  index %
-                    colors.length
-                ],
-            })
-          )}
-        />
-      );
-    }
-
+    case "area":
     case "line": {
-      const colors = TECH_SERIES;
+      const colors =
+        TECH_SERIES;
 
       const selectedKeys =
         item?.dataKeys?.length > 0
@@ -253,7 +193,9 @@ export default function WidgetRenderer({
           data={history}
           label={
             item?.label ||
-            "Trend"
+            (type === "area"
+              ? "Area Trend"
+              : "Trend")
           }
           historyWindow={
             historyWindow
@@ -268,11 +210,17 @@ export default function WidgetRenderer({
             item?.dataLabels || {}
           }
           chartDisplay={{
-            ...(item?.chartDisplay || {}),
-            chartStyle:
-              item?.chartDisplay?.chartStyle ||
-              "line",
+            ...(item?.chartDisplay ||
+              {}),
+            ...(type === "area"
+              ? {
+                  chartStyle:
+                    "area",
+                }
+              : {}),
           }}
+          gridWidth={item?.w}
+          gridHeight={item?.h}
           lines={selectedKeys.map(
             (key, index) => ({
               key,

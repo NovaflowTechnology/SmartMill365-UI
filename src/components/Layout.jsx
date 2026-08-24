@@ -16,6 +16,7 @@ import {
   Settings,
   ChevronDown,
   ServerCog,
+  Factory,
 } from "lucide-react";
 
 export default function Layout({
@@ -64,6 +65,12 @@ export default function Layout({
       label: "Dashboard",
       description: "Live monitoring",
       icon: LayoutDashboard,
+    },
+    {
+      key: "process-simulator",
+      label: "Plant Simulator",
+      description: "Build process topology",
+      icon: Factory,
     },
   ];
 
@@ -136,8 +143,8 @@ export default function Layout({
 
           ${
             isActive
-              ? "bg-emerald-600 text-white shadow-sm"
-              : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              ? "bg-gradient-to-br from-cyan-500 to-violet-500 text-white shadow-sm"
+              : "text-slate-300 hover:bg-[#182641] hover:text-white"
           }
         `}
       >
@@ -145,7 +152,7 @@ export default function Layout({
           <span
             className="
               absolute left-0 h-6 w-[3px]
-              rounded-r-full bg-emerald-300
+              rounded-r-full bg-cyan-300
             "
           />
         )}
@@ -156,7 +163,7 @@ export default function Layout({
             ${
               isActive
                 ? "text-white"
-                : "text-slate-400 group-hover:text-emerald-300"
+                : "text-slate-400 group-hover:text-cyan-300"
             }
           `}
         >
@@ -189,22 +196,22 @@ export default function Layout({
   return (
     <div
       className={`
-        flex h-screen
-        ${dark ? "bg-slate-950" : "bg-[#eef1f5]"}
+        app-shell flex h-screen
+        ${dark ? "bg-[#0B1328]" : "bg-[#eef1f5]"}
       `}
     >
       {showSidebar && !fullscreen && (
         <aside
           className={`
-            relative flex flex-col overflow-hidden
-            border-r border-slate-800 bg-slate-950
-            transition-none
+            app-sidebar relative flex flex-col overflow-hidden
+            border-r border-[#2c3c61] bg-[#081022]
+            transition-[width] duration-300 ease-out
             ${collapsed ? "w-14" : "w-[14.5rem]"}
           `}
         >
           <div
             className={`
-              relative z-10 border-b border-slate-800
+              relative z-10 border-b border-[#2c3c61]
               ${
                 collapsed
                   ? "flex flex-col items-center gap-2 px-0 py-3"
@@ -218,7 +225,7 @@ export default function Layout({
                   <div
                     className="
                       flex h-9 w-9 shrink-0 items-center justify-center
-                      rounded-xl bg-emerald-600 shadow-sm
+                      rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-sm
                     "
                   >
                     <Monitor size={15} strokeWidth={2} className="text-white" />
@@ -232,7 +239,7 @@ export default function Layout({
                       "
                     >
                       UI Template
-                      <span className="text-emerald-300">
+                      <span className="text-cyan-300">
                         {" "}System
                       </span>
                     </h2>
@@ -247,7 +254,7 @@ export default function Layout({
               <div
                 className="
                   flex h-9 w-9 items-center justify-center
-                  rounded-xl bg-emerald-600 shadow-sm
+                  rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-sm
                 "
                 title="UI Template System"
               >
@@ -260,7 +267,7 @@ export default function Layout({
               className="
                 flex h-8 w-8 shrink-0 items-center justify-center
                 rounded-lg text-slate-400
-                transition-colors hover:bg-slate-800 hover:text-white
+                transition-colors hover:bg-[#182641] hover:text-white
               "
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -276,7 +283,7 @@ export default function Layout({
             <div
               className="
                 relative z-10 mx-3 mt-3 rounded-2xl
-                border border-slate-800 bg-slate-900
+                border border-[#2c3c61] bg-[#111b34]
                 p-3 shadow-sm
               "
             >
@@ -293,33 +300,13 @@ export default function Layout({
                 <div
                   className="
                     flex h-8 w-8 shrink-0 items-center justify-center
-                    rounded-xl border border-slate-700
-                    bg-slate-800 text-emerald-300
+                    rounded-xl border border-[#35466e]
+                    bg-[#182641] text-cyan-300
                   "
                 >
                   <Leaf size={14} strokeWidth={2} />
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-2">
-                  <p className="text-[8px] uppercase text-slate-500">Mode</p>
-                  <p className="mt-0.5 text-[11px] font-bold text-emerald-300">
-                    Live
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-2">
-                  <p className="text-[8px] uppercase text-slate-500">Access</p>
-                  <p className="mt-0.5 truncate text-[11px] font-bold capitalize text-slate-200">
-                    {role || "User"}
-                  </p>
-                </div>
-              </div>
-
-              <p className="mt-3 text-[9px] leading-relaxed text-slate-500">
-                Manage live dashboards, sterilizer templates, and organization access.
-              </p>
             </div>
           )}
 
@@ -338,7 +325,7 @@ export default function Layout({
             {mainMenu.map(renderMenuButton)}
 
             {!collapsed ? (
-              <div className="mt-2 rounded-2xl border border-slate-800 bg-slate-900 p-1.5">
+              <div className="mt-2 rounded-2xl border border-[#2c3c61] bg-[#111b34] p-1.5">
                 <button
                   type="button"
                   onClick={() => setSettingOpen(!settingOpen)}
@@ -348,8 +335,8 @@ export default function Layout({
                     text-[12px] font-semibold transition-colors
                     ${
                       isSettingActive
-                        ? "bg-slate-800 text-white"
-                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                        ? "bg-[#182641] text-white"
+                        : "text-slate-300 hover:bg-[#182641] hover:text-white"
                     }
                   `}
                 >
@@ -358,7 +345,7 @@ export default function Layout({
                       flex h-4 w-4 shrink-0 items-center justify-center
                       ${
                         isSettingActive
-                          ? "text-emerald-300"
+                          ? "text-cyan-300"
                           : "text-slate-400"
                       }
                     `}
@@ -381,7 +368,7 @@ export default function Layout({
                 </button>
 
                 {settingOpen && (
-                  <div className="mt-1.5 space-y-1">
+                  <div className="sidebar-submenu mt-1.5 space-y-1">
                     {settingMenu.map((item) => renderMenuButton(item))}
                   </div>
                 )}
@@ -396,8 +383,8 @@ export default function Layout({
                     rounded-xl transition-colors
                     ${
                       isSettingActive
-                        ? "bg-slate-800 text-emerald-300"
-                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                        ? "bg-[#182641] text-cyan-300"
+                        : "text-slate-400 hover:bg-[#182641] hover:text-white"
                     }
                   `}
                   title="Setting"
@@ -410,15 +397,15 @@ export default function Layout({
             )}
           </nav>
 
-          <div className="relative z-10 mt-auto border-t border-slate-800 p-2.5">
+          <div className="relative z-10 mt-auto border-t border-[#2c3c61] p-2.5">
             {!collapsed && (
-              <div className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-2.5">
+              <div className="mb-2 rounded-2xl border border-[#2c3c61] bg-[#111b34] p-2.5">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-800">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[#35466e] bg-[#182641]">
                     <ShieldCheck
                       size={14}
                       strokeWidth={2}
-                      className="text-emerald-300"
+                      className="text-cyan-300"
                     />
                   </div>
 
@@ -432,7 +419,7 @@ export default function Layout({
                     </div>
 
                     {orgName && (
-                      <div className="mt-0.5 text-[9px] capitalize text-emerald-300">
+                      <div className="mt-0.5 text-[9px] capitalize text-cyan-300">
                         {role}
                       </div>
                     )}
@@ -445,9 +432,9 @@ export default function Layout({
               onClick={toggleTheme}
               className={`
                 flex items-center justify-center gap-2
-                rounded-xl border border-slate-800
-                bg-slate-900 text-[11px] text-slate-200
-                transition-colors hover:bg-slate-800
+                rounded-xl border border-[#2c3c61]
+                bg-[#111b34] text-[11px] text-slate-200
+                transition-colors hover:bg-[#182641]
                 ${
                   collapsed
                     ? "mx-auto mb-2 h-9 w-9 p-0"
@@ -469,8 +456,8 @@ export default function Layout({
               onClick={handleLogout}
               className={`
                 flex items-center justify-center gap-2
-                rounded-xl bg-red-500 text-[11px] text-white
-                shadow-sm transition-colors hover:bg-red-600
+                rounded-xl bg-[#ff6f88] text-[11px] text-white
+                shadow-sm transition-colors hover:bg-[#ff5c77]
                 ${
                   collapsed
                     ? "mx-auto h-9 w-9 p-0"
@@ -488,8 +475,8 @@ export default function Layout({
 
       <main
         className={`
-          min-w-0 flex-1 overflow-auto transition-colors duration-150
-          ${dark ? "bg-slate-950" : "bg-[#eef1f5]"}
+          app-main min-w-0 flex-1 overflow-auto transition-colors duration-150
+          ${dark ? "bg-[#0b1328]" : "bg-[#eef1f5]"}
         `}
       >
         <div className="min-h-full p-2.5">

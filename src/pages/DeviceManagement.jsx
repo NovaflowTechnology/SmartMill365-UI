@@ -17,6 +17,11 @@ import {
 } from "lucide-react";
 
 import {
+  PageHeader,
+  controlClasses,
+} from "../components/ControlCenterUI";
+
+import {
   getMeasurementGroup,
 } from "../utils/measurementGroups";
 
@@ -937,87 +942,26 @@ export default function DeviceManagement({
       `}
     >
       {/* HEADER */}
-      <div
-        className={`
-          mb-3 rounded-xl border
-          px-3 py-2.5 shadow-sm
-          ${
-            dark
-              ? "border-slate-700 bg-slate-900"
-              : "border-slate-200 bg-white"
-          }
-        `}
-      >
-        <div
-          className="
-            flex flex-col gap-2
-            sm:flex-row
-            sm:items-center
-            sm:justify-between
-          "
-        >
-          <div
-            className="
-              flex min-w-0
-              items-center gap-2.5
-            "
-          >
-            <div
-              className="
-                flex h-8 w-8
-                shrink-0 items-center
-                justify-center
-                rounded-lg
-                bg-emerald-50
-                text-emerald-600
-                dark:bg-emerald-500/10
-                dark:text-emerald-300
-              "
-            >
-              <ServerCog
-                size={16}
-              />
-            </div>
-
-            <div className="min-w-0">
-              <h1 className="text-lg font-bold">
-                Device Management
-              </h1>
-
-              <p
-                className="
-                  mt-0.5
-                  text-[11px]
-                  text-slate-500
-                  dark:text-slate-400
-                "
-              >
-                Assign a logical device once; the system creates the required measurement-level permissions automatically.
-              </p>
-            </div>
-          </div>
-
+      <PageHeader
+        icon={ServerCog}
+        title="Device Management"
+        description="Assign a logical device once; measurement-level permissions are created automatically."
+        className="mb-3"
+        actions={
           <button
             type="button"
             onClick={
               openAssignModal
             }
-            className="
-              inline-flex h-8
-              shrink-0 items-center
-              justify-center gap-1.5
-              rounded-lg
-              bg-emerald-600
-              px-3 text-xs
-              font-semibold text-white
-              hover:bg-emerald-700
-            "
+            className={
+              controlClasses.primary
+            }
           >
             <Plus size={14} />
             Assign Devices
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {(error || notice) && (
         <div
@@ -1381,8 +1325,7 @@ export default function DeviceManagement({
             fixed inset-0 z-50
             flex items-center
             justify-center
-            bg-black/60 p-3
-            backdrop-blur-sm
+            bg-black/55 p-3
           "
           onClick={() =>
             setShowAssignModal(

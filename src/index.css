@@ -8,10 +8,54 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  color: #111827;
+  color: #111B34;
   background: #eef1f5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  /* Light mode remains intentionally restrained. */
+  --ui-canvas: #eef1f5;
+  --ui-surface: #ffffff;
+  --ui-surface-2: #f8fafc;
+  --ui-surface-3: #f1f5f9;
+  --ui-border: #dbe3ec;
+  --ui-text: #111B34;
+  --ui-muted: #64748b;
+
+  /* Shared visualization accents inspired by the dashboard reference. */
+  --ui-cyan: #58d7ff;
+  --ui-purple: #a86bdf;
+  --ui-indigo: #7d75e7;
+  --ui-coral: #ff6f88;
+  --ui-orange: #ff9c63;
+  --ui-amber: #ffbf63;
+  --ui-yellow: #ffd66b;
+  --ui-mint: #70e1c2;
+}
+
+html.dark {
+  color-scheme: dark;
+
+  /* Deep blue / indigo dashboard palette from the supplied reference. */
+  --ui-canvas: #0b1328;
+  --ui-canvas-deep: #081022;
+  --ui-surface: #111b34;
+  --ui-surface-2: #15213d;
+  --ui-surface-3: #1b2948;
+  --ui-surface-4: #223253;
+  --ui-border: #2c3c61;
+  --ui-border-soft: rgba(113, 139, 196, 0.18);
+  --ui-text: #e8edff;
+  --ui-text-soft: #c8d1ea;
+  --ui-muted: #93a2c7;
+  --ui-muted-2: #7484aa;
+  --ui-grid: #29385c;
+  --ui-axis: #8796bb;
+  --ui-focus: #58d7ff;
+
+  --ui-glow-cyan: rgba(88, 215, 255, 0.18);
+  --ui-glow-purple: rgba(168, 107, 223, 0.17);
+  --ui-glow-coral: rgba(255, 111, 136, 0.14);
 }
 
 html,
@@ -20,34 +64,26 @@ body,
   min-height: 100%;
 }
 
+html {
+  font-size: 16px;
+  background: var(--ui-canvas);
+}
+
 body {
   margin: 0;
-  background: #eef1f5;
+  color: var(--ui-text);
+  background: var(--ui-canvas);
 }
 
 html.dark body,
 body.dark {
-  background: #0b1120;
-  color: #f8fafc;
-}
-
-button,
-a,
-input,
-select,
-textarea {
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease,
-    transform 160ms ease;
-}
-
-button,
-a {
-  -webkit-tap-highlight-color: transparent;
+  color: var(--ui-text);
+  background:
+    radial-gradient(circle at 12% -8%, rgba(125, 117, 231, 0.16), transparent 31rem),
+    radial-gradient(circle at 94% 8%, rgba(88, 215, 255, 0.10), transparent 30rem),
+    radial-gradient(circle at 67% 100%, rgba(168, 107, 223, 0.08), transparent 34rem),
+    var(--ui-canvas);
+  background-attachment: fixed;
 }
 
 * {
@@ -55,12 +91,527 @@ a {
 }
 
 ::selection {
-  background: rgba(37, 99, 235, 0.18);
+  background: rgba(88, 215, 255, 0.24);
+  color: inherit;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Global interaction language                                                */
+/* -------------------------------------------------------------------------- */
+
+button,
+a,
+input,
+select,
+textarea,
+[role="button"] {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    filter 180ms ease;
+}
+
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(88, 215, 255, 0.20);
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  caret-color: var(--ui-cyan);
+}
+
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: rgba(88, 215, 255, 0.68) !important;
+  box-shadow:
+    0 0 0 3px rgba(88, 215, 255, 0.12),
+    0 8px 24px rgba(4, 10, 28, 0.22);
+}
+
+/* Route-level entrance is used by App.jsx for every page. */
+.app-route-frame {
+  min-height: 100%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .app-route-frame {
+    animation: ui-page-enter 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  button:not(:disabled):hover,
+  a[href]:hover,
+  [role="button"]:not([aria-disabled="true"]):hover {
+    transform: translateY(-1px);
+  }
+
+  button:not(:disabled):active,
+  a[href]:active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: translateY(0) scale(0.975);
+    transition-duration: 80ms;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    transform: translateY(-1px);
+  }
+
+  tbody tr {
+    transition:
+      background-color 160ms ease,
+      color 160ms ease,
+      transform 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  tbody tr:hover {
+    transform: translateX(2px);
+  }
+
+  .dashboard-widget-surface {
+    transition:
+      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 220ms ease,
+      border-color 220ms ease,
+      filter 220ms ease;
+  }
+
+  .dashboard-widget-cell:hover .dashboard-widget-surface,
+  .dashboard-widget-cell:focus-within .dashboard-widget-surface {
+    transform: translateY(-2px);
+  }
+
+  html.dark .dashboard-widget-cell:hover .dashboard-widget-surface,
+  html.dark .dashboard-widget-cell:focus-within .dashboard-widget-surface {
+    box-shadow:
+      0 0 0 1px rgba(88, 215, 255, 0.18),
+      0 14px 36px rgba(3, 8, 24, 0.42),
+      0 0 30px rgba(88, 215, 255, 0.07) !important;
+  }
+
+  /* Tailwind modal backdrops and fullscreen editors get a soft entrance. */
+  .fixed.inset-0 {
+    animation: ui-overlay-enter 180ms ease-out;
+  }
+
+  .fixed.inset-0 > [class*="rounded"] {
+    animation: ui-dialog-enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .widget-tech-backdrop span {
+    animation: ui-status-breathe 2.8s ease-in-out infinite;
+  }
+
+  .widget-tech-backdrop span:nth-child(2) {
+    animation-delay: 180ms;
+  }
+
+  .widget-tech-backdrop span:nth-child(3) {
+    animation-delay: 360ms;
+  }
+}
+
+@keyframes ui-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ui-overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ui-status-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.18); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reference-inspired dark surfaces                                           */
+/* -------------------------------------------------------------------------- */
+
+/* Canvas / deepest backgrounds. */
+html.dark [class~="bg-slate-950"],
+html.dark [class~="bg-gray-950"],
+html.dark [class~="dark:bg-slate-950"],
+html.dark [class~="dark:bg-gray-950"],
+html.dark [class~="bg-[#081022]"],
+html.dark [class~="dark:bg-[#081022]"] {
+  background-color: var(--ui-canvas-deep) !important;
+}
+
+html.dark [class~="bg-[#0B1328]"],
+html.dark [class~="dark:bg-[#0B1328]"] {
+  background-color: var(--ui-canvas) !important;
+}
+
+/* Main cards and panels. */
+html.dark [class~="bg-white"],
+html.dark [class~="dark:bg-white"],
+html.dark [class~="bg-slate-900"],
+html.dark [class~="bg-gray-900"],
+html.dark [class~="dark:bg-slate-900"],
+html.dark [class~="dark:bg-gray-900"],
+html.dark [class~="bg-[#111B34]"],
+html.dark [class~="dark:bg-[#111B34]"] {
+  background-color: var(--ui-surface) !important;
+}
+
+/* Secondary / nested panels. */
+html.dark [class~="bg-slate-50"],
+html.dark [class~="bg-gray-50"],
+html.dark [class~="dark:bg-slate-50"],
+html.dark [class~="dark:bg-gray-50"],
+html.dark [class~="bg-slate-800"],
+html.dark [class~="bg-gray-800"],
+html.dark [class~="dark:bg-slate-800"],
+html.dark [class~="dark:bg-gray-800"] {
+  background-color: var(--ui-surface-2) !important;
+}
+
+html.dark [class~="bg-slate-700"],
+html.dark [class~="bg-gray-700"],
+html.dark [class~="dark:bg-slate-700"],
+html.dark [class~="dark:bg-gray-700"] {
+  background-color: var(--ui-surface-3) !important;
+}
+
+/* Neutral borders become cool indigo-blue rather than gray. */
+html.dark [class~="border-slate-800"],
+html.dark [class~="border-slate-700"],
+html.dark [class~="border-slate-600"],
+html.dark [class~="border-gray-800"],
+html.dark [class~="border-gray-700"],
+html.dark [class~="border-gray-600"],
+html.dark [class~="border-gray-300"],
+html.dark [class~="border-gray-200"],
+html.dark [class~="dark:border-slate-800"],
+html.dark [class~="dark:border-slate-700"],
+html.dark [class~="dark:border-gray-800"],
+html.dark [class~="dark:border-gray-700"] {
+  border-color: var(--ui-border) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dark-mode separator safety                                                  */
+/* -------------------------------------------------------------------------- */
+/*
+ * Never use a white/light-gray rule as a separator in dark mode. Accent
+ * borders (cyan/purple/amber/etc.) are intentionally left alone; only white
+ * and neutral divider utilities are normalized to the deep-blue border tone.
+ */
+html.dark [class*="border-white"],
+html.dark [class~="border-slate-100"],
+html.dark [class~="border-slate-200"],
+html.dark [class~="border-gray-100"],
+html.dark [class~="border-gray-200"],
+html.dark [class~="dark:border-white"],
+html.dark [class*="dark:border-white/"] {
+  border-color: #263657 !important;
+}
+
+html.dark [class*="divide-white"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="divide-slate-100"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="divide-slate-200"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="divide-gray-100"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="divide-gray-200"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="dark:divide-slate-100"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="dark:divide-slate-200"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="dark:divide-gray-100"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="dark:divide-gray-200"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #263657 !important;
+}
+
+html.dark hr {
+  border-color: #263657 !important;
+}
+
+/* Text hierarchy across every page. */
+html.dark [class~="text-slate-950"],
+html.dark [class~="text-slate-900"],
+html.dark [class~="text-slate-800"],
+html.dark [class~="text-gray-950"],
+html.dark [class~="text-gray-900"],
+html.dark [class~="text-gray-800"],
+html.dark [class~="dark:text-white"],
+html.dark [class~="dark:text-slate-100"] {
+  color: var(--ui-text) !important;
+}
+
+html.dark [class~="text-slate-700"],
+html.dark [class~="text-slate-600"],
+html.dark [class~="text-gray-700"],
+html.dark [class~="text-gray-600"],
+html.dark [class~="dark:text-slate-200"],
+html.dark [class~="dark:text-gray-200"] {
+  color: var(--ui-text-soft) !important;
+}
+
+html.dark [class~="text-slate-500"],
+html.dark [class~="text-slate-400"],
+html.dark [class~="text-gray-500"],
+html.dark [class~="text-gray-400"],
+html.dark [class~="dark:text-slate-300"],
+html.dark [class~="dark:text-slate-400"],
+html.dark [class~="dark:text-gray-300"],
+html.dark [class~="dark:text-gray-400"] {
+  color: var(--ui-muted) !important;
+}
+
+/* Existing emerald brand accents become the reference cyan in dark mode. */
+html.dark [class~="bg-emerald-600"],
+html.dark [class~="dark:bg-emerald-600"] {
+  background: linear-gradient(135deg, #3dc6eb 0%, #6d6fe4 100%) !important;
+  box-shadow: 0 8px 24px rgba(55, 177, 221, 0.16);
+}
+
+html.dark [class~="text-emerald-700"],
+html.dark [class~="text-emerald-600"],
+html.dark [class~="text-emerald-500"],
+html.dark [class~="text-emerald-400"],
+html.dark [class~="text-emerald-300"],
+html.dark [class~="dark:text-emerald-300"],
+html.dark [class~="dark:text-emerald-200"] {
+  color: var(--ui-cyan) !important;
+}
+
+html.dark [class~="border-emerald-500"],
+html.dark [class~="border-emerald-400"],
+html.dark [class~="border-emerald-300"],
+html.dark [class~="border-emerald-200"],
+html.dark [class~="dark:border-emerald-500"],
+html.dark [class~="dark:border-emerald-400"] {
+  border-color: rgba(88, 215, 255, 0.46) !important;
+}
+
+html.dark [class~="bg-emerald-50"],
+html.dark [class~="bg-emerald-100"],
+html.dark [class~="dark:bg-emerald-500/10"],
+html.dark [class~="dark:bg-emerald-500/15"],
+html.dark [class~="dark:bg-emerald-500/20"] {
+  background-color: rgba(88, 215, 255, 0.09) !important;
+}
+
+/* Hover variants used throughout the app. */
+html.dark [class~="dark:hover:bg-slate-800"]:hover,
+html.dark [class~="dark:hover:bg-gray-800"]:hover,
+html.dark [class~="hover:bg-slate-800"]:hover {
+  background-color: var(--ui-surface-3) !important;
+}
+
+html.dark [class~="dark:hover:bg-slate-700"]:hover,
+html.dark [class~="dark:hover:bg-gray-700"]:hover {
+  background-color: var(--ui-surface-4) !important;
+}
+
+/* Tables and dividers. */
+html.dark table {
+  color: var(--ui-text-soft);
+}
+
+html.dark tbody tr:hover {
+  background: rgba(88, 215, 255, 0.045);
+  box-shadow: inset 2px 0 0 rgba(88, 215, 255, 0.48);
+}
+
+html.dark hr,
+html.dark [class~="divide-slate-800"] > :not([hidden]) ~ :not([hidden]),
+html.dark [class~="divide-gray-700"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--ui-border-soft) !important;
+}
+
+/* Recharts: dark grid/axis treatment is shared by every chart page/widget. */
+html.dark .recharts-cartesian-grid line {
+  stroke: var(--ui-grid) !important;
+  stroke-opacity: 0.70;
+}
+
+html.dark .recharts-cartesian-axis-line,
+html.dark .recharts-cartesian-axis-tick-line {
+  stroke: var(--ui-grid) !important;
+}
+
+html.dark .recharts-cartesian-axis-tick-value,
+html.dark .recharts-text,
+html.dark .recharts-label {
+  fill: var(--ui-axis) !important;
+  color: var(--ui-axis) !important;
+}
+
+html.dark .recharts-tooltip-cursor {
+  stroke: rgba(88, 215, 255, 0.48) !important;
+}
+
+/* Dashboard widgets use a faint indigo/cyan edge like the reference cards. */
+html.dark .dashboard-widget-surface {
+  background:
+    linear-gradient(180deg, rgba(14, 23, 45, 0.99), rgba(8, 16, 34, 0.995)) !important;
+  border: 1px solid rgba(88, 115, 173, 0.18);
+  box-shadow:
+    0 8px 24px rgba(2, 7, 22, 0.38),
+    inset 0 1px 0 rgba(88, 215, 255, 0.018) !important;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Dark-mode contrast safety net                                              */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Tailwind is class-driven in this project (tailwind.config.js: darkMode =
+ * "class"). The rules below are deliberate fallbacks for older components
+ * that still have a light neutral base without a matching dark:* utility.
+ *
+ * Dark mode should not be a literal inversion: canvases remain deep navy,
+ * nested cards step upward in luminance, and text uses off-white/muted blue
+ * rather than large pure-white slabs.
+ */
+html.dark [class~="bg-slate-100"],
+html.dark [class~="bg-gray-100"] {
+  background-color: var(--ui-surface-2) !important;
+}
+
+html.dark [class~="bg-slate-200"],
+html.dark [class~="bg-gray-200"] {
+  background-color: var(--ui-surface-3) !important;
+}
+
+html.dark [class~="bg-slate-300"],
+html.dark [class~="bg-gray-300"],
+html.dark [class~="bg-slate-400"],
+html.dark [class~="bg-gray-400"] {
+  background-color: var(--ui-surface-4) !important;
+}
+
+/* Tailwind opacity-suffixed light surfaces such as bg-white/95 do not match
+ * the exact-token rules above. Give the common ones a dark equivalent.
+ */
+html.dark [class~="bg-white/95"],
+html.dark [class~="bg-white/90"],
+html.dark [class~="bg-white/80"],
+html.dark [class~="bg-white/70"],
+html.dark [class~="bg-white/40"],
+html.dark [class~="bg-white/30"] {
+  background-color: rgba(17, 27, 52, 0.96) !important;
+}
+
+html.dark [class~="bg-slate-50/80"],
+html.dark [class~="bg-slate-50/70"],
+html.dark [class~="bg-slate-50/60"],
+html.dark [class~="bg-slate-100/80"],
+html.dark [class~="bg-slate-100/70"],
+html.dark [class~="bg-slate-200/80"],
+html.dark [class~="bg-slate-200/70"] {
+  background-color: rgba(21, 33, 61, 0.94) !important;
+}
+
+/* Keep "white" typography slightly softened in dark mode. This still gives
+ * strong contrast without making every heading look fluorescent.
+ */
+html.dark [class~="text-white"] {
+  color: var(--ui-text) !important;
+}
+
+/* Disabled controls stay visibly disabled, but do not become pale gray cards. */
+html.dark button:disabled,
+html.dark [aria-disabled="true"] {
+  filter: saturate(0.72) brightness(0.92);
+}
+
+/* Native autofill can otherwise flash a bright input in Chromium. */
+html.dark input:-webkit-autofill,
+html.dark input:-webkit-autofill:hover,
+html.dark input:-webkit-autofill:focus,
+html.dark textarea:-webkit-autofill,
+html.dark select:-webkit-autofill {
+  -webkit-text-fill-color: var(--ui-text) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--ui-canvas-deep) inset !important;
+  caret-color: var(--ui-cyan);
+}
+
+/* Semantic alert surfaces remain dark-tinted instead of becoming cream/white. */
+html.dark .ui-warning-surface {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 191, 99, 0.10),
+    rgba(255, 156, 99, 0.06)
+  ) !important;
+  border-color: rgba(255, 191, 99, 0.38) !important;
+}
+
+html.dark .ui-success-surface {
+  background: linear-gradient(
+    180deg,
+    rgba(112, 225, 194, 0.10),
+    rgba(88, 215, 255, 0.05)
+  ) !important;
+  border-color: rgba(112, 225, 194, 0.32) !important;
+}
+
+html.dark .ui-danger-surface {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 111, 136, 0.11),
+    rgba(255, 111, 136, 0.05)
+  ) !important;
+  border-color: rgba(255, 111, 136, 0.34) !important;
+}
+
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -70,18 +621,73 @@ a {
   background-clip: padding-box;
 }
 
+html.dark ::-webkit-scrollbar-thumb,
 .dark ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #3b4c74;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 
+html.dark ::-webkit-scrollbar-thumb:hover,
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #5a6d98;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
 
 /*
- * Desktop UI is intentionally compact at browser zoom 100%.
- * Avoid CSS zoom / transform scaling here so drag, resize and pointer
- * calculations continue to use normal CSS coordinates.
+ * Desktop UI remains at normal CSS scale so grid drag/resize pointer math is
+ * unaffected by the visual redesign.
  */
-html {
-  font-size: 16px;
+
+/* Sidebar gets the same navy + cyan/violet ambient depth as the reference. */
+.app-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(125, 117, 231, 0.16), transparent 14rem),
+    radial-gradient(circle at 110% 38%, rgba(88, 215, 255, 0.09), transparent 15rem);
+  opacity: 0.9;
+}
+
+html.dark .app-sidebar {
+  box-shadow: 18px 0 45px rgba(2, 7, 22, 0.20);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-submenu {
+    animation: ui-submenu-enter 180ms ease-out;
+    transform-origin: top;
+  }
+}
+
+@keyframes ui-submenu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+html.dark input[type="checkbox"],
+html.dark input[type="radio"],
+html.dark input[type="range"] {
+  accent-color: var(--ui-cyan);
+}
+
+html.dark input[type="range"]::-webkit-slider-thumb {
+  filter: drop-shadow(0 0 6px rgba(88, 215, 255, 0.28));
+}
+
+html.dark .app-main {
+  background:
+    radial-gradient(circle at 16% -8%, rgba(125, 117, 231, 0.10), transparent 27rem),
+    radial-gradient(circle at 92% 3%, rgba(88, 215, 255, 0.07), transparent 25rem),
+    var(--ui-canvas) !important;
+  background-attachment: local;
 }

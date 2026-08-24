@@ -424,45 +424,45 @@ export default function ImageWidgetEditor({
     >
       <style>{`
         .image-widget-editor-theme[data-theme="dark"] {
-          background: #020617;
-          color: #e2e8f0;
+          background: #081022;
+          color: #c8d1ea;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-shell {
-          background-color: #020617 !important;
+          background-color: #081022 !important;
           color: #e2e8f0 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-workspace {
-          background-color: #07101f !important;
+          background-color: #081022 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-canvas {
-          background-color: #020617 !important;
-          border-color: #334155 !important;
+          background-color: #081022 !important;
+          border-color: #2C3C61 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-sidebar {
-          background-color: #0b1220 !important;
-          border-color: #334155 !important;
+          background-color: #0B1328 !important;
+          border-color: #2C3C61 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-card {
-          background-color: #111827 !important;
-          border-color: #334155 !important;
-          color: #f8fafc !important;
+          background-color: #111B34 !important;
+          border-color: #2C3C61 !important;
+          color: #e8edff !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-empty {
-          background-color: #0f172a !important;
-          border-color: #475569 !important;
+          background-color: #111B34 !important;
+          border-color: #2C3C61 !important;
           color: #e2e8f0 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-help {
           background-color: rgba(15, 23, 42, 0.94) !important;
-          border-color: #475569 !important;
-          color: #f8fafc !important;
+          border-color: #2C3C61 !important;
+          color: #e8edff !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-muted {
@@ -470,15 +470,15 @@ export default function ImageWidgetEditor({
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-primary {
-          color: #f8fafc !important;
+          color: #e8edff !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] input,
         .image-widget-editor-theme[data-theme="dark"] select,
         .image-widget-editor-theme[data-theme="dark"] textarea {
-          background-color: #020617 !important;
-          border-color: #475569 !important;
-          color: #f8fafc !important;
+          background-color: #081022 !important;
+          border-color: #2C3C61 !important;
+          color: #e8edff !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] input::placeholder,
@@ -487,13 +487,13 @@ export default function ImageWidgetEditor({
         }
 
         .image-widget-editor-theme[data-theme="dark"] option {
-          background-color: #020617;
-          color: #f8fafc;
+          background-color: #081022;
+          color: #e8edff;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-unlocked {
-          background-color: #1e293b !important;
-          border-color: #475569 !important;
+          background-color: #1B2948 !important;
+          border-color: #2C3C61 !important;
           color: #e2e8f0 !important;
         }
 
@@ -504,9 +504,9 @@ export default function ImageWidgetEditor({
         }
       `}</style>
 
-      <div className="image-editor-shell flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#020617] dark:text-slate-100">
+      <div className="image-editor-shell flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#081022] dark:text-slate-100">
         {/* IMAGE WORKSPACE */}
-        <div className="image-editor-workspace relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-3 dark:bg-[#07101f]">
+        <div className="image-editor-workspace relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-3 dark:bg-[#081022]">
           {/* TOOLBAR */}
           <div
             className="
@@ -537,14 +537,14 @@ export default function ImageWidgetEditor({
                 "
                 style={{
                   backgroundColor: isDarkMode
-                    ? "#1e293b"
+                    ? "#1B2948"
                     : "#f1f5f9",
                   borderColor: isDarkMode
-                    ? "#475569"
+                    ? "#2C3C61"
                     : "#cbd5e1",
                   color: isDarkMode
-                    ? "#f8fafc"
-                    : "#334155",
+                    ? "#e8edff"
+                    : "#2C3C61",
                 }}
                 aria-label="Back to widget settings"
                 title="Back to widget settings"
@@ -559,7 +559,7 @@ export default function ImageWidgetEditor({
                     className="shrink-0"
                     style={{
                       color: isDarkMode
-                        ? "#34d399"
+                        ? "#58d7ff"
                         : "#059669",
                     }}
                   />
@@ -568,8 +568,8 @@ export default function ImageWidgetEditor({
                     className="truncate text-base font-black"
                     style={{
                       color: isDarkMode
-                        ? "#f8fafc"
-                        : "#0f172a",
+                        ? "#e8edff"
+                        : "#111B34",
                     }}
                   >
                     Image Widget Editor
@@ -580,7 +580,7 @@ export default function ImageWidgetEditor({
                   className="mt-0.5 truncate text-xs"
                   style={{
                     color: isDarkMode
-                      ? "#cbd5e1"
+                      ? "#c8d1ea"
                       : "#64748b",
                   }}
                 >
@@ -594,10 +594,10 @@ export default function ImageWidgetEditor({
                 className="hidden rounded-xl border px-3 py-2 text-right sm:block"
                 style={{
                   backgroundColor: isDarkMode
-                    ? "rgba(15, 23, 42, 0.9)"
+                    ? "rgba(17, 27, 52, 0.94)"
                     : "#f8fafc",
                   borderColor: isDarkMode
-                    ? "#475569"
+                    ? "#2C3C61"
                     : "#cbd5e1",
                 }}
               >
@@ -605,7 +605,7 @@ export default function ImageWidgetEditor({
                   className="text-[9px] font-black uppercase tracking-wider"
                   style={{
                     color: isDarkMode
-                      ? "#6ee7b7"
+                      ? "#70e1c2"
                       : "#059669",
                   }}
                 >
@@ -616,8 +616,8 @@ export default function ImageWidgetEditor({
                   className="mt-0.5 text-xs font-extrabold"
                   style={{
                     color: isDarkMode
-                      ? "#f8fafc"
-                      : "#0f172a",
+                      ? "#e8edff"
+                      : "#111B34",
                   }}
                 >
                   {pins.length} pin{pins.length === 1 ? "" : "s"}
@@ -858,7 +858,7 @@ export default function ImageWidgetEditor({
         </div>
 
         {/* PIN SETTINGS */}
-        <div className="image-editor-sidebar w-[380px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0b1220]">
+        <div className="image-editor-sidebar w-[380px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0B1328]">
           <div
             className="sticky top-0 z-10 border-b p-3 backdrop-blur-xl"
             style={{
@@ -866,7 +866,7 @@ export default function ImageWidgetEditor({
                 ? "rgba(15, 23, 42, 0.98)"
                 : "rgba(255, 255, 255, 0.98)",
               borderColor: isDarkMode
-                ? "#334155"
+                ? "#2C3C61"
                 : "#e2e8f0",
               boxShadow: isDarkMode
                 ? "0 10px 24px rgba(0,0,0,0.18)"
@@ -895,8 +895,8 @@ export default function ImageWidgetEditor({
                   className="text-base font-black"
                   style={{
                     color: isDarkMode
-                      ? "#f8fafc"
-                      : "#0f172a",
+                      ? "#e8edff"
+                      : "#111B34",
                   }}
                 >
                   Pin Settings
@@ -906,7 +906,7 @@ export default function ImageWidgetEditor({
                   className="mt-1 text-xs leading-5"
                   style={{
                     color: isDarkMode
-                      ? "#cbd5e1"
+                      ? "#c8d1ea"
                       : "#64748b",
                   }}
                 >
@@ -922,8 +922,8 @@ export default function ImageWidgetEditor({
                 rounded-xl border p-3
                 ${
                   mappingReady
-                    ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
-                    : "border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10"
+                    ? "ui-success-surface border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
+                    : "ui-warning-surface border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10"
                 }
               `}
             >
@@ -1062,7 +1062,7 @@ export default function ImageWidgetEditor({
                   border-slate-200 bg-white
                   p-3 shadow-sm
                   dark:border-slate-700
-                  dark:bg-[#111827]
+                  dark:bg-[#111B34]
                 "
               >
                 <div className="mb-3 flex items-center justify-between">

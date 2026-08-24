@@ -1,3 +1,5 @@
+import { notify } from "../utils/feedback";
+
 export default function ProtectedRoute({ children, roles = [] }) {
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
@@ -8,7 +10,7 @@ export default function ProtectedRoute({ children, roles = [] }) {
   }
 
   if (roles.length && !roles.includes(role)) {
-    alert("No permission");
+    notify("No permission", "error");
     return null;
   }
 

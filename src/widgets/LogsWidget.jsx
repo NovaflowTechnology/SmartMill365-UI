@@ -30,18 +30,18 @@ const levelStyles = {
     label: "Info",
     icon: Info,
     badge:
-      "bg-[#A4C65A]/15 text-[#5f8f25] dark:bg-[#A4C65A]/10 dark:text-[#C5D98B]",
+      "bg-indigo-100 text-indigo-700 dark:bg-[#7D75E7]/12 dark:text-[#A6A1FF]",
     iconClass:
-      "text-[#7CB342] dark:text-[#A4C65A]",
+      "text-indigo-600 dark:text-[#A6A1FF]",
   },
 
   success: {
     label: "Success",
     icon: CheckCircle2,
     badge:
-      "bg-[#2E7D32]/10 text-[#2E7D32] dark:bg-[#2E7D32]/15 dark:text-[#8FCB75]",
+      "bg-cyan-100 text-cyan-700 dark:bg-[#58D7FF]/10 dark:text-[#58D7FF]",
     iconClass:
-      "text-[#2E7D32] dark:text-[#8FCB75]",
+      "text-cyan-600 dark:text-[#58D7FF]",
   },
 
   warning: {
@@ -57,9 +57,9 @@ const levelStyles = {
     label: "Error",
     icon: AlertCircle,
     badge:
-      "bg-[#6D254D]/10 text-[#7d2d58] dark:bg-[#6D254D]/15 dark:text-[#d989a7]",
+      "bg-[#FF6F88]/10 text-[#D95778] dark:bg-[#FF6F88]/15 dark:text-[#FF9AAE]",
     iconClass:
-      "text-[#6D254D] dark:text-[#d989a7]",
+      "text-[#FF6F88] dark:text-[#FF9AAE]",
   },
 
   default: {
@@ -216,8 +216,8 @@ export default function LogsWidget({
           border-slate-100 pr-14
           bg-white
           px-4 py-3
-          dark:border-white/10
-          dark:bg-[#121816]
+          dark:border-[#263657]
+          dark:bg-[#0E172D]
         "
       >
         <div className="min-w-0">
@@ -234,7 +234,7 @@ export default function LogsWidget({
 
           <p
             className="
-              mt-0.5 text-[11px]
+              mt-0.5 text-[9px]
               text-slate-500
               dark:text-slate-400
             "
@@ -269,12 +269,12 @@ export default function LogsWidget({
                 border border-slate-300
                 bg-slate-50
                 py-2 pl-8 pr-3
-                text-xs text-slate-800
+                text-[11px] text-slate-800
                 outline-none
                 focus:ring-2
-                focus:ring-[#7CB342]
+                focus:ring-[#58D7FF]
                 dark:border-slate-600
-                dark:bg-slate-950
+                dark:bg-[#081022]
                 dark:text-white
               "
             />
@@ -295,14 +295,14 @@ export default function LogsWidget({
             <CircleDot
               size={28}
               className="
-                text-[#A4C65A]
-                dark:text-[#7CB342]
+                text-[#58D7FF]
+                dark:text-[#58D7FF]
               "
             />
 
             <p
               className="
-                mt-3 text-sm font-semibold
+                mt-3 text-xs font-semibold
                 text-slate-600
                 dark:text-slate-300
               "
@@ -312,7 +312,7 @@ export default function LogsWidget({
 
             <p
               className="
-                mt-1 text-xs
+                mt-1 text-[10px]
                 text-slate-400
                 dark:text-slate-500
               "
@@ -325,7 +325,7 @@ export default function LogsWidget({
             className="
               divide-y
               divide-slate-100
-              dark:divide-slate-800
+              dark:divide-[#263657]
             "
           >
             {preparedLogs.map((log) => {
@@ -343,7 +343,7 @@ export default function LogsWidget({
                     flex gap-3
                     px-4
                     transition
-                    hover:bg-[#A4C65A]/8
+                    hover:bg-[#58D7FF]/8
                     hover:text-slate-900
                     dark:hover:bg-slate-800
                     dark:hover:text-slate-100
@@ -380,7 +380,7 @@ export default function LogsWidget({
                           className={`
                             rounded-full
                             px-2 py-0.5
-                            text-[10px]
+                            text-[9px]
                             font-black uppercase
                             tracking-wide
                             ${style.badge}
@@ -393,7 +393,7 @@ export default function LogsWidget({
                       {settings.showSource && (
                         <span
                           className="
-                            truncate text-[11px]
+                            truncate text-[10px]
                             font-semibold
                             text-slate-600
                             dark:text-slate-300
@@ -407,7 +407,7 @@ export default function LogsWidget({
                         <span
                           className="
                             ml-auto shrink-0
-                            text-[10px]
+                            text-[9px]
                             text-slate-400
                             dark:text-slate-500
                           "
@@ -426,8 +426,8 @@ export default function LogsWidget({
 
                         ${
                           settings.compact
-                            ? "mt-1 text-xs"
-                            : "mt-1.5 text-sm"
+                            ? "mt-1 text-[11px]"
+                            : "mt-1.5 text-xs"
                         }
                       `}
                     >
