@@ -34,6 +34,7 @@ import { confirmAction, notify } from "../utils/feedback";
 export default function TemplateList({
   setPage,
   setSelectedTemplate,
+  openDashboardTemplate,
   fetchDefaultTemplate,
   dark = false,
 }) {
@@ -281,6 +282,14 @@ export default function TemplateList({
   const selectTemplate = (t) => {
     console.log("📊 USING TEMPLATE:", t);
 
+    if (
+      typeof openDashboardTemplate ===
+      "function"
+    ) {
+      openDashboardTemplate(t);
+      return;
+    }
+
     setSelectedTemplate(t);
     setPage("dashboard");
   };
@@ -454,7 +463,32 @@ export default function TemplateList({
 
       console.log("✅ ASSIGN RESULT:", data);
 
-      notify("✅ Template Assigned");
+      const deviceAssignmentsAdded = Number(
+        data?.deviceAssignmentsAdded || 0
+      );
+
+      const deviceSourcesFound = Number(
+        data?.deviceSourcesFound || 0
+      );
+
+      if (deviceAssignmentsAdded > 0) {
+        notify(
+          `Template assigned · ${deviceAssignmentsAdded} Device ID source${
+            deviceAssignmentsAdded === 1 ? "" : "s"
+          } assigned to the organization.`,
+          "success"
+        );
+      } else if (deviceSourcesFound > 0) {
+        notify(
+          "Template assigned · its Device IDs were already available to this organization.",
+          "success"
+        );
+      } else {
+        notify(
+          "Template assigned. No configured Device ID source was found in this template.",
+          "success"
+        );
+      }
 
       setShowAssign(false);
       setSelectedOrg("");
@@ -1038,31 +1072,32 @@ export default function TemplateList({
 
 
           /* Template cards: real dark surfaces, not dimmed light surfaces */
+          .template-list-dark .template-library-grid {
+            background: #050C1A !important;
+          }
+
           .template-list-dark .template-card {
             background: linear-gradient(
               145deg,
-              #111B34 0%,
-              #151A38 52%,
-              #10182F 100%
+              #0B1730 0%,
+              #0D2345 52%,
+              #0A1933 100%
             ) !important;
-            border-color: #343B68 !important;
             color: #E8EDFF !important;
           }
 
           .template-list-dark .template-card:hover {
             background: linear-gradient(
               145deg,
-              #15213D 0%,
-              #1A1F45 52%,
-              #131D37 100%
+              #0F2040 0%,
+              #12305A 52%,
+              #0D2242 100%
             ) !important;
-            border-color: #4A4F82 !important;
           }
 
           .template-list-dark .template-card-favourite {
-            border-color: rgba(125, 117, 231, 0.62) !important;
             box-shadow:
-              0 0 0 1px rgba(125, 117, 231, 0.18),
+              0 0 0 2px rgba(250, 204, 21, 0.42),
               0 18px 38px rgba(2, 6, 23, 0.36) !important;
           }
 
@@ -1153,8 +1188,8 @@ export default function TemplateList({
           }
 
           .template-list-dark .template-status-unassigned {
-            background-color: rgba(168, 107, 223, 0.13) !important;
-            color: #D6B7F4 !important;
+            background-color: rgba(245, 158, 11, 0.13) !important;
+            color: #FDE68A !important;
           }
         `}</style>
       )}
@@ -1434,13 +1469,20 @@ export default function TemplateList({
           className={
             viewMode === "grid"
               ? `
-                  grid grid-cols-1
+                  template-library-grid
+                  mx-auto grid w-full
+                  max-w-[1380px]
+                  grid-cols-1
                   xl:grid-cols-2
-                  gap-5
+                  gap-3
+                  rounded-xl
+                  bg-[#DCE8F5]
+                  p-2.5
+                  dark:bg-[#050C1A]
                 `
               : `
                   flex flex-col
-                  gap-4
+                  gap-3
                 `
           }
         >
@@ -1581,40 +1623,47 @@ export default function TemplateList({
                   template-card
                   ${isFavorite ? "template-card-favourite" : ""}
                   group relative
-                  border rounded-xl
-                  shadow-sm
-                  p-3
+                  rounded-xl
+                  shadow-[0_8px_24px_rgba(2,12,27,0.16)]
+                  p-2.5
                   transition-all duration-200
                   hover:-translate-y-0.5
-                  hover:shadow-md
+                  hover:shadow-[0_12px_28px_rgba(2,12,27,0.22)]
 
                   bg-gradient-to-br
-                  from-indigo-50/95
-                  via-violet-50/70
-                  to-slate-50/90
-                  border-indigo-200/80
-                  hover:from-indigo-100/90
-                  hover:via-violet-50/90
-                  hover:to-white
-                  hover:border-indigo-300
-
+                  from-sky-100
+                  via-blue-100/95
+                  to-cyan-50/90
+                  hover:from-sky-200/95
+                  hover:via-blue-100
+                  hover:to-cyan-100/85
 
                   ${
                     isFavorite
                       ? `
-                        ring-2 ring-violet-300/50
-                        border-violet-300
-                        dark:ring-violet-400/20
+                        ring-2 ring-amber-400/70
+                        dark:ring-amber-400/35
                       `
                       : ""
                   }
                 `}
               >
-                {/* TOP */}
+                {/* TEMPLATE CARD HEADER */}
                 <div
                   className={`
+                    template-card-header
+                    -mx-2.5 -mt-2.5
                     flex items-start
                     justify-between gap-4
+                    rounded-t-xl border-b
+                    border-sky-300/45
+                    bg-gradient-to-r
+                    from-cyan-50/95 via-sky-100/95 to-blue-100/90
+                    px-3 py-2.5
+                    dark:border-[#31537E]/50
+                    dark:from-[#0D2240]
+                    dark:via-[#102A4C]
+                    dark:to-[#0C1E38]
                     ${
                       viewMode === "grid"
                         ? "mb-2.5"
@@ -1625,7 +1674,7 @@ export default function TemplateList({
                   <div className="min-w-0">
                     <h2
                       className="
-                        text-xl font-bold
+                        text-base font-bold
                         dark:text-white
                         flex items-center gap-2
                       "
@@ -1678,10 +1727,10 @@ export default function TemplateList({
                               `
                               : `
                                 template-status-unassigned
-                                bg-violet-100
-                                text-violet-700
-                                dark:bg-violet-400/10
-                                dark:text-violet-200
+                                bg-amber-100
+                                text-amber-700
+                                dark:bg-amber-400/10
+                                dark:text-amber-200
                               `
                           }
                         `}
@@ -1777,12 +1826,13 @@ export default function TemplateList({
                   className={`
                     overflow-hidden
                     rounded-xl border
-                    border-gray-200 bg-slate-100
-                    dark:border-gray-700
-                    dark:bg-slate-950
+                    border-sky-200/35 bg-[#BBD5EE]
+                    shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]
+                    dark:border-[#2B4770]/45
+                    dark:bg-[#07162C]
                     ${
                       viewMode === "grid"
-                        ? "mb-5"
+                        ? "mb-3"
                         : "mb-0"
                     }
                   `}
@@ -1791,11 +1841,9 @@ export default function TemplateList({
                     className="
                       flex items-center
                       justify-between gap-3
-                      border-b border-gray-200
-                      bg-white/80
-                      px-3 py-2
-                      dark:border-gray-700
-                      dark:bg-slate-900/90
+                      bg-sky-50/72
+                      px-2.5 py-1.5
+                      dark:bg-[#0B1D38]/88
                     "
                   >
                     <div className="flex min-w-0 items-center gap-2">
@@ -1830,8 +1878,8 @@ export default function TemplateList({
                       relative overflow-hidden
                       ${
                         viewMode === "grid"
-                          ? "h-52"
-                          : "h-44"
+                          ? "h-44"
+                          : "h-40"
                       }
                     `}
                   >
@@ -1885,10 +1933,10 @@ export default function TemplateList({
                                   min-h-0 min-w-0
                                   rounded-lg border
                                   border-dashed
-                                  border-slate-300/80
-                                  bg-white/30
-                                  dark:border-slate-700
-                                  dark:bg-slate-900/35
+                                  border-sky-300/65
+                                  bg-blue-100/55
+                                  dark:border-[#2B4770]
+                                  dark:bg-[#102746]/75
                                 "
                               />
                             )
@@ -1970,11 +2018,11 @@ export default function TemplateList({
                                     group/preview
                                     relative min-h-0
                                     min-w-0 overflow-hidden
-                                    rounded-xl border
-                                    border-slate-200
+                                    rounded-lg border
+                                    border-slate-200/55
                                     bg-white
-                                    shadow-[0_2px_8px_rgba(15,23,42,0.08)]
-                                    dark:border-slate-700
+                                    shadow-[0_1px_4px_rgba(15,23,42,0.06)]
+                                    dark:border-[#2B4770]/45
                                     dark:bg-slate-900
                                   "
                                   style={{
@@ -2050,7 +2098,7 @@ export default function TemplateList({
                                 className="
                                   rounded-xl
                                   border border-dashed
-                                  border-slate-300
+                                  border-slate-300/55
                                   bg-white/80
                                   px-4 py-3
                                   text-center
@@ -2099,21 +2147,21 @@ export default function TemplateList({
                 {/* STATS */}
                 <div
                   className={`
-                    grid grid-cols-3 gap-2
+                    grid grid-cols-3 gap-1.5
                     ${
                       viewMode === "grid"
-                        ? "mb-4"
-                        : "mb-3"
+                        ? "mb-2.5"
+                        : "mb-2"
                     }
                   `}
                 >
                   <div
                     className="
                       template-metric-tile
-                      rounded-xl
-                      border border-indigo-100/80
-                      bg-white/45
-                      p-3
+                      rounded-lg
+                      border border-sky-200/75
+                      bg-blue-50/65
+                      p-2
                       text-center
                       backdrop-blur-sm
                       dark:border-[#303A62]
@@ -2122,7 +2170,7 @@ export default function TemplateList({
                   >
                     <p
                       className="
-                        text-xs text-gray-500
+                        text-[10px] text-slate-600
                         dark:text-gray-300
                       "
                     >
@@ -2131,7 +2179,7 @@ export default function TemplateList({
 
                     <p
                       className="
-                        text-lg font-bold
+                        text-base font-bold
                         dark:text-white
                       "
                     >
@@ -2142,10 +2190,10 @@ export default function TemplateList({
                   <div
                     className="
                       template-metric-tile
-                      rounded-xl
-                      border border-indigo-100/80
-                      bg-white/45
-                      p-3
+                      rounded-lg
+                      border border-sky-200/75
+                      bg-blue-50/65
+                      p-2
                       text-center
                       backdrop-blur-sm
                       dark:border-[#303A62]
@@ -2154,7 +2202,7 @@ export default function TemplateList({
                   >
                     <p
                       className="
-                        text-xs text-gray-500
+                        text-[10px] text-slate-600
                         dark:text-gray-300
                       "
                     >
@@ -2163,7 +2211,7 @@ export default function TemplateList({
 
                     <p
                       className="
-                        text-lg font-bold
+                        text-base font-bold
                         dark:text-white
                       "
                     >
@@ -2174,10 +2222,10 @@ export default function TemplateList({
                   <div
                     className="
                       template-metric-tile
-                      rounded-xl
-                      border border-indigo-100/80
-                      bg-white/45
-                      p-3
+                      rounded-lg
+                      border border-sky-200/75
+                      bg-blue-50/65
+                      p-2
                       text-center
                       backdrop-blur-sm
                       dark:border-[#303A62]
@@ -2186,7 +2234,7 @@ export default function TemplateList({
                   >
                     <p
                       className="
-                        text-xs text-gray-500
+                        text-[10px] text-slate-600
                         dark:text-gray-300
                       "
                     >
@@ -2195,7 +2243,7 @@ export default function TemplateList({
 
                     <p
                       className="
-                        text-lg font-bold
+                        text-base font-bold
                         dark:text-white
                       "
                     >
@@ -2214,10 +2262,9 @@ export default function TemplateList({
                     className={`
                       template-org-panel
                       ${assignedOrgs.length > 0 ? "has-assignments" : ""}
-                      mb-4
-                      rounded-xl
-                      border
-                      p-4
+                      mb-2.5
+                      rounded-lg
+                      p-2.5
                       ${
                         assignedOrgs.length > 0
                           ? `
@@ -2263,8 +2310,8 @@ export default function TemplateList({
                           template-org-count
                           inline-flex items-center
                           gap-1
-                          text-xs
-                          text-indigo-600
+                          text-[10px]
+                          text-sky-700
                           dark:text-slate-400
                         "
                       >
@@ -2276,7 +2323,7 @@ export default function TemplateList({
                     {assignedOrgs.length > 0 ? (
                       <div
                         className="
-                          flex flex-wrap gap-2
+                          flex flex-wrap gap-1.5
                         "
                       >
                         {assignedOrgs.map((a) => (
@@ -2285,12 +2332,12 @@ export default function TemplateList({
                             className="
                               template-org-chip
                               flex items-center gap-2
-                              text-xs
+                              text-[10px]
                               bg-gradient-to-r
                               from-cyan-500
-                              to-indigo-500
+                              to-blue-600
                               text-white
-                              px-3 py-1
+                              px-2.5 py-0.5
                               rounded-full
                             "
                           >
@@ -2342,7 +2389,7 @@ export default function TemplateList({
                 {/* ACTIONS */}
                 <div
                   className={`
-                    flex flex-wrap items-center gap-1.5
+                    flex flex-wrap items-center gap-1
                     ${
                       viewMode === "list"
                         ? "lg:justify-end"

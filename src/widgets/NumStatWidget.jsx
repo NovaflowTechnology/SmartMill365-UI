@@ -147,7 +147,7 @@ const findMapping = (mappings, value) => {
   );
 };
 
-export default function BigNumberWidget({
+export default function NumStatWidget({
   value = 0,
   statusValue,
   label = "Value",

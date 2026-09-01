@@ -1078,6 +1078,125 @@ router.get(
 );
 
 // =====================================
+// GET ALL DEVICE IDS IN ONE BUCKET (SUPERADMIN)
+//
+// GET /influx/device-ids?bucket=SmartMill365&tagKey=id
+//
+// Unlike /influx/ids, this endpoint does NOT require a measurement.
+// It returns the complete unique set of values for the selected device-ID
+// tag across the whole bucket. Device Management uses this list directly.
+// =====================================
+router.get(
+  "/influx/device-ids",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const selectedBucket =
+      String(
+        req.query.bucket ||
+          bucket ||
+          ""
+      ).trim();
+
+    const tagKey =
+      String(
+        req.query.tagKey ||
+          "id"
+      ).trim();
+
+    if (!selectedBucket) {
+      return res.status(400).json({
+        error: "Bucket is required",
+      });
+    }
+
+    if (
+      !isValidFluxColumnName(
+        tagKey
+      )
+    ) {
+      return res.status(400).json({
+        error: "Invalid tag key",
+      });
+    }
+
+    try {
+      const queryApi =
+        influxDB.getQueryApi(org);
+
+      const fluxQuery = `
+        import "influxdata/influxdb/schema"
+
+        schema.tagValues(
+          bucket: "${escapeFluxString(selectedBucket)}",
+          tag: "${escapeFluxString(tagKey)}",
+          start: -365d
+        )
+      `;
+
+      const rows =
+        await collectRowsWithRetry({
+          queryApi,
+          fluxQuery,
+          label:
+            "Influx complete device-ID discovery",
+        });
+
+      const ids = [
+        ...new Set(
+          rows
+            .map(
+              (row) =>
+                row._value
+            )
+            .filter(Boolean)
+            .map(String)
+        ),
+      ].sort((a, b) =>
+        a.localeCompare(
+          b,
+          undefined,
+          {
+            numeric: true,
+            sensitivity: "base",
+          }
+        )
+      );
+
+      return res.json({
+        bucket: selectedBucket,
+        tagKey,
+        ids,
+        count: ids.length,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Fetch complete Influx Device IDs error:",
+        err
+      );
+
+      const transient =
+        isTransientInfluxError(
+          err
+        );
+
+      return res
+        .status(
+          transient
+            ? 503
+            : 500
+        )
+        .json({
+          error: transient
+            ? "InfluxDB is temporarily unavailable"
+            : "Failed to fetch InfluxDB Device IDs",
+          transient,
+        });
+    }
+  }
+);
+
+
+// =====================================
 // GET IDS FOR ONE MEASUREMENT
 //
 // GET /influx/ids?bucket=SmartMill365&measurement=PSTR_bar

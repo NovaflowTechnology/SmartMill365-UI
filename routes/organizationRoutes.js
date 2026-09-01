@@ -1,7 +1,175 @@
 import express from "express";
-import db from "../config/db.js";
+import db, { dbQuery } from "../config/db.js";
 import auth from "../middleware/auth.js";
 const router = express.Router();
+
+
+const parseStoredTemplateLayout = (rawLayout) => {
+  if (!rawLayout) return {};
+
+  if (typeof rawLayout === "object") {
+    return rawLayout;
+  }
+
+  try {
+    return JSON.parse(rawLayout);
+  } catch {
+    return {};
+  }
+};
+
+const normalizeTemplateDeviceSource = (source) => {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+
+  const bucket = String(source.bucket || "").trim();
+  const measurement = String(
+    source.measurement || ""
+  ).trim();
+  const tagKey = String(
+    source.tagKey || "id"
+  ).trim();
+  const tagValue = String(
+    source.tagValue || source.id || ""
+  ).trim();
+
+  if (!bucket || !measurement || !tagValue) {
+    return null;
+  }
+
+  return {
+    bucket,
+    measurement,
+    tagKey: tagKey || "id",
+    tagValue,
+  };
+};
+
+// A template may reference the same physical Device ID through several fields.
+// Device permissions are unique by Bucket + Measurement + tag key + tag value,
+// so field/channel is deliberately ignored here.
+const extractTemplateDeviceSources = (rawLayout) => {
+  const layout = parseStoredTemplateLayout(rawLayout);
+  const candidates = [];
+
+  if (
+    layout.dataSources &&
+    typeof layout.dataSources === "object" &&
+    !Array.isArray(layout.dataSources)
+  ) {
+    candidates.push(...Object.values(layout.dataSources));
+  }
+
+  if (layout.influx) {
+    candidates.push(layout.influx);
+  }
+
+  if (Array.isArray(layout.customDataOptions)) {
+    layout.customDataOptions.forEach((option) => {
+      if (option?.source) {
+        candidates.push(option.source);
+      }
+    });
+  }
+
+  // Keep Sankey / composite-style embedded sources compatible too.
+  if (Array.isArray(layout.items)) {
+    layout.items.forEach((item) => {
+      if (item?.source) {
+        candidates.push(item.source);
+      }
+
+      const sankeyLinks =
+        item?.sankeyConfig?.links ||
+        item?.sankeyConfig?.flows ||
+        [];
+
+      if (Array.isArray(sankeyLinks)) {
+        sankeyLinks.forEach((link) => {
+          if (link?.dataSource) {
+            candidates.push(link.dataSource);
+          }
+        });
+      }
+    });
+  }
+
+  const uniqueSources = new Map();
+
+  candidates.forEach((candidate) => {
+    const source = normalizeTemplateDeviceSource(candidate);
+    if (!source) return;
+
+    const key = [
+      source.bucket,
+      source.measurement,
+      source.tagKey,
+      source.tagValue,
+    ].join("::");
+
+    uniqueSources.set(key, source);
+  });
+
+  return [...uniqueSources.values()];
+};
+
+const syncTemplateDevicesToOrganization = async (
+  orgId,
+  templateId
+) => {
+  const rows = await dbQuery(
+    `
+    SELECT layout
+    FROM templates
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [templateId]
+  );
+
+  if (!rows.length) {
+    throw new Error("Template not found");
+  }
+
+  const sources = extractTemplateDeviceSources(
+    rows[0].layout
+  );
+
+  let added = 0;
+
+  for (const source of sources) {
+    const result = await dbQuery(
+      `
+      INSERT IGNORE INTO organization_influx_devices
+      (
+        org_id,
+        bucket_name,
+        measurement_name,
+        tag_key,
+        tag_value,
+        device_name
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [
+        orgId,
+        source.bucket,
+        source.measurement,
+        source.tagKey,
+        source.tagValue,
+        source.tagValue,
+      ]
+    );
+
+    added += Number(result?.affectedRows || 0);
+  }
+
+  return {
+    sourcesFound: sources.length,
+    added,
+  };
+};
 
 // =====================================
 // ORGANIZATION / ASSIGNMENT ROUTES
@@ -44,7 +212,7 @@ router.get(
 router.post(
   "/assign-template",
   auth(["superadmin"]),
-  (req, res) => {
+  async (req, res) => {
     const { org_id, template_id } = req.body;
 
     if (!org_id || !template_id) {
@@ -53,50 +221,100 @@ router.post(
       });
     }
 
-    db.query(
-      `
-      SELECT id
-      FROM org_templates
-      WHERE org_id = ?
-        AND template_id = ?
-      `,
-      [org_id, template_id],
-      (checkErr, rows) => {
-        if (checkErr) {
-          return res.status(500).json({
-            error: "Failed to check assignment",
-          });
-        }
+    try {
+      const [organizationRows, templateRows, existingRows] =
+        await Promise.all([
+          dbQuery(
+            `SELECT id FROM organizations WHERE id = ? LIMIT 1`,
+            [org_id]
+          ),
+          dbQuery(
+            `SELECT id FROM templates WHERE id = ? LIMIT 1`,
+            [template_id]
+          ),
+          dbQuery(
+            `
+            SELECT id
+            FROM org_templates
+            WHERE org_id = ?
+              AND template_id = ?
+            LIMIT 1
+            `,
+            [org_id, template_id]
+          ),
+        ]);
 
-        if (rows.length) {
-          return res.status(409).json({
-            error:
-              "This template is already assigned to this organization",
-          });
-        }
-
-        db.query(
-          `
-          INSERT INTO org_templates
-          (org_id, template_id)
-          VALUES (?, ?)
-          `,
-          [org_id, template_id],
-          (insertErr) => {
-            if (insertErr) {
-              return res.status(500).json({
-                error: "Failed to assign template",
-              });
-            }
-
-            return res.json({
-              success: true,
-              message: "Template assigned",
-            });
-          }
-        );
+      if (!organizationRows.length) {
+        return res.status(404).json({
+          error: "Organization not found",
+        });
       }
-    );
+
+      if (!templateRows.length) {
+        return res.status(404).json({
+          error: "Template not found",
+        });
+      }
+
+      if (existingRows.length) {
+        return res.status(409).json({
+          error:
+            "This template is already assigned to this organization",
+        });
+      }
+
+      await dbQuery(
+        `
+        INSERT INTO org_templates
+        (org_id, template_id)
+        VALUES (?, ?)
+        `,
+        [org_id, template_id]
+      );
+
+      try {
+        const deviceSync =
+          await syncTemplateDevicesToOrganization(
+            org_id,
+            template_id
+          );
+
+        return res.json({
+          success: true,
+          message: "Template assigned",
+          deviceSourcesFound:
+            deviceSync.sourcesFound,
+          deviceAssignmentsAdded:
+            deviceSync.added,
+        });
+      } catch (deviceError) {
+        // Do not leave an assigned template that the organization cannot read.
+        await dbQuery(
+          `
+          DELETE FROM org_templates
+          WHERE org_id = ?
+            AND template_id = ?
+          `,
+          [org_id, template_id]
+        );
+
+        console.error(
+          "❌ Template device sync error:",
+          deviceError
+        );
+
+        return res.status(500).json({
+          error:
+            "Template could not be assigned because its Device IDs could not be synchronized",
+        });
+      }
+    } catch (err) {
+      console.error("❌ Assign template error:", err);
+
+      return res.status(500).json({
+        error: "Failed to assign template",
+      });
+    }
   }
 );
 

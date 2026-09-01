@@ -63,13 +63,11 @@ export default function Layout({
     {
       key: "dashboard",
       label: "Dashboard",
-      description: "Live monitoring",
       icon: LayoutDashboard,
     },
     {
       key: "process-simulator",
       label: "Plant Simulator",
-      description: "Build process topology",
       icon: Factory,
     },
   ];
@@ -143,15 +141,22 @@ export default function Layout({
 
           ${
             isActive
-              ? "bg-gradient-to-br from-cyan-500 to-violet-500 text-white shadow-sm"
-              : "text-slate-300 hover:bg-[#182641] hover:text-white"
+              ? "bg-[#13213b] text-white"
+              : `
+                  text-slate-300
+                  hover:bg-gradient-to-r
+                  hover:from-cyan-500/20
+                  hover:via-blue-500/15
+                  hover:to-violet-500/15
+                  hover:text-white
+                `
           }
         `}
       >
         {isActive && !collapsed && (
           <span
             className="
-              absolute left-0 h-6 w-[3px]
+              absolute left-0 h-5 w-[3px]
               rounded-r-full bg-cyan-300
             "
           />
@@ -162,7 +167,7 @@ export default function Layout({
             flex h-4 w-4 shrink-0 items-center justify-center
             ${
               isActive
-                ? "text-white"
+                ? "text-cyan-300"
                 : "text-slate-400 group-hover:text-cyan-300"
             }
           `}
@@ -172,20 +177,8 @@ export default function Layout({
 
         {!collapsed && (
           <div className="min-w-0 flex-1 text-left">
-            <div className="truncate text-[12px] leading-tight">
+            <div className="truncate text-[12px] font-semibold leading-tight">
               {item.label}
-            </div>
-            <div
-              className={`
-                mt-0.5 truncate text-[9px] leading-tight
-                ${
-                  isActive
-                    ? "text-emerald-50"
-                    : "text-slate-500 group-hover:text-slate-400"
-                }
-              `}
-            >
-              {item.description}
             </div>
           </div>
         )}
@@ -282,37 +275,35 @@ export default function Layout({
           {!collapsed && (
             <div
               className="
-                relative z-10 mx-3 mt-3 rounded-2xl
-                border border-[#2c3c61] bg-[#111b34]
-                p-3 shadow-sm
+                relative z-10 mx-3 mt-3
+                flex items-center gap-2.5
+                rounded-xl border border-[#2c3c61]
+                bg-[#111b34] px-3 py-2.5
               "
             >
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500">
-                    Workspace
-                  </p>
-                  <h3 className="mt-1 truncate text-[12px] font-bold text-white">
-                    Mill Control Center
-                  </h3>
-                </div>
+              <div
+                className="
+                  flex h-8 w-8 shrink-0 items-center justify-center
+                  rounded-lg bg-[#182641] text-cyan-300
+                "
+              >
+                <Leaf size={14} strokeWidth={2} />
+              </div>
 
-                <div
-                  className="
-                    flex h-8 w-8 shrink-0 items-center justify-center
-                    rounded-xl border border-[#35466e]
-                    bg-[#182641] text-cyan-300
-                  "
-                >
-                  <Leaf size={14} strokeWidth={2} />
-                </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                  Workspace
+                </p>
+                <h3 className="mt-0.5 truncate text-[12px] font-bold text-white">
+                  Mill Control Center
+                </h3>
               </div>
             </div>
           )}
 
           <nav
             className={`
-              relative z-10 mt-3.5 flex flex-col gap-1
+              relative z-10 mt-3 flex flex-col gap-1
               ${collapsed ? "items-center px-0" : "px-2.5"}
             `}
           >
@@ -325,18 +316,25 @@ export default function Layout({
             {mainMenu.map(renderMenuButton)}
 
             {!collapsed ? (
-              <div className="mt-2 rounded-2xl border border-[#2c3c61] bg-[#111b34] p-1.5">
+              <div className="mt-2">
                 <button
                   type="button"
                   onClick={() => setSettingOpen(!settingOpen)}
                   className={`
-                    flex min-h-[44px] w-full items-center gap-2.5
+                    group flex min-h-[40px] w-full items-center gap-2.5
                     rounded-xl px-3 py-2
                     text-[12px] font-semibold transition-colors
                     ${
                       isSettingActive
-                        ? "bg-[#182641] text-white"
-                        : "text-slate-300 hover:bg-[#182641] hover:text-white"
+                        ? "bg-[#13213b] text-white"
+                        : `
+                            text-slate-300
+                            hover:bg-gradient-to-r
+                            hover:from-cyan-500/20
+                            hover:via-blue-500/15
+                            hover:to-violet-500/15
+                            hover:text-white
+                          `
                     }
                   `}
                 >
@@ -346,18 +344,15 @@ export default function Layout({
                       ${
                         isSettingActive
                           ? "text-cyan-300"
-                          : "text-slate-400"
+                          : "text-slate-400 group-hover:text-cyan-300"
                       }
                     `}
                   >
                     <Settings size={15} strokeWidth={2} />
                   </div>
 
-                  <div className="min-w-0 flex-1 text-left">
-                    <div className="truncate leading-tight">Setting</div>
-                    <div className="mt-0.5 truncate text-[9px] text-slate-500">
-                      Templates and access
-                    </div>
+                  <div className="min-w-0 flex-1 truncate text-left">
+                    Settings
                   </div>
 
                   <ChevronDown
@@ -368,7 +363,7 @@ export default function Layout({
                 </button>
 
                 {settingOpen && (
-                  <div className="sidebar-submenu mt-1.5 space-y-1">
+                  <div className="sidebar-submenu mt-1 space-y-1 pl-2">
                     {settingMenu.map((item) => renderMenuButton(item))}
                   </div>
                 )}
@@ -399,30 +394,21 @@ export default function Layout({
 
           <div className="relative z-10 mt-auto border-t border-[#2c3c61] p-2.5">
             {!collapsed && (
-              <div className="mb-2 rounded-2xl border border-[#2c3c61] bg-[#111b34] p-2.5">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[#35466e] bg-[#182641]">
-                    <ShieldCheck
-                      size={14}
-                      strokeWidth={2}
-                      className="text-cyan-300"
-                    />
+              <div className="mb-2 flex items-center gap-2.5 px-1 py-1">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#182641]">
+                  <ShieldCheck
+                    size={14}
+                    strokeWidth={2}
+                    className="text-cyan-300"
+                  />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[11px] font-bold text-white">
+                    {orgName || role || "User"}
                   </div>
-
-                  <div className="min-w-0">
-                    <div className="text-[8px] uppercase tracking-wide text-slate-500">
-                      Account
-                    </div>
-
-                    <div className="truncate text-[11px] font-bold text-white">
-                      {orgName || role || "User"}
-                    </div>
-
-                    {orgName && (
-                      <div className="mt-0.5 text-[9px] capitalize text-cyan-300">
-                        {role}
-                      </div>
-                    )}
+                  <div className="mt-0.5 truncate text-[9px] capitalize text-slate-500">
+                    {role || "User"}
                   </div>
                 </div>
               </div>
@@ -438,7 +424,7 @@ export default function Layout({
                 ${
                   collapsed
                     ? "mx-auto mb-2 h-9 w-9 p-0"
-                    : "mb-2 w-full px-3 py-2"
+                    : "mb-1.5 w-full px-3 py-1.5"
                 }
               `}
               title={dark ? "Switch to light mode" : "Switch to dark mode"}
@@ -461,7 +447,7 @@ export default function Layout({
                 ${
                   collapsed
                     ? "mx-auto h-9 w-9 p-0"
-                    : "w-full px-3 py-2"
+                    : "w-full px-3 py-1.5"
                 }
               `}
               title="Logout"

@@ -1,15 +1,16 @@
 import {
   BarChart3,
   PieChart,
-  Activity,
   TrendingUp,
   Hash,
   Image as ImageIcon,
   Gauge,
-  Radio,
   Workflow,
   ScrollText,
+  BellRing,
   PanelsTopLeft,
+  Grid3X3,
+  Factory,
 } from "lucide-react";
 
 export const allDataKeys = [
@@ -32,19 +33,9 @@ export const widgetLibrary = [
     type: "gauge",
     label: "Gauge",
     description:
-      "Display a value using a circular gauge.",
+      "Display a value using a circular or linear gauge style.",
     // Switched: circular Gauge now uses the Gauge icon.
     icon: Gauge,
-    supportedData: allDataKeys,
-  },
-
-  {
-    type: "linearGauge",
-    label: "Linear Gauge",
-    description:
-      "Display a value using a horizontal progress gauge.",
-    // Switched: Linear Gauge now uses the Activity icon.
-    icon: Activity,
     supportedData: allDataKeys,
   },
 
@@ -63,6 +54,15 @@ export const widgetLibrary = [
     description:
       "Compare one or more values using bars.",
     icon: BarChart3,
+    supportedData: allDataKeys,
+  },
+
+  {
+    type: "heatmap",
+    label: "Heatmap",
+    description:
+      "Compare one or more comparable process values across time using colour intensity.",
+    icon: Grid3X3,
     supportedData: allDataKeys,
   },
 
@@ -103,19 +103,37 @@ export const widgetLibrary = [
   },
 
   {
-    type: "logs",
-    label: "Logs",
+    type: "processEquipment",
+    label: "Process Equipment",
     description:
-      "Display alarms, device events, and system activity in a chronological list.",
-    icon: ScrollText,
+      "Display live measurements in the context of a boiler, sterilizer, tank, pump, valve, or other industrial equipment.",
+    icon: Factory,
+    supportedData: allDataKeys,
+  },
+
+  {
+    type: "processView",
+    label: "Process View",
+    description:
+      "Embed the saved Plant Simulator topology directly inside the dashboard and visualize connected equipment with live or simulated process data.",
+    icon: Workflow,
+    supportedData: [],
+  },
+
+  {
+    type: "logs",
+    label: "Events & Alarms",
+    description:
+      "Display an event log, alarm summary, or active alarm list from system and process events.",
+    icon: BellRing,
     supportedData: [],
   },
 
   {
     type: "image",
-    label: "Image",
+    label: "Interactive Process Image",
     description:
-      "Display a process diagram with configurable live sensor pins.",
+      "Overlay live values, status, gauges, levels, bars, trends, and sensor markers on a process image.",
     icon: ImageIcon,
     supportedData: [],
   },

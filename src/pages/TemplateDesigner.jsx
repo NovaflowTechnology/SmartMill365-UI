@@ -1,12 +1,33 @@
 import { useState, useEffect, useRef } from "react";
+import { buildPageDraftKey, clearPageDraft, readPageDraft, writePageDraft } from "../utils/pageDraftStorage";
 import { widgetLibrary } from "../data/widgetLibrary";
 import WidgetRenderer from "../components/WidgetRenderer";
+import ProcessEquipmentSettings from "../widgets/ProcessEquipmentSettings";
+import WidgetTypePanel from "../components/templateDesigner/WidgetTypePanel";
+import EventsAlarmsSettings from "../components/templateDesigner/EventsAlarmsSettings";
+import StatSettings from "../components/templateDesigner/StatSettings";
+import RangeThresholdSettings from "../components/templateDesigner/RangeThresholdSettings";
+import HeatmapSettings from "../components/templateDesigner/HeatmapSettings";
+import ChartDisplaySettings from "../components/templateDesigner/ChartDisplaySettings";
+import ProcessViewSettings from "../widgets/ProcessViewSettings";
+import {
+  DEFAULT_PROCESS_VIEW_CONFIG,
+  normalizeProcessViewConfig,
+} from "../widgets/ProcessViewWidget";
+import {
+  DEFAULT_PROCESS_EQUIPMENT_CONFIG,
+  normalizeProcessEquipmentConfig,
+} from "../widgets/ProcessEquipmentWidget";
+import CustomLayoutSettings from "../widgets/CustomLayoutSettings";
+import {
+  DEFAULT_CUSTOM_LAYOUT_CONFIG,
+  normalizeCustomLayoutConfig,
+} from "../widgets/CustomLayoutWidget";
 import {
   defaultSankeyConfig,
-  normalizeSankeyConfig as normalizeSankeyGraphConfig,
-  getSankeyDataKeys as getSankeyGraphDataKeys,
+  getSankeyDataKeys as getWidgetSankeyDataKeys,
+  normalizeSankeyConfig,
 } from "../widgets/SankeyWidget";
-import { confirmAction } from "../utils/feedback";
 import {
   filterMeasurementsByGroup,
   formatMeasurementLabel,
@@ -21,6 +42,8 @@ import {
   getCompatibleCompositePresets,
 } from "../data/compositeWidgets";
 
+import { confirmAction } from "../utils/feedback";
+
 import {
   AlertCircle,
   CheckCircle2,
@@ -29,13 +52,13 @@ import {
   Plus,
   Trash2,
   Pencil,
+  Copy,
   X,
   Move,
   Database,
   RefreshCw,
   ChevronRight,
   Check,
-  ScrollText,
   Scan,
   MoveHorizontal,
 } from "lucide-react";
@@ -44,57 +67,6 @@ const GRID_MIN_ROWS = 1;
 const GRID_MIN_COLS = 1;
 const GRID_MAX_ROWS = 12;
 const GRID_MAX_COLS = 12;
-
-// Shared Designer/Dashboard geometry. Widget Studio uses these same values so
-// its preview box is the exact size the widget will occupy after it is added.
-const DESIGNER_GRID_GAP_PX = 8;
-const DASHBOARD_GRID_ROW_HEIGHT_PX = 235;
-const FIT_MIN_CELL_WIDTH_PX = 28;
-const SCROLL_REFERENCE_COLUMNS = 4;
-const SCROLL_MIN_CELL_WIDTH_PX = 180;
-const SCROLL_MAX_CELL_WIDTH_PX = 320;
-
-const getDesignerCellWidth = (mode, viewportWidth, columnCount) => {
-  const safeViewportWidth = Math.max(0, Number(viewportWidth) || 0);
-  const safeColumnCount = Math.max(1, Number(columnCount) || 1);
-
-  if (mode === "scroll") {
-    return Math.round(
-      Math.max(
-        SCROLL_MIN_CELL_WIDTH_PX,
-        Math.min(
-          SCROLL_MAX_CELL_WIDTH_PX,
-          (
-            safeViewportWidth -
-            Math.max(0, SCROLL_REFERENCE_COLUMNS - 1) * DESIGNER_GRID_GAP_PX
-          ) / SCROLL_REFERENCE_COLUMNS
-        )
-      )
-    );
-  }
-
-  return Math.max(
-    FIT_MIN_CELL_WIDTH_PX,
-    (
-      safeViewportWidth -
-      Math.max(0, safeColumnCount - 1) * DESIGNER_GRID_GAP_PX
-    ) / safeColumnCount
-  );
-};
-
-const getDesignerWidgetPixelSize = (widthUnits, heightUnits, cellWidth) => {
-  const safeWidthUnits = Math.max(1, Number(widthUnits) || 1);
-  const safeHeightUnits = Math.max(1, Number(heightUnits) || 1);
-
-  return {
-    width:
-      safeWidthUnits * cellWidth +
-      Math.max(0, safeWidthUnits - 1) * DESIGNER_GRID_GAP_PX,
-    height:
-      safeHeightUnits * DASHBOARD_GRID_ROW_HEIGHT_PX +
-      Math.max(0, safeHeightUnits - 1) * DESIGNER_GRID_GAP_PX,
-  };
-};
 
 const sizeOptions = [
   { label: "1×1", w: 1, h: 1 },
@@ -171,7 +143,7 @@ const defaultBigNumberDisplay = {
     {
       value: 2,
       text: "AUTO",
-      color: "cyan",
+      color: "green",
     },
     {
       value: 3,
@@ -198,7 +170,61 @@ const defaultRangeConfig = {
   danger: 90,
 };
 
+const defaultGaugeDisplay = {
+  style: "circular", // "circular" | "linear"
+};
+
+const normalizeGaugeDisplay = (display = {}, legacyType = "gauge") => ({
+  ...defaultGaugeDisplay,
+  ...(display || {}),
+  style:
+    legacyType === "linearGauge" || display?.style === "linear"
+      ? "linear"
+      : "circular",
+});
+
+const migrateLegacyGaugeItem = (item) => {
+  if (!item || typeof item !== "object") return item;
+
+  if (item.type === "linearGauge") {
+    return {
+      ...item,
+      type: "gauge",
+      gaugeDisplay: normalizeGaugeDisplay(item.gaugeDisplay, "linearGauge"),
+    };
+  }
+
+  if (item.type === "gauge") {
+    return {
+      ...item,
+      gaugeDisplay: normalizeGaugeDisplay(item.gaugeDisplay, "gauge"),
+    };
+  }
+
+  return item;
+};
+
+const isThresholdEnabled = (value) =>
+  value !== null &&
+  value !== undefined &&
+  String(value).trim() !== "";
+
+const parseOptionalThreshold = (value) =>
+  isThresholdEnabled(value)
+    ? Number(value)
+    : null;
+
+const getDefaultThresholdValue = (key, rangeConfig = defaultRangeConfig) => {
+  const min = Number(rangeConfig.min);
+  const max = Number(rangeConfig.max);
+  const safeMin = Number.isFinite(min) ? min : 0;
+  const safeMax = Number.isFinite(max) && max > safeMin ? max : safeMin + 100;
+  const ratio = key === "danger" ? 0.9 : 0.8;
+  return Number((safeMin + (safeMax - safeMin) * ratio).toFixed(2));
+};
+
 const defaultLogDisplay = {
+  mode: "event-log", // event-log | alarm-summary | alarm-list
   showTimestamp: true,
   showSource: true,
   showLevel: true,
@@ -212,7 +238,67 @@ const defaultLogDisplay = {
     "warning",
     "error",
   ],
+  severityFilter: [
+    "high",
+    "medium",
+    "low",
+    "info",
+  ],
+  showZeroSeverities: true,
+  severityMap: {
+    high: [
+      "critical",
+      "error",
+      "high",
+      "alarm",
+      "trip",
+      "danger",
+      "fault",
+    ],
+    medium: [
+      "warning",
+      "warn",
+      "medium",
+    ],
+    low: [
+      "low",
+      "success",
+      "notice",
+    ],
+    info: [
+      "info",
+      "debug",
+      "normal",
+      "ok",
+    ],
+  },
 };
+
+const getPreparedLogDisplay = (
+  display = defaultLogDisplay
+) => ({
+  ...defaultLogDisplay,
+  ...(display || {}),
+  levelFilter: [
+    ...(display?.levelFilter ||
+      defaultLogDisplay.levelFilter),
+  ],
+  severityFilter: [
+    ...(display?.severityFilter ||
+      defaultLogDisplay.severityFilter),
+  ],
+  severityMap: Object.fromEntries(
+    Object.entries({
+      ...defaultLogDisplay.severityMap,
+      ...(display?.severityMap || {}),
+    }).map(([key, values]) => [
+      key,
+      Array.isArray(values)
+        ? [...values]
+        : [],
+    ])
+  ),
+});
 
 const defaultChartDisplay = {
   showGrid: true,
@@ -224,12 +310,7 @@ const defaultChartDisplay = {
   showDots: false,
   xAxisFormat: "auto",
   xAxisTickGap: 56,
-  // Smart Auto fits steady data, but includes zero when values reach/cross/approach it.
   yAxisMode: "auto",
-  yAxisMin: "",
-  yAxisMax: "",
-  // Used by Fixed Scale. Blank keeps the interval automatic.
-  yAxisInterval: "",
   yAxisTickCount: 5,
   strokeWidth: 2.5,
   lineWeight: "normal",
@@ -246,6 +327,35 @@ const defaultChartDisplay = {
   showLatestValues: true,
   showZeroLine: false,
   autoScalePerSeries: false,
+
+  // Heatmap-specific display options share the chartDisplay object so draft
+  // persistence/editing remains compatible with the other chart widgets.
+  heatmapColumns: 16,
+  heatmapShowValues: false,
+  heatmapShowLegend: true,
+  heatmapShowTimeLabels: true,
+};
+
+const normalizeChartDisplay = (display = {}) => {
+  const {
+    yAxisMin: _legacyYAxisMin,
+    yAxisMax: _legacyYAxisMax,
+    ...rest
+  } = display || {};
+
+  return {
+    ...defaultChartDisplay,
+    ...rest,
+
+    // Custom axis has been retired. Old saved custom charts now use
+    // the widget Data Range (rangeConfig.min / rangeConfig.max).
+    yAxisMode:
+      rest.yAxisMode === "custom"
+        ? "range"
+        : rest.yAxisMode === "range"
+        ? "range"
+        : "auto",
+  };
 };
 
 const defaultHistoryWindow = "15m";
@@ -305,15 +415,9 @@ const normalizeCompositePartConfig = (config = {}) => {
       ...(config.rangeConfig || {}),
     },
 
-    chartDisplay: {
-      ...defaults.chartDisplay,
-      ...(config.chartDisplay || {}),
-      yAxisMode: ["fixed", "custom", "range"].includes(
-        config.chartDisplay?.yAxisMode
-      )
-        ? "fixed"
-        : "auto",
-    },
+    chartDisplay: normalizeChartDisplay(
+      config.chartDisplay || {}
+    ),
 
     pieDisplay: {
       ...defaults.pieDisplay,
@@ -702,6 +806,17 @@ export default function TemplateDesigner({
   const isEditingTemplate = mode === "edit";
   const designerPage = isEditingTemplate ? "editor" : "builder";
 
+  const designerDraftKey = buildPageDraftKey(
+    "template-designer",
+    isEditingTemplate && selectedTemplate?.id
+      ? `edit-${selectedTemplate.id}`
+      : "create"
+  );
+
+  // Avoid writing the previous template's state into a newly selected draft key
+  // during the render in which the editor switches template/mode.
+  const skipNextDesignerDraftWriteRef = useRef(true);
+
   // GRID SIZE
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(4);
@@ -761,9 +876,9 @@ export default function TemplateDesigner({
 
   // Width available to the template grid.
   //
-  // Horizontal sizing still reacts to the available editor width, but
-  // vertical sizing intentionally matches the Dashboard card height.
-  // The designer is allowed to grow taller than the viewport and scroll.
+  // Row height is derived from COLUMN width so every 1×1 slot keeps
+  // a landscape / horizontal shape even when the user increases the
+  // number of columns.
   const [
     gridViewportWidth,
     setGridViewportWidth,
@@ -777,8 +892,27 @@ export default function TemplateDesigner({
 
   const [toast, setToast] = useState(null);
 
-  const showToast = (type, message) => {
-    setToast({ type, message });
+  const showToast = (
+    type,
+    message,
+    title = ""
+  ) => {
+    const fallbackTitle =
+      type === "error"
+        ? "Action required"
+        : type === "warning"
+        ? "Check configuration"
+        : type === "info"
+        ? "Information"
+        : "Changes saved";
+
+    setToast({
+      type,
+      message,
+      title:
+        title ||
+        fallbackTitle,
+    });
   };
 
   const [activeCell, setActiveCell] =
@@ -795,9 +929,30 @@ export default function TemplateDesigner({
   // Horizontal split = live preview vs data-source configuration.
   const studioBodyRef = useRef(null);
   const studioLeftRef = useRef(null);
+  const studioPreviewHostRef =
+    useRef(null);
+
+  // Used to jump directly to the lower edit/settings section when
+  // the user clicks an existing widget on the dashboard canvas.
+  const widgetSettingsScrollRef =
+    useRef(null);
+
+  const widgetDetailsRef =
+    useRef(null);
+
+  const [
+    studioPreviewHostSize,
+    setStudioPreviewHostSize,
+  ] = useState({
+    width: 0,
+    height: 0,
+  });
 
   const [studioSplit, setStudioSplit] =
     useState(72);
+
+  // Widget Type uses a fixed three-column grid. Labels remain visible
+  // at every studio split so the selector stays predictable and readable.
 
   const [previewSplit, setPreviewSplit] =
     useState(58);
@@ -806,6 +961,55 @@ export default function TemplateDesigner({
     studioResizeMode,
     setStudioResizeMode,
   ] = useState(null);
+
+  useEffect(() => {
+    const element =
+      studioPreviewHostRef.current;
+
+    if (!element) {
+      return undefined;
+    }
+
+    const update = () => {
+      const rect =
+        element.getBoundingClientRect();
+
+      setStudioPreviewHostSize({
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+
+    update();
+
+    if (
+      typeof ResizeObserver ===
+      "undefined"
+    ) {
+      window.addEventListener(
+        "resize",
+        update
+      );
+
+      return () =>
+        window.removeEventListener(
+          "resize",
+          update
+        );
+    }
+
+    const observer =
+      new ResizeObserver(update);
+
+    observer.observe(element);
+
+    return () =>
+      observer.disconnect();
+  }, [
+    showModal,
+    studioSplit,
+    previewSplit,
+  ]);
 
   // WIDGET SETUP WIZARD
   const [widgetStep, setWidgetStep] =
@@ -820,6 +1024,33 @@ export default function TemplateDesigner({
 
   const [newDataKeys, setNewDataKeys] =
     useState([]);
+
+  const [
+    newProcessEquipmentConfig,
+    setNewProcessEquipmentConfig,
+  ] = useState(() =>
+    normalizeProcessEquipmentConfig(
+      DEFAULT_PROCESS_EQUIPMENT_CONFIG
+    )
+  );
+
+  const [
+    newProcessViewConfig,
+    setNewProcessViewConfig,
+  ] = useState(() =>
+    normalizeProcessViewConfig(
+      DEFAULT_PROCESS_VIEW_CONFIG
+    )
+  );
+
+  const [
+    newCustomLayoutConfig,
+    setNewCustomLayoutConfig,
+  ] = useState(() =>
+    normalizeCustomLayoutConfig(
+      DEFAULT_CUSTOM_LAYOUT_CONFIG
+    )
+  );
 
   // The widget wizard now starts with Data Source.
   // "Dedicated" is used for widgets such as Logs, Image and Sankey
@@ -841,29 +1072,80 @@ export default function TemplateDesigner({
   const [newH, setNewH] = useState(1);
 
   /*
-   * WIDGET STUDIO = ACTUAL ADDED SIZE
-   * ---------------------------------
-   * Do not scale the preview to the Studio pane. Use the exact same grid-cell
-   * width, 235px row height, and 8px gaps as the Template Designer canvas.
-   * If the real widget is larger than the preview pane, that pane scrolls.
+   * Widget Studio preview uses the same landscape grid-unit geometry as the
+   * template canvas. A 4×1 widget is therefore previewed as a wide 4×1 card,
+   * rather than filling the entire left pane and looking like a different
+   * design.
    */
-  const studioPreviewCellWidth = getDesignerCellWidth(
-    canvasMode,
-    gridViewportWidth,
-    cols
-  );
+  const studioPreviewAspectRatio =
+    Math.max(
+      0.55,
+      (
+        Math.max(
+          1,
+          Number(newW) || 1
+        ) *
+        1.65
+      ) /
+        Math.max(
+          1,
+          Number(newH) || 1
+        )
+    );
 
-  const studioPreviewPixelSize = getDesignerWidgetPixelSize(
-    newW,
-    newH,
-    studioPreviewCellWidth
-  );
+  const studioPreviewFrameSize =
+    (() => {
+      const availableWidth =
+        Math.max(
+          0,
+          studioPreviewHostSize.width
+        );
 
-  const studioPreviewFrameSize = {
-    width: `${Math.round(studioPreviewPixelSize.width)}px`,
-    height: `${Math.round(studioPreviewPixelSize.height)}px`,
-    flexShrink: 0,
-  };
+      const availableHeight =
+        Math.max(
+          0,
+          studioPreviewHostSize.height
+        );
+
+      if (
+        !availableWidth ||
+        !availableHeight
+      ) {
+        return {
+          width: "100%",
+          height: "100%",
+        };
+      }
+
+      const hostRatio =
+        availableWidth /
+        availableHeight;
+
+      if (
+        hostRatio >
+        studioPreviewAspectRatio
+      ) {
+        return {
+          width: `${Math.floor(
+            availableHeight *
+              studioPreviewAspectRatio
+          )}px`,
+          height: `${Math.floor(
+            availableHeight
+          )}px`,
+        };
+      }
+
+      return {
+        width: `${Math.floor(
+          availableWidth
+        )}px`,
+        height: `${Math.floor(
+          availableWidth /
+            studioPreviewAspectRatio
+        )}px`,
+      };
+    })();
 
   const [
     newBigNumberDisplay,
@@ -874,6 +1156,10 @@ export default function TemplateDesigner({
 
   const [newRangeConfig, setNewRangeConfig] = useState({
     ...defaultRangeConfig,
+  });
+
+  const [newGaugeDisplay, setNewGaugeDisplay] = useState({
+    ...defaultGaugeDisplay,
   });
 
   const [
@@ -913,12 +1199,30 @@ export default function TemplateDesigner({
 
   const [showCustomDataModal, setShowCustomDataModal] = useState(false);
 
+  /*
+   * Data-source form mode:
+   * - add:  create a brand-new connection
+   * - edit: update the existing connection in place, preserving its key
+   * - copy: prefill from an existing connection but create a new key
+   */
+  const [
+    customDataMode,
+    setCustomDataMode,
+  ] = useState("add");
+
+  const [
+    editingDataSourceKey,
+    setEditingDataSourceKey,
+  ] = useState("");
+
   const [customWidgetTypes, setCustomWidgetTypes] = useState([]);
 
   const [customWidgetDraft, setCustomWidgetDraft] = useState({
     label: "",
-    baseType: widgetLibrary[0]?.type || "bignumber",
     description: "",
+    layoutConfig: normalizeCustomLayoutConfig(
+      DEFAULT_CUSTOM_LAYOUT_CONFIG
+    ),
   });
 
   const [showCustomWidgetModal, setShowCustomWidgetModal] = useState(false);
@@ -928,6 +1232,17 @@ export default function TemplateDesigner({
   // Pins are kept locally while the image widget is still being configured.
   // This prevents a new image draft from being added to the grid too early.
   const [imageDraftPins, setImageDraftPins] = useState([]);
+
+  // Image pins may use several measurements/devices.
+  const [
+    imageDraftDataOptions,
+    setImageDraftDataOptions,
+  ] = useState([]);
+
+  const [
+    imageDraftDataMapping,
+    setImageDraftDataMapping,
+  ] = useState(null);
 
   // Uploaded image is kept locally while the image widget is still being configured.
   // The croppedSrc currently uses the original image. Cropping can be added later.
@@ -1211,7 +1526,7 @@ export default function TemplateDesigner({
 
         // Keep both panels usable.
         const minimumLeftPx = 520;
-        const minimumRightPx = 300;
+        const minimumRightPx = 400;
 
         const minimumPercent =
           Math.max(
@@ -1344,6 +1659,36 @@ export default function TemplateDesigner({
     customWidgetTypes,
     selectedDeviceId,
     selectedMeasurementGroup,
+
+    // Preserve the currently open Widget Studio draft too, not only widgets
+    // that have already been committed to the grid.
+    activeCell,
+    activeItemId,
+    showModal,
+    widgetStep,
+    useDedicatedWidgetSource,
+    newType,
+    newDataKey,
+    newDataKeys,
+    newProcessEquipmentConfig,
+    newProcessViewConfig,
+    newCustomLayoutConfig,
+    newLabel,
+    newOrientation,
+    newW,
+    newH,
+    newBigNumberDisplay,
+    newRangeConfig,
+    newGaugeDisplay,
+    newLogDisplay,
+    newChartDisplay,
+    newHistoryWindow,
+    newCompositeConfig,
+    newWidgetTypeId,
+    imageDraftPins,
+    imageDraftDataOptions,
+    imageDraftDataMapping,
+    imageDraft,
   });
 
   const restoreDesignerSnapshot = (snapshot, nextItems) => {
@@ -1353,13 +1698,12 @@ export default function TemplateDesigner({
     setCols(Number(snapshot.cols) || 4);
     setTemplateName(snapshot.templateName || "");
     setItems(
-      (
-        Array.isArray(nextItems)
-          ? nextItems
-          : Array.isArray(snapshot.items)
-          ? snapshot.items
-          : []
-      ).filter((item) => item?.type !== "status")
+      (Array.isArray(nextItems)
+        ? nextItems
+        : Array.isArray(snapshot.items)
+        ? snapshot.items.filter((item) => item?.type !== "status")
+        : []
+      ).map(migrateLegacyGaugeItem)
     );
     setInfluxConfig({
       ...defaultInfluxConfig,
@@ -1383,15 +1727,98 @@ export default function TemplateDesigner({
     setSelectedMeasurementGroup(
       snapshot.selectedMeasurementGroup ||
         (snapshot.influxConfig?.measurement
-          ? getMeasurementGroup(
-              snapshot.influxConfig.measurement
-            ).key
+          ? getMeasurementGroup(snapshot.influxConfig.measurement).key
           : "")
     );
+
+    setActiveCell(snapshot.activeCell ?? null);
+    setActiveItemId(snapshot.activeItemId ?? null);
+    setShowModal(Boolean(snapshot.showModal));
+    setWidgetStep(Number(snapshot.widgetStep) || 1);
+    setUseDedicatedWidgetSource(Boolean(snapshot.useDedicatedWidgetSource));
+    if (snapshot.newType) {
+      setNewType(snapshot.newType === "linearGauge" ? "gauge" : snapshot.newType);
+      setNewGaugeDisplay(
+        normalizeGaugeDisplay(snapshot.newGaugeDisplay, snapshot.newType)
+      );
+    } else if (snapshot.newGaugeDisplay) {
+      setNewGaugeDisplay(normalizeGaugeDisplay(snapshot.newGaugeDisplay));
+    }
+    setNewDataKey(snapshot.newDataKey || "");
+    setNewDataKeys(Array.isArray(snapshot.newDataKeys) ? snapshot.newDataKeys : []);
+    if (snapshot.newProcessEquipmentConfig) {
+      setNewProcessEquipmentConfig(
+        normalizeProcessEquipmentConfig(snapshot.newProcessEquipmentConfig)
+      );
+    }
+    if (snapshot.newProcessViewConfig) {
+      setNewProcessViewConfig(normalizeProcessViewConfig(snapshot.newProcessViewConfig));
+    }
+    if (snapshot.newCustomLayoutConfig) {
+      setNewCustomLayoutConfig(
+        normalizeCustomLayoutConfig(snapshot.newCustomLayoutConfig)
+      );
+    }
+    setNewLabel(snapshot.newLabel || "");
+    setNewOrientation(snapshot.newOrientation || "vertical");
+    setNewW(Math.max(1, Number(snapshot.newW) || 1));
+    setNewH(Math.max(1, Number(snapshot.newH) || 1));
+    if (snapshot.newBigNumberDisplay) {
+      setNewBigNumberDisplay({
+        ...defaultBigNumberDisplay,
+        ...snapshot.newBigNumberDisplay,
+        mappings: Array.isArray(snapshot.newBigNumberDisplay?.mappings)
+          ? snapshot.newBigNumberDisplay.mappings.map((mapping) => ({ ...mapping }))
+          : defaultBigNumberDisplay.mappings.map((mapping) => ({ ...mapping })),
+      });
+    }
+    if (snapshot.newRangeConfig) {
+      setNewRangeConfig({ ...defaultRangeConfig, ...snapshot.newRangeConfig });
+    }
+    if (snapshot.newLogDisplay) {
+      setNewLogDisplay(getPreparedLogDisplay(snapshot.newLogDisplay));
+    }
+    if (snapshot.newChartDisplay) {
+      setNewChartDisplay({ ...defaultChartDisplay, ...snapshot.newChartDisplay });
+    }
+    setNewHistoryWindow(snapshot.newHistoryWindow || defaultHistoryWindow);
+    if (snapshot.newCompositeConfig) {
+      setNewCompositeConfig(normalizeCompositeConfig(snapshot.newCompositeConfig));
+    }
+    setNewWidgetTypeId(snapshot.newWidgetTypeId || "");
+    setImageDraftPins(Array.isArray(snapshot.imageDraftPins) ? snapshot.imageDraftPins : []);
+    setImageDraftDataOptions(
+      Array.isArray(snapshot.imageDraftDataOptions) ? snapshot.imageDraftDataOptions : []
+    );
+    setImageDraftDataMapping(snapshot.imageDraftDataMapping || null);
+    setImageDraft({ ...defaultImageDraft, ...(snapshot.imageDraft || {}) });
   };
+
+  // Restore a draft for a brand-new template. Edit-mode restoration is handled
+  // inside the template-load effect below so drafts can take priority over the
+  // last officially saved template layout.
+  useEffect(() => {
+    if (isEditingTemplate) return;
+
+    skipNextDesignerDraftWriteRef.current = true;
+    const draft = readPageDraft(designerDraftKey);
+    if (draft) {
+      restoreDesignerSnapshot(draft);
+    }
+  }, [isEditingTemplate, designerDraftKey]);
+
 
   useEffect(() => {
     if (!isEditingTemplate || !selectedTemplate) return;
+
+    skipNextDesignerDraftWriteRef.current = true;
+
+    const draft = readPageDraft(designerDraftKey);
+    if (draft) {
+      restoreDesignerSnapshot(draft);
+      setSankeyConfig(defaultSankeyConfig);
+      return;
+    }
 
     try {
       const layout =
@@ -1404,7 +1831,9 @@ export default function TemplateDesigner({
       setCols(layout?.cols || 4);
       setItems(
         Array.isArray(layout?.items)
-          ? layout.items.filter((item) => item?.type !== "status")
+          ? layout.items
+              .filter((item) => item?.type !== "status")
+              .map(migrateLegacyGaugeItem)
           : []
       );
 
@@ -1530,9 +1959,7 @@ export default function TemplateDesigner({
 
       setCustomWidgetTypes(
         Array.isArray(layout?.customWidgetTypes)
-          ? layout.customWidgetTypes.filter(
-              (widget) => widget?.baseType !== "status"
-            )
+          ? layout.customWidgetTypes
           : []
       );
 
@@ -1544,7 +1971,63 @@ export default function TemplateDesigner({
       console.error("❌ Template load error:", err);
       showToast("error", "Failed to load template layout.");
     }
-  }, [isEditingTemplate, selectedTemplate?.id]);
+  }, [isEditingTemplate, selectedTemplate?.id, designerDraftKey]);
+
+  // Autosave the complete working designer state. This is intentionally
+  // separate from the official Create/Update Template action.
+  useEffect(() => {
+    if (skipNextDesignerDraftWriteRef.current) {
+      skipNextDesignerDraftWriteRef.current = false;
+      return;
+    }
+
+    writePageDraft(designerDraftKey, {
+      ...getDesignerSnapshot(),
+      templateId: isEditingTemplate ? selectedTemplate?.id ?? null : null,
+      mode: isEditingTemplate ? "edit" : "create",
+    });
+  }, [
+    designerDraftKey,
+    isEditingTemplate,
+    selectedTemplate?.id,
+    rows,
+    cols,
+    items,
+    templateName,
+    influxConfig,
+    channelMap,
+    customDataOptions,
+    customWidgetTypes,
+    selectedDeviceId,
+    selectedMeasurementGroup,
+    activeCell,
+    activeItemId,
+    showModal,
+    widgetStep,
+    useDedicatedWidgetSource,
+    newType,
+    newDataKey,
+    newDataKeys,
+    newProcessEquipmentConfig,
+    newProcessViewConfig,
+    newCustomLayoutConfig,
+    newLabel,
+    newOrientation,
+    newW,
+    newH,
+    newBigNumberDisplay,
+    newRangeConfig,
+    newGaugeDisplay,
+    newLogDisplay,
+    newChartDisplay,
+    newHistoryWindow,
+    newCompositeConfig,
+    newWidgetTypeId,
+    imageDraftPins,
+    imageDraftDataOptions,
+    imageDraftDataMapping,
+    imageDraft,
+  ]);
 
   // Sources shown in Widget Studio are created explicitly through
   // "Add Data Source". Each option owns its complete Influx source.
@@ -1560,26 +2043,28 @@ export default function TemplateDesigner({
       baseType: widget.type,
       isCustomWidgetType: false,
     })),
-    ...customWidgetTypes
-      .filter((widget) => widget?.baseType !== "status")
-      .map((widget) => ({
-        ...widget,
-        type: widget.baseType,
-        optionId: widget.id,
-        icon: LayoutGrid,
-        isCustomWidgetType: true,
-      })),
+    ...customWidgetTypes.map((widget) => ({
+      ...widget,
+      type:
+        widget.mode === "layout" || widget.baseType === "customLayout"
+          ? "customLayout"
+          : widget.baseType,
+      optionId: widget.id,
+      icon: LayoutGrid,
+      isCustomWidgetType: true,
+    })),
   ];
 
   const dedicatedWidgetTypes = [
     "image",
     "sankey",
     "logs",
+    "processView",
   ];
 
   // Data-bound widgets are shown after selecting one or more process fields.
   // Dedicated widgets are shown after choosing the "System / Dedicated Widget"
-  // option in Step 1, so Logs, Image and Sankey can use their own configuration.
+  // option in Step 1, so these dedicated widgets never ask for a normal direct field.
   const wizardWidgetOptions = allWidgetOptions.filter((widget) =>
     useDedicatedWidgetSource
       ? dedicatedWidgetTypes.includes(widget.type)
@@ -1601,7 +2086,9 @@ export default function TemplateDesigner({
     // These widgets do not ask the user to select a direct field:
     // - Logs uses its own log configuration.
     // - Image and Sankey use their dedicated editors.
-    if (["image", "sankey", "logs"].includes(type)) {
+    if (
+      ["image", "sankey", "logs", "processView"].includes(type)
+    ) {
       return [];
     }
 
@@ -1627,109 +2114,207 @@ export default function TemplateDesigner({
 
   const [sankeyConfig, setSankeyConfig] = useState(defaultSankeyConfig);
 
-  const getSankeyGraph = (config = sankeyConfig) =>
-    normalizeSankeyGraphConfig(
-      config || defaultSankeyConfig
+  const getNormalizedSankeyConfig = (
+    config = sankeyConfig
+  ) => {
+    try {
+      return normalizeSankeyConfig(
+        config ||
+          defaultSankeyConfig
+      );
+    } catch (error) {
+      console.warn(
+        "Unable to normalize Sankey config",
+        error
+      );
+
+      return normalizeSankeyConfig(
+        defaultSankeyConfig
+      );
+    }
+  };
+
+  // Compatibility helper: older Template Designer sections refer to
+  // Sankey "outputs". The current editor stores nodes + links. Expose
+  // the links as output-like objects so older UI/validation code can
+  // remain concise while using the new graph model.
+  const getSankeyOutputs = (
+    config = sankeyConfig
+  ) => {
+    const normalized =
+      getNormalizedSankeyConfig(
+        config
+      );
+
+    const nodeMap =
+      new Map(
+        normalized.nodes.map(
+          (node) => [
+            node.id,
+            node,
+          ]
+        )
+      );
+
+    return normalized.links.map(
+      (link, index) => ({
+        ...link,
+        name:
+          link.label ||
+          nodeMap.get(
+            link.target
+          )?.name ||
+          `Flow ${index + 1}`,
+      })
+    );
+  };
+
+  const getSankeyDataKeys = (
+    config = sankeyConfig
+  ) =>
+    getWidgetSankeyDataKeys(
+      getNormalizedSankeyConfig(
+        config
+      )
     );
 
-  // Kept under the old helper name because several Designer sections use it
-  // for counts. In the new Sankey model these are graph LINKS, not outputs.
-  const getSankeyOutputs = (config = sankeyConfig) =>
-    getSankeyGraph(config).links || [];
-
-  const getSankeyDataKeys = (config = sankeyConfig) =>
-    getSankeyGraphDataKeys(config);
-
-  const getConfiguredSankeyOutputs = (config = sankeyConfig) =>
-    getSankeyOutputs(config).filter(
-      (link) =>
-        link.dataKey ||
-        link.dataSource?.channel
+  const getConfiguredSankeyOutputs = (
+    config = sankeyConfig
+  ) =>
+    getSankeyOutputs(
+      config
+    ).filter(
+      (flow) =>
+        flow.name &&
+        (
+          flow.dataKey ||
+          flow.dataSource
+            ?.channel
+        )
     );
 
-  const getSankeyOutputSummary = (config = sankeyConfig) => {
-    const graph = getSankeyGraph(config);
-    const nodeMap = new Map(
-      graph.nodes.map((node) => [node.id, node])
-    );
-    const configuredLinks = getConfiguredSankeyOutputs(graph);
+  const getUnmappedTerminalSankeyFlows = (
+    config = sankeyConfig
+  ) => {
+    const normalized =
+      getNormalizedSankeyConfig(
+        config
+      );
 
-    if (!configuredLinks.length) {
-      return "No Sankey flow field configured";
+    const terminalNodeIds =
+      new Set(
+        normalized.nodes
+          .filter(
+            (node) =>
+              !normalized.links.some(
+                (flow) =>
+                  flow.source ===
+                  node.id
+              )
+          )
+          .map(
+            (node) =>
+              node.id
+          )
+      );
+
+    return normalized.links.filter(
+      (flow) =>
+        terminalNodeIds.has(
+          flow.target
+        ) &&
+        !(
+          flow.dataKey ||
+          flow.dataSource
+            ?.channel
+        )
+    );
+  };
+
+  const getSankeyOutputSummary = (
+    config = sankeyConfig
+  ) => {
+    const configuredOutputs =
+      getConfiguredSankeyOutputs(
+        config
+      );
+
+    if (
+      !configuredOutputs.length
+    ) {
+      return "No Sankey flow data source configured";
     }
 
-    return configuredLinks
-      .map((link) => {
-        const sourceName =
-          nodeMap.get(link.source)?.name || "Source";
-        const targetName =
-          nodeMap.get(link.target)?.name || "Target";
-        const field =
-          link.dataKey ||
-          link.dataSource?.channel ||
+    return configuredOutputs
+      .map((flow) => {
+        const source =
+          flow.dataKey ||
+          flow.dataSource
+            ?.channel ||
           "not configured";
 
-        return `${sourceName} → ${targetName} (${field})`;
+        return `${flow.name || "Flow"} (${source})`;
       })
       .join(", ");
   };
 
-  const getPreparedSankeyConfig = () => {
-    const graph = getSankeyGraph(sankeyConfig);
+  const getPreparedSankeyConfig =
+    () => {
+      const normalized =
+        getNormalizedSankeyConfig(
+          sankeyConfig
+        );
 
-    return normalizeSankeyGraphConfig({
-      unit:
-        graph.unit?.trim() ||
-        sankeyConfig?.unit?.trim() ||
-        "psi",
+      const sourceByKey =
+        new Map(
+          customDataOptions.map(
+            (option) => [
+              option.key,
+              option,
+            ]
+          )
+        );
 
-      nodes: graph.nodes.map((node, index) => ({
-        id: node.id || `node-${index + 1}`,
-        name:
-          node.name?.trim() ||
-          `Node ${index + 1}`,
-        color: node.color,
-      })),
+      return {
+        ...normalized,
+        links:
+          normalized.links.map(
+            (flow) => {
+              const connectedSource =
+                sourceByKey.get(
+                  flow.dataKey
+                );
 
-      links: graph.links.map((link, index) => ({
-        id: link.id || `link-${index + 1}`,
-        source: link.source,
-        target: link.target,
-        label: link.label?.trim() || "",
-        color: link.color,
-        dataKey: link.dataKey || "",
-        dataSource: {
-          bucket:
-            link.dataSource?.bucket ||
-            influxConfig.bucket ||
-            "Mill",
-          measurement:
-            link.dataSource?.measurement ||
-            influxConfig.measurement ||
-            "PBLR",
-          tagKey:
-            link.dataSource?.tagKey ||
-            influxConfig.tagKey ||
-            "id",
-          tagValue:
-            link.dataSource?.tagValue ||
-            link.dataSource?.id ||
-            influxConfig.tagValue ||
-            influxConfig.id ||
-            "",
-          id:
-            link.dataSource?.id ||
-            link.dataSource?.tagValue ||
-            influxConfig.id ||
-            "",
-          channel:
-            link.dataSource?.channel ||
-            channelMap?.[link.dataKey] ||
-            "",
-        },
-      })),
-    });
-  };
+              return {
+                ...flow,
+                dataSource:
+                  connectedSource
+                    ?.source
+                    ? {
+                        ...connectedSource.source,
+                        channel:
+                          connectedSource
+                            .source
+                            .field ||
+                          connectedSource
+                            .source
+                            .channel ||
+                          flow.dataSource
+                            ?.channel ||
+                          "",
+                      }
+                    : {
+                        ...(
+                          flow.dataSource ||
+                          {}
+                        ),
+                      },
+              };
+            }
+          ),
+      };
+    };
+
 
   const getMinimumGridSizeForItems = () => {
     const minimumRows = Math.max(
@@ -1823,16 +2408,40 @@ export default function TemplateDesigner({
   const isMultiDataWidget =
     newType === "line" ||
     newType === "bar" ||
+    newType === "heatmap" ||
     newType === "pie" ||
     newType === "composite" ||
+    newType === "processEquipment" ||
+    newType === "customLayout" ||
     isBigNumberCombined;
 
   // DEFAULT LABEL
-  const getDefaultWidgetLabel = (type) =>
-    `${
+  const getDefaultWidgetLabel = (type) => {
+    if (type === "processEquipment") {
+      return "Process Equipment";
+    }
+
+    if (type === "processView") {
+      return "Process View";
+    }
+
+    if (type === "customLayout") {
+      return "Custom Widget";
+    }
+
+    if (type === "logs") {
+      return "Events & Alarms";
+    }
+
+    if (type === "image") {
+      return "Interactive Process Image";
+    }
+
+    return `${
       type.charAt(0).toUpperCase() +
       type.slice(1)
     } Widget`;
+  };
 
   const handleCompositePresetChange = (
     preset
@@ -2008,20 +2617,35 @@ export default function TemplateDesigner({
 
       const min = Number(config.rangeConfig.min);
       const max = Number(config.rangeConfig.max);
-      const warning = Number(config.rangeConfig.warning);
-      const danger = Number(config.rangeConfig.danger);
+      const warning = parseOptionalThreshold(config.rangeConfig.warning);
+      const danger = parseOptionalThreshold(config.rangeConfig.danger);
+
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+        showToast(
+          "error",
+          `${partLabel} ${widgetType} range is invalid. Maximum must be greater than minimum.`
+        );
+        return false;
+      }
 
       if (
-        ![min, max, warning, danger].every(Number.isFinite) ||
-        max <= min ||
-        warning < min ||
-        warning > max ||
-        danger < min ||
-        danger > max
+        warning !== null &&
+        (!Number.isFinite(warning) || warning < min || warning > max)
       ) {
         showToast(
           "error",
-          `${partLabel} ${widgetType} range is invalid. Check minimum, maximum, warning, and danger values.`
+          `${partLabel} ${widgetType} warning value must be within the configured range.`
+        );
+        return false;
+      }
+
+      if (
+        danger !== null &&
+        (!Number.isFinite(danger) || danger < min || danger > max)
+      ) {
+        showToast(
+          "error",
+          `${partLabel} ${widgetType} danger value must be within the configured range.`
         );
         return false;
       }
@@ -2038,9 +2662,21 @@ export default function TemplateDesigner({
     const requestedAreaStyle =
       type === "area";
 
+    // V33: Linear Gauge is now a visual style of Gauge.
+    const requestedLegacyLinearGauge =
+      type === "linearGauge";
+
     type = requestedAreaStyle
       ? "line"
+      : requestedLegacyLinearGauge
+      ? "gauge"
       : type;
+
+    if (requestedLegacyLinearGauge) {
+      setNewGaugeDisplay({ style: "linear" });
+    } else if (type === "gauge") {
+      setNewGaugeDisplay({ style: "circular" });
+    }
 
     setNewType(type);
     setNewWidgetTypeId(customWidgetTypeId);
@@ -2054,7 +2690,7 @@ export default function TemplateDesigner({
       setNewDataKey("");
       setNewDataKeys([]);
     } else if (
-      ["line", "bar", "pie", "composite"].includes(type)
+      ["line", "bar", "heatmap", "pie", "composite", "processEquipment"].includes(type)
     ) {
       setNewDataKeys((current) => {
         if (current.length) {
@@ -2104,6 +2740,17 @@ export default function TemplateDesigner({
 
     if (customWidget && !isEdit) {
       setNewLabel(customWidget.label);
+
+      if (type === "customLayout") {
+        setNewCustomLayoutConfig(
+          normalizeCustomLayoutConfig(
+            customWidget.layoutConfig ||
+              DEFAULT_CUSTOM_LAYOUT_CONFIG
+          )
+        );
+        setNewW(2);
+        setNewH(2);
+      }
     }
 
     if (type === "image" && !isEdit) {
@@ -2143,6 +2790,41 @@ export default function TemplateDesigner({
       setNewH(1);
     }
 
+    if (type === "processEquipment" && !isEdit) {
+      setNewW(2);
+      setNewH(1);
+      setNewLabel("Process Equipment");
+      setNewProcessEquipmentConfig(
+        normalizeProcessEquipmentConfig(
+          DEFAULT_PROCESS_EQUIPMENT_CONFIG
+        )
+      );
+    }
+
+    if (type === "processView" && !isEdit) {
+      setNewW(4);
+      setNewH(2);
+      setNewLabel("Process View");
+      setNewProcessViewConfig(
+        normalizeProcessViewConfig({
+          ...DEFAULT_PROCESS_VIEW_CONFIG,
+          templateId:
+            selectedTemplate?.id || null,
+        })
+      );
+    }
+
+    if (type === "customLayout" && !isEdit && !customWidget) {
+      setNewW(2);
+      setNewH(2);
+      setNewLabel("Custom Dashboard Widget");
+      setNewCustomLayoutConfig(
+        normalizeCustomLayoutConfig(
+          DEFAULT_CUSTOM_LAYOUT_CONFIG
+        )
+      );
+    }
+
     if (type === "bignumber" && !isEdit) {
       const selectedSources = (
         newDataKeys.length
@@ -2165,17 +2847,70 @@ export default function TemplateDesigner({
     if (type === "logs" && !isEdit) {
       setNewW(2);
       setNewH(2);
-      setNewLabel("System Logs");
-      setNewLogDisplay({
-        ...defaultLogDisplay,
-        levelFilter: [
-          ...defaultLogDisplay.levelFilter,
-        ],
-      });
+      setNewLabel("Events & Alarms");
+      setNewLogDisplay(
+        getPreparedLogDisplay()
+      );
     }
 
     if (
-      ["line", "bar"].includes(type) &&
+      ["line", "bar", "heatmap", "pie"].includes(type) &&
+      !isEdit
+    ) {
+      /*
+       * Recommended chart footprint.
+       *
+       * In Fit mode a 5-column dashboard gives a 1-column widget
+       * only ~20% of the available width. Multi-category charts need
+       * more horizontal room for axes, labels, values and legends.
+       *
+       * Keep the dashboard at 5 columns; the chart simply spans two
+       * of those columns. Users may still manually resize it down to
+       * 1x1 later because getMinimumWidgetSize() remains 1x1.
+       */
+      const originX =
+        activeCell?.col ?? 0;
+
+      const originY =
+        activeCell?.row ?? 0;
+
+      const availableW =
+        Math.max(
+          1,
+          cols - originX
+        );
+
+      const availableH =
+        Math.max(
+          1,
+          rows - originY
+        );
+
+      setNewW(
+        Math.min(
+          2,
+          availableW
+        )
+      );
+
+      setNewH(
+        Math.min(
+          2,
+          availableH
+        )
+      );
+    }
+
+    if (type === "heatmap" && !isEdit) {
+      const originX = activeCell?.col ?? 0;
+      const originY = activeCell?.row ?? 0;
+
+      setNewW(Math.min(3, Math.max(1, cols - originX)));
+      setNewH(Math.min(2, Math.max(1, rows - originY)));
+    }
+
+    if (
+      ["line", "bar", "heatmap"].includes(type) &&
       !isEdit
     ) {
       setNewChartDisplay({
@@ -2185,6 +2920,7 @@ export default function TemplateDesigner({
             ? "area"
             : "line",
       });
+
       setNewHistoryWindow(
         defaultHistoryWindow
       );
@@ -3257,6 +3993,28 @@ export default function TemplateDesigner({
       ? returnedWidget.pins
       : [];
 
+    const returnedImageDataOptions =
+      deduplicateDataOptions(
+        Array.isArray(
+          returnedWidget.customDataOptions
+        )
+          ? returnedWidget.customDataOptions
+          : []
+      );
+
+    const baseCustomDataOptions =
+      Array.isArray(
+        designerSnapshot?.customDataOptions
+      )
+        ? designerSnapshot.customDataOptions
+        : customDataOptions;
+
+    const mergedImageDataOptions =
+      deduplicateDataOptions([
+        ...baseCustomDataOptions,
+        ...returnedImageDataOptions,
+      ]);
+
     // TemplateDesigner is mounted again after returning from the full-screen
     // editor. Use the snapshot's items instead of the freshly initialized [] so
     // the existing grid and all other widgets are preserved.
@@ -3286,6 +4044,19 @@ export default function TemplateDesigner({
       // Backward compatibility with editor payloads created before snapshots.
       setItems(nextItems);
     }
+
+    setCustomDataOptions(
+      mergedImageDataOptions
+    );
+
+    setImageDraftDataOptions(
+      returnedImageDataOptions
+    );
+
+    setImageDraftDataMapping(
+      returnedWidget.imageDataMapping ||
+        null
+    );
 
     setImageDraftPins(returnedPins);
     setImageDraft(returnedWidget.image || defaultImageDraft);
@@ -3324,6 +4095,8 @@ export default function TemplateDesigner({
       resumeWidgetSettings,
       returnPage,
       designerSnapshot,
+      customDataOptions:
+        returnedCustomDataOptions,
       ...returnedWidget
     } = editingSankeyWidget;
 
@@ -3356,7 +4129,21 @@ export default function TemplateDesigner({
       returnedWidget.sankeyConfig || defaultSankeyConfig;
 
     const returnedDataKeys =
-      getSankeyDataKeys(returnedConfig);
+      getSankeyDataKeys(
+        returnedConfig
+      );
+
+    if (
+      Array.isArray(
+        returnedCustomDataOptions
+      )
+    ) {
+      setCustomDataOptions(
+        deduplicateDataOptions(
+          returnedCustomDataOptions
+        )
+      );
+    }
 
     setSankeyConfig(returnedConfig);
     setNewType("sankey");
@@ -3385,6 +4172,54 @@ export default function TemplateDesigner({
     }
   }, [editingSankeyWidget, setEditingSankeyWidget]);
 
+  const scrollToWidgetDetails = () => {
+    window.requestAnimationFrame(
+      () => {
+        window.requestAnimationFrame(
+          () => {
+            const scrollHost =
+              widgetSettingsScrollRef.current;
+
+            const target =
+              widgetDetailsRef.current;
+
+            if (
+              !scrollHost ||
+              !target
+            ) {
+              return;
+            }
+
+            const top =
+              Math.max(
+                0,
+                target.offsetTop -
+                  16
+              );
+
+            scrollHost.scrollTo({
+              top,
+              behavior: "smooth",
+            });
+          }
+        );
+      }
+    );
+  };
+
+  const openWidgetForEdit = (
+    item
+  ) => {
+    setActiveItemId(
+      item.id
+    );
+    setActiveCell(null);
+    setWidgetStep(3);
+    setShowModal(true);
+
+    scrollToWidgetDetails();
+  };
+
   // LOAD SELECTED ITEM SETTINGS
   useEffect(() => {
     if (!selectedItem) return;
@@ -3392,6 +4227,8 @@ export default function TemplateDesigner({
     const resolvedSelectedType =
       selectedItem.type === "area"
         ? "line"
+        : selectedItem.type === "linearGauge"
+        ? "gauge"
         : selectedItem.type;
 
     setNewType(resolvedSelectedType);
@@ -3409,8 +4246,11 @@ export default function TemplateDesigner({
     setNewDataKeys(
       resolvedSelectedType === "line" ||
         resolvedSelectedType === "bar" ||
+        resolvedSelectedType === "heatmap" ||
         resolvedSelectedType === "pie" ||
-        resolvedSelectedType === "composite"
+        resolvedSelectedType === "composite" ||
+        resolvedSelectedType === "processEquipment" ||
+        resolvedSelectedType === "customLayout"
         ? selectedItem.dataKeys?.length
           ? selectedItem.dataKeys
           : selectedItem.dataKey
@@ -3453,40 +4293,31 @@ export default function TemplateDesigner({
       ...(selectedItem.rangeConfig || {}),
     });
 
-    setNewLogDisplay({
-      ...defaultLogDisplay,
-      ...(selectedItem.logDisplay || {}),
-
-      levelFilter: Array.isArray(
-        selectedItem.logDisplay?.levelFilter
+    setNewGaugeDisplay(
+      normalizeGaugeDisplay(
+        selectedItem.gaugeDisplay,
+        selectedItem.type
       )
-        ? [
-            ...selectedItem.logDisplay
-              .levelFilter,
-          ]
-        : [
-            ...defaultLogDisplay.levelFilter,
-          ],
-    });
+    );
 
-    setNewChartDisplay({
-      ...defaultChartDisplay,
-      ...(selectedItem.chartDisplay || {}),
-
-      // Older Y-axis modes are simplified into Smart Auto or Fixed Scale.
-      yAxisMode: ["fixed", "custom", "range"].includes(
-        selectedItem.chartDisplay?.yAxisMode
+    setNewLogDisplay(
+      getPreparedLogDisplay(
+        selectedItem.logDisplay || {}
       )
-        ? "fixed"
-        : "auto",
+    );
 
-      // Migrate old standalone Area widgets into LineWidget Area mode.
-      chartStyle:
-        selectedItem.type === "area"
-          ? "area"
-          : selectedItem.chartDisplay?.chartStyle ||
-            "line",
-    });
+    setNewChartDisplay(
+      normalizeChartDisplay({
+        ...(selectedItem.chartDisplay || {}),
+
+        // Migrate old standalone Area widgets into LineWidget Area mode.
+        chartStyle:
+          selectedItem.type === "area"
+            ? "area"
+            : selectedItem.chartDisplay?.chartStyle ||
+              "line",
+      })
+    );
 
     setNewHistoryWindow(
       selectedItem.historyWindow ||
@@ -3499,10 +4330,47 @@ export default function TemplateDesigner({
       )
     );
 
+    setNewProcessEquipmentConfig(
+      normalizeProcessEquipmentConfig(
+        selectedItem.processEquipmentConfig ||
+          DEFAULT_PROCESS_EQUIPMENT_CONFIG
+      )
+    );
+
+    setNewProcessViewConfig(
+      normalizeProcessViewConfig(
+        selectedItem.processViewConfig ||
+          DEFAULT_PROCESS_VIEW_CONFIG
+      )
+    );
+
+    setNewCustomLayoutConfig(
+      normalizeCustomLayoutConfig(
+        selectedItem.customLayoutConfig ||
+          DEFAULT_CUSTOM_LAYOUT_CONFIG
+      )
+    );
+
     setImageDraftPins(
       selectedItem.type === "image" && Array.isArray(selectedItem.pins)
         ? selectedItem.pins
         : []
+    );
+
+    setImageDraftDataOptions(
+      selectedItem.type === "image" &&
+      Array.isArray(
+        selectedItem.customDataOptions
+      )
+        ? selectedItem.customDataOptions
+        : []
+    );
+
+    setImageDraftDataMapping(
+      selectedItem.type === "image"
+        ? selectedItem.imageDataMapping ||
+          null
+        : null
     );
 
     setImageDraft(
@@ -4092,6 +4960,9 @@ export default function TemplateDesigner({
   };
 
   const openAddDataSourceModal = () => {
+    setCustomDataMode("add");
+    setEditingDataSourceKey("");
+
     setCustomDataDraft({
       label: "",
       key: "",
@@ -4121,6 +4992,173 @@ export default function TemplateDesigner({
     setShowCustomDataModal(true);
   };
 
+  const openExistingDataSourceModal = (
+    dataOption,
+    mode = "edit"
+  ) => {
+    if (!dataOption?.source) {
+      showToast(
+        "error",
+        "This legacy source does not contain editable connection details."
+      );
+      return;
+    }
+
+    const source =
+      dataOption.source || {};
+
+    const channel =
+      String(
+        source.field ||
+          source.channel ||
+          ""
+      ).trim();
+
+    const tagValue =
+      String(
+        source.tagValue ||
+          source.id ||
+          ""
+      ).trim();
+
+    setCustomDataMode(
+      mode === "copy"
+        ? "copy"
+        : "edit"
+    );
+
+    setEditingDataSourceKey(
+      mode === "edit"
+        ? dataOption.key
+        : ""
+    );
+
+    setCustomDataDraft({
+      label:
+        mode === "copy"
+          ? `${dataOption.label || "Data Source"} Copy`
+          : dataOption.label || "",
+      // Editing keeps the original key stable so existing widgets
+      // continue to reference the same source.
+      key:
+        mode === "edit"
+          ? dataOption.key
+          : "",
+      channel,
+      unit:
+        dataOption.unit || "",
+    });
+
+    setInfluxError("");
+
+    setInfluxConfig({
+      ...defaultInfluxConfig,
+      bucket:
+        source.bucket || "",
+      measurement:
+        source.measurement || "",
+      tagKey:
+        source.tagKey || "id",
+      id: tagValue,
+      tagValue,
+    });
+
+    setSelectedMeasurementGroup(
+      source.measurement
+        ? getMeasurementGroup(
+            source.measurement
+          ).key
+        : ""
+    );
+
+    // Keep the currently-saved channel visible immediately while
+    // metadata refreshes in the background.
+    setInfluxChannels(
+      channel
+        ? [channel]
+        : []
+    );
+
+    if (isOrganizationAdmin) {
+      const matchingDevice =
+        logicalAssignedDevices.find(
+          (device) => {
+            const deviceTag =
+              String(
+                device.tag_value ||
+                  ""
+              ).trim();
+
+            const sameBucket =
+              !source.bucket ||
+              device.bucket_name ===
+                source.bucket;
+
+            const sameTag =
+              deviceTag ===
+              tagValue;
+
+            const hasMeasurement =
+              !source.measurement ||
+              (
+                Array.isArray(
+                  device.measurements
+                ) &&
+                device.measurements.includes(
+                  source.measurement
+                )
+              );
+
+            return (
+              sameBucket &&
+              sameTag &&
+              hasMeasurement
+            );
+          }
+        );
+
+      setSelectedDeviceId(
+        matchingDevice?.id || ""
+      );
+
+      setInfluxMeasurements(
+        matchingDevice?.measurements ||
+          (
+            source.measurement
+              ? [source.measurement]
+              : []
+          )
+      );
+
+      setInfluxIds(
+        tagValue
+          ? [tagValue]
+          : []
+      );
+    } else {
+      setSelectedDeviceId("");
+    }
+
+    setShowCustomDataModal(true);
+  };
+
+  const openEditDataSourceModal = (
+    dataOption
+  ) =>
+    openExistingDataSourceModal(
+      dataOption,
+      "edit"
+    );
+
+  const openCopyDataSourceModal = (
+    dataOption
+  ) =>
+    openExistingDataSourceModal(
+      dataOption,
+      "copy"
+    );
+
+
   useEffect(() => {
     if (
       !showCustomDataModal ||
@@ -4137,7 +5175,7 @@ export default function TemplateDesigner({
     isSuperadmin,
   ]);
 
-  const addCustomDataSource = () => {
+  const saveCustomDataSource = () => {
     const label =
       customDataDraft.label.trim();
 
@@ -4199,6 +5237,86 @@ export default function TemplateDesigner({
       label ||
       formatInfluxFieldLabel(channel);
 
+    const source = {
+      bucket: bucketName,
+      measurement: measurementName,
+      tagKey: tagKey || "id",
+      tagValue,
+      id: tagValue,
+      field: channel,
+      channel,
+    };
+
+    if (
+      customDataMode === "edit" &&
+      editingDataSourceKey
+    ) {
+      const key =
+        editingDataSourceKey;
+
+      const existing =
+        allDataOptions.find(
+          (option) =>
+            option.key === key
+        );
+
+      if (!existing) {
+        showToast(
+          "error",
+          "The data source being edited could not be found."
+        );
+        return;
+      }
+
+      const updatedOption = {
+        ...existing,
+        key,
+        label:
+          resolvedLabel,
+        unit,
+        isCustom: true,
+        source,
+      };
+
+      setCustomDataOptions(
+        (previousOptions) =>
+          previousOptions.map(
+            (option) =>
+              option.key === key
+                ? updatedOption
+                : option
+          )
+      );
+
+      setChannelMap(
+        (previousMap) => ({
+          ...previousMap,
+          [key]: channel,
+        })
+      );
+
+      setCustomDataDraft({
+        label: "",
+        key: "",
+        channel: "",
+        unit: "",
+      });
+
+      setCustomDataMode("add");
+      setEditingDataSourceKey("");
+      setShowCustomDataModal(false);
+
+      showToast(
+        "success",
+        "Connection settings were saved.",
+        "Data source updated"
+      );
+
+      return;
+    }
+
+    // Add and Copy both create a fresh key. Copy simply starts with
+    // the existing source pre-filled in the form.
     const baseKey =
       createSafeDataKey(
         customDataDraft.key ||
@@ -4211,16 +5329,6 @@ export default function TemplateDesigner({
         baseKey,
         allDataOptions
       );
-
-    const source = {
-      bucket: bucketName,
-      measurement: measurementName,
-      tagKey: tagKey || "id",
-      tagValue,
-      id: tagValue,
-      field: channel,
-      channel,
-    };
 
     const newOption = {
       key,
@@ -4237,24 +5345,30 @@ export default function TemplateDesigner({
       ]
     );
 
-    setChannelMap((previousMap) => ({
-      ...previousMap,
-      [key]: channel,
-    }));
+    setChannelMap(
+      (previousMap) => ({
+        ...previousMap,
+        [key]: channel,
+      })
+    );
 
     if (isMultiDataWidget) {
-      setNewDataKeys((previousKeys) => [
-        ...new Set([
-          ...previousKeys,
-          key,
-        ]),
-      ]);
+      setNewDataKeys(
+        (previousKeys) => [
+          ...new Set([
+            ...previousKeys,
+            key,
+          ]),
+        ]
+      );
     } else {
       setNewDataKey(key);
     }
 
     if (!newLabel.trim()) {
-      setNewLabel(resolvedLabel);
+      setNewLabel(
+        resolvedLabel
+      );
     }
 
     setCustomDataDraft({
@@ -4264,13 +5378,24 @@ export default function TemplateDesigner({
       unit: "",
     });
 
+    const completedMode =
+      customDataMode;
+
+    setCustomDataMode("add");
+    setEditingDataSourceKey("");
     setShowCustomDataModal(false);
 
     showToast(
       "success",
-      "Data source added and selected."
+      completedMode === "copy"
+        ? "A new connected source was created from the existing configuration and selected."
+        : "The new connected source is ready to use.",
+      completedMode === "copy"
+        ? "Data source copied"
+        : "Data source added"
     );
   };
+
 
   const deleteCustomDataSource = (key) => {
     const isUsed = items.some(
@@ -4305,21 +5430,28 @@ export default function TemplateDesigner({
       setNewDataKey("");
     }
 
-    showToast("success", "Custom data source deleted.");
+    showToast(
+      "success",
+      "The connected source was removed.",
+      "Data source deleted"
+    );
   };
 
   const addCustomWidgetType = () => {
     const label = customWidgetDraft.label.trim();
-    const baseType = customWidgetDraft.baseType || widgetLibrary[0]?.type;
     const description = customWidgetDraft.description.trim();
+    const layoutConfig = normalizeCustomLayoutConfig(
+      customWidgetDraft.layoutConfig ||
+        DEFAULT_CUSTOM_LAYOUT_CONFIG
+    );
 
     if (!label) {
       showToast("error", "Enter a name for the custom widget type.");
       return;
     }
 
-    if (!baseType) {
-      showToast("error", "Select the base widget display type.");
+    if (!layoutConfig.parts.length) {
+      showToast("error", "Add at least one section to the custom widget.");
       return;
     }
 
@@ -4328,8 +5460,10 @@ export default function TemplateDesigner({
     const newWidgetType = {
       id,
       label,
-      baseType,
+      baseType: "customLayout",
+      mode: "layout",
       description,
+      layoutConfig,
       isCustomWidgetType: true,
     };
 
@@ -4340,13 +5474,16 @@ export default function TemplateDesigner({
 
     setCustomWidgetDraft({
       label: "",
-      baseType: widgetLibrary[0]?.type || "bignumber",
       description: "",
+      layoutConfig: normalizeCustomLayoutConfig(
+        DEFAULT_CUSTOM_LAYOUT_CONFIG
+      ),
     });
 
     setShowCustomWidgetModal(false);
-    handleWidgetTypeChange(baseType, id);
-    showToast("success", "Custom widget type added.");
+    setNewCustomLayoutConfig(layoutConfig);
+    handleWidgetTypeChange("customLayout", id);
+    showToast("success", "Custom widget layout added.");
   };
 
   const deleteCustomWidgetType = (id) => {
@@ -4422,11 +5559,11 @@ export default function TemplateDesigner({
 
     const min = Number(newRangeConfig.min);
     const max = Number(newRangeConfig.max);
-    const warning = Number(newRangeConfig.warning);
-    const danger = Number(newRangeConfig.danger);
+    const warning = parseOptionalThreshold(newRangeConfig.warning);
+    const danger = parseOptionalThreshold(newRangeConfig.danger);
 
-    if (![min, max, warning, danger].every(Number.isFinite)) {
-      showToast("error", "Range values must all be valid numbers.");
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      showToast("error", "Minimum and maximum must be valid numbers.");
       return false;
     }
 
@@ -4435,12 +5572,18 @@ export default function TemplateDesigner({
       return false;
     }
 
-    if (warning < min || warning > max) {
+    if (
+      warning !== null &&
+      (!Number.isFinite(warning) || warning < min || warning > max)
+    ) {
       showToast("error", "Warning value must be within the configured range.");
       return false;
     }
 
-    if (danger < min || danger > max) {
+    if (
+      danger !== null &&
+      (!Number.isFinite(danger) || danger < min || danger > max)
+    ) {
       showToast("error", "Danger value must be within the configured range.");
       return false;
     }
@@ -4532,6 +5675,48 @@ export default function TemplateDesigner({
     };
   };
 
+  const validateProcessEquipmentConfig = () => {
+    if (newType !== "processEquipment") return true;
+
+    const selectedSet = new Set(newDataKeys.filter(Boolean));
+    const bindings = Object.values(
+      newProcessEquipmentConfig?.metricBindings || {}
+    ).filter((key) => selectedSet.has(key));
+
+    if (bindings.length === 0) {
+      showToast(
+        "error",
+        "Map at least one selected data source to an equipment metric."
+      );
+      return false;
+    }
+
+    return true;
+  };
+
+  const validateCustomLayoutConfig = () => {
+    if (newType !== "customLayout") return true;
+
+    const config = normalizeCustomLayoutConfig(
+      newCustomLayoutConfig
+    );
+    const hasConfiguredPart = config.parts.some(
+      (part) =>
+        Boolean(part.dataKey) ||
+        (Array.isArray(part.dataKeys) && part.dataKeys.length > 0)
+    );
+
+    if (!hasConfiguredPart) {
+      showToast(
+        "error",
+        "Configure at least one custom section with a selected data source."
+      );
+      return false;
+    }
+
+    return true;
+  };
+
   // ADD WIDGET
   const addWidget = () => {
     if (!activeCell) return;
@@ -4539,6 +5724,8 @@ export default function TemplateDesigner({
     if (!validateRangeConfig()) return;
     if (!validateBigNumberDataSources()) return;
     if (!validateCompositeConfig()) return;
+    if (!validateProcessEquipmentConfig()) return;
+    if (!validateCustomLayoutConfig()) return;
 
     if (
       isMultiDataWidget &&
@@ -4556,19 +5743,48 @@ export default function TemplateDesigner({
     const preparedSankeyConfig = getPreparedSankeyConfig();
     const hasValidSankeyOutput =
       newType !== "sankey" ||
-      preparedSankeyConfig.links.some(
-        (link) =>
-          link.dataKey ||
-          link.dataSource?.channel
+      preparedSankeyConfig.outputs.some(
+        (output) =>
+          output.name &&
+          (
+            output.dataKey ||
+            output.dataSource?.channel
+          )
       );
 
     if (!hasValidSankeyOutput) {
       showToast(
         "error",
-        "Please configure at least one Sankey flow with a process field."
+        "Please configure at least one Sankey output with a channel or existing data key."
       );
 
       return;
+    }
+
+    if (
+      newType === "sankey"
+    ) {
+      const unmappedTerminalFlows =
+        getUnmappedTerminalSankeyFlows(
+          preparedSankeyConfig
+        );
+
+      if (
+        unmappedTerminalFlows.length >
+        0
+      ) {
+        showToast(
+          "error",
+          `${unmappedTerminalFlows.length} terminal Sankey flow${
+            unmappedTerminalFlows.length === 1
+              ? " still needs"
+              : "s still need"
+          } a connected data source. Open the Sankey Flow Editor and assign one before saving.`,
+          "Sankey data source required"
+        );
+
+        return;
+      }
     }
 
     const sankeyDataKeys = getSankeyDataKeys(preparedSankeyConfig);
@@ -4620,20 +5836,45 @@ export default function TemplateDesigner({
           : undefined,
 
       chartDisplay:
-        ["line", "bar", "composite"].includes(
+        ["line", "bar", "heatmap", "composite"].includes(
           newType
         )
-          ? { ...newChartDisplay }
+          ? normalizeChartDisplay(newChartDisplay)
           : undefined,
 
       historyWindow:
-        ["line", "composite"].includes(newType)
+        ["line", "heatmap", "composite"].includes(newType)
           ? newHistoryWindow
           : undefined,
 
       compositeConfig:
         newType === "composite"
           ? getPreparedCompositeConfig()
+          : undefined,
+
+      processEquipmentConfig:
+        newType === "processEquipment"
+          ? normalizeProcessEquipmentConfig(
+              newProcessEquipmentConfig
+            )
+          : undefined,
+
+      processViewConfig:
+        newType === "processView"
+          ? normalizeProcessViewConfig({
+              ...newProcessViewConfig,
+              templateId:
+                newProcessViewConfig?.templateId ??
+                selectedTemplate?.id ??
+                null,
+            })
+          : undefined,
+
+      customLayoutConfig:
+        newType === "customLayout"
+          ? normalizeCustomLayoutConfig(
+              newCustomLayoutConfig
+            )
           : undefined,
 
       x: activeCell.col,
@@ -4649,13 +5890,9 @@ export default function TemplateDesigner({
 
       logDisplay:
         newType === "logs"
-          ? {
-              ...newLogDisplay,
-              levelFilter: [
-                ...(newLogDisplay.levelFilter ||
-                  []),
-              ],
-            }
+          ? getPreparedLogDisplay(
+              newLogDisplay
+            )
           : undefined,
 
       logs: undefined,
@@ -4667,6 +5904,11 @@ export default function TemplateDesigner({
         ? { ...newRangeConfig }
         : undefined,
 
+      gaugeDisplay:
+        newType === "gauge"
+          ? normalizeGaugeDisplay(newGaugeDisplay)
+          : undefined,
+
       image:
         newType === "image"
           ? imageDraft
@@ -4675,6 +5917,18 @@ export default function TemplateDesigner({
       pins:
         newType === "image"
           ? imageDraftPins
+          : undefined,
+
+      customDataOptions:
+        newType === "image"
+          ? deduplicateDataOptions(
+              imageDraftDataOptions
+            )
+          : undefined,
+
+      imageDataMapping:
+        newType === "image"
+          ? imageDraftDataMapping
           : undefined,
 
       sankeyConfig:
@@ -4702,6 +5956,8 @@ export default function TemplateDesigner({
     setActiveCell(null);
     setNewLabel("");
     setImageDraftPins([]);
+    setImageDraftDataOptions([]);
+    setImageDraftDataMapping(null);
     setImageDraft(defaultImageDraft);
     setSankeyConfig(defaultSankeyConfig);
     setNewBigNumberDisplay({
@@ -4714,17 +5970,33 @@ export default function TemplateDesigner({
     setNewRangeConfig({
       ...defaultRangeConfig,
     });
+    setNewGaugeDisplay({ ...defaultGaugeDisplay });
 
     setNewCompositeConfig(
       normalizeCompositeConfig()
     );
 
-    setNewLogDisplay({
-      ...defaultLogDisplay,
-      levelFilter: [
-        ...defaultLogDisplay.levelFilter,
-      ],
-    });
+    setNewProcessEquipmentConfig(
+      normalizeProcessEquipmentConfig(
+        DEFAULT_PROCESS_EQUIPMENT_CONFIG
+      )
+    );
+
+    setNewProcessViewConfig(
+      normalizeProcessViewConfig(
+        DEFAULT_PROCESS_VIEW_CONFIG
+      )
+    );
+
+    setNewCustomLayoutConfig(
+      normalizeCustomLayoutConfig(
+        DEFAULT_CUSTOM_LAYOUT_CONFIG
+      )
+    );
+
+    setNewLogDisplay(
+      getPreparedLogDisplay()
+    );
   };
 
   // UPDATE WIDGET
@@ -4734,6 +6006,8 @@ export default function TemplateDesigner({
     if (!validateRangeConfig()) return;
     if (!validateBigNumberDataSources()) return;
     if (!validateCompositeConfig()) return;
+    if (!validateProcessEquipmentConfig()) return;
+    if (!validateCustomLayoutConfig()) return;
 
     if (
       isMultiDataWidget &&
@@ -4750,19 +6024,48 @@ export default function TemplateDesigner({
     const preparedSankeyConfig = getPreparedSankeyConfig();
     const hasValidSankeyOutput =
       newType !== "sankey" ||
-      preparedSankeyConfig.links.some(
-        (link) =>
-          link.dataKey ||
-          link.dataSource?.channel
+      preparedSankeyConfig.outputs.some(
+        (output) =>
+          output.name &&
+          (
+            output.dataKey ||
+            output.dataSource?.channel
+          )
       );
 
     if (!hasValidSankeyOutput) {
       showToast(
         "error",
-        "Please configure at least one Sankey flow with a process field."
+        "Please configure at least one Sankey output with a channel or existing data key."
       );
 
       return;
+    }
+
+    if (
+      newType === "sankey"
+    ) {
+      const unmappedTerminalFlows =
+        getUnmappedTerminalSankeyFlows(
+          preparedSankeyConfig
+        );
+
+      if (
+        unmappedTerminalFlows.length >
+        0
+      ) {
+        showToast(
+          "error",
+          `${unmappedTerminalFlows.length} terminal Sankey flow${
+            unmappedTerminalFlows.length === 1
+              ? " still needs"
+              : "s still need"
+          } a connected data source. Open the Sankey Flow Editor and assign one before saving.`,
+          "Sankey data source required"
+        );
+
+        return;
+      }
     }
 
     const sankeyDataKeys = getSankeyDataKeys(preparedSankeyConfig);
@@ -4832,14 +6135,14 @@ export default function TemplateDesigner({
                 : undefined,
 
             chartDisplay:
-              ["line", "bar", "composite"].includes(
+              ["line", "bar", "heatmap", "composite"].includes(
                 newType
               )
-                ? { ...newChartDisplay }
+                ? normalizeChartDisplay(newChartDisplay)
                 : undefined,
 
             historyWindow:
-              ["line", "composite"].includes(
+              ["line", "heatmap", "composite"].includes(
                 newType
               )
                 ? newHistoryWindow
@@ -4849,6 +6152,31 @@ export default function TemplateDesigner({
               newType === "composite"
                 ? getPreparedCompositeConfig()
                 : undefined,
+
+            processEquipmentConfig:
+              newType === "processEquipment"
+                ? normalizeProcessEquipmentConfig(
+                    newProcessEquipmentConfig
+                  )
+                : selectedItem.processEquipmentConfig,
+
+            processViewConfig:
+              newType === "processView"
+                ? normalizeProcessViewConfig({
+                    ...newProcessViewConfig,
+                    templateId:
+                      newProcessViewConfig?.templateId ??
+                      selectedTemplate?.id ??
+                      null,
+                  })
+                : selectedItem.processViewConfig,
+
+            customLayoutConfig:
+              newType === "customLayout"
+                ? normalizeCustomLayoutConfig(
+                    newCustomLayoutConfig
+                  )
+                : selectedItem.customLayoutConfig,
 
             w: newW,
             h: newH,
@@ -4860,13 +6188,9 @@ export default function TemplateDesigner({
 
             logDisplay:
               newType === "logs"
-                ? {
-                    ...newLogDisplay,
-                    levelFilter: [
-                      ...(newLogDisplay.levelFilter ||
-                        []),
-                    ],
-                  }
+                ? getPreparedLogDisplay(
+                    newLogDisplay
+                  )
                 : undefined,
 
             logs:
@@ -4881,6 +6205,11 @@ export default function TemplateDesigner({
               ? { ...newRangeConfig }
               : undefined,
 
+            gaugeDisplay:
+              newType === "gauge"
+                ? normalizeGaugeDisplay(newGaugeDisplay)
+                : undefined,
+
             image:
               newType === "image"
                 ? imageDraft
@@ -4890,6 +6219,18 @@ export default function TemplateDesigner({
               newType === "image"
                 ? imageDraftPins
                 : selectedItem.pins || [],
+
+            customDataOptions:
+              newType === "image"
+                ? deduplicateDataOptions(
+                    imageDraftDataOptions
+                  )
+                : selectedItem.customDataOptions,
+
+            imageDataMapping:
+              newType === "image"
+                ? imageDraftDataMapping
+                : selectedItem.imageDataMapping,
 
             sankeyConfig:
               newType === "sankey"
@@ -4905,6 +6246,8 @@ export default function TemplateDesigner({
     setActiveItemId(null);
     setNewLabel("");
     setImageDraftPins([]);
+    setImageDraftDataOptions([]);
+    setImageDraftDataMapping(null);
     setImageDraft(defaultImageDraft);
     setSankeyConfig(defaultSankeyConfig);
     setNewBigNumberDisplay({
@@ -4917,17 +6260,27 @@ export default function TemplateDesigner({
     setNewRangeConfig({
       ...defaultRangeConfig,
     });
+    setNewGaugeDisplay({ ...defaultGaugeDisplay });
 
     setNewCompositeConfig(
       normalizeCompositeConfig()
     );
 
-    setNewLogDisplay({
-      ...defaultLogDisplay,
-      levelFilter: [
-        ...defaultLogDisplay.levelFilter,
-      ],
-    });
+    setNewProcessEquipmentConfig(
+      normalizeProcessEquipmentConfig(
+        DEFAULT_PROCESS_EQUIPMENT_CONFIG
+      )
+    );
+
+    setNewCustomLayoutConfig(
+      normalizeCustomLayoutConfig(
+        DEFAULT_CUSTOM_LAYOUT_CONFIG
+      )
+    );
+
+    setNewLogDisplay(
+      getPreparedLogDisplay()
+    );
   };
 
   // REMOVE WIDGET
@@ -4940,6 +6293,8 @@ export default function TemplateDesigner({
     setActiveItemId(null);
     setNewLabel("");
     setImageDraftPins([]);
+    setImageDraftDataOptions([]);
+    setImageDraftDataMapping(null);
     setImageDraft(defaultImageDraft);
     setSankeyConfig(defaultSankeyConfig);
     setNewBigNumberDisplay({
@@ -4952,13 +6307,11 @@ export default function TemplateDesigner({
     setNewRangeConfig({
       ...defaultRangeConfig,
     });
+    setNewGaugeDisplay({ ...defaultGaugeDisplay });
 
-    setNewLogDisplay({
-      ...defaultLogDisplay,
-      levelFilter: [
-        ...defaultLogDisplay.levelFilter,
-      ],
-    });
+    setNewLogDisplay(
+      getPreparedLogDisplay()
+    );
   };
 
   // CREATE OR UPDATE TEMPLATE
@@ -5065,11 +6418,20 @@ export default function TemplateDesigner({
         throw new Error(text);
       }
 
+      // The backend save is now authoritative. Remove the temporary working
+      // draft so reopening this template loads the newly saved version.
+      clearPageDraft(designerDraftKey);
+
       setToast({
         type: "success",
-        message: isEditingTemplate
-          ? "Template updated successfully."
-          : "Template created successfully.",
+        title:
+          isEditingTemplate
+            ? "Template updated"
+            : "Template created",
+        message:
+          isEditingTemplate
+            ? "The template changes were saved successfully."
+            : "The new template was created successfully.",
       });
 
       setTimeout(() => {
@@ -5130,14 +6492,14 @@ export default function TemplateDesigner({
             : undefined,
 
         chartDisplay:
-          ["line", "bar"].includes(
+          ["line", "bar", "heatmap"].includes(
             newType
           )
-            ? { ...newChartDisplay }
+            ? normalizeChartDisplay(newChartDisplay)
             : undefined,
 
         historyWindow:
-          newType === "line"
+          ["line", "heatmap"].includes(newType)
             ? newHistoryWindow
             : undefined,
 
@@ -5151,13 +6513,9 @@ export default function TemplateDesigner({
 
         logDisplay:
           newType === "logs"
-            ? {
-                ...newLogDisplay,
-                levelFilter: [
-                  ...(newLogDisplay.levelFilter ||
-                    []),
-                ],
-              }
+            ? getPreparedLogDisplay(
+                newLogDisplay
+              )
             : undefined,
 
         logs: undefined,
@@ -5169,6 +6527,36 @@ export default function TemplateDesigner({
           ? { ...newRangeConfig }
           : undefined,
 
+        gaugeDisplay:
+          newType === "gauge"
+            ? normalizeGaugeDisplay(newGaugeDisplay)
+            : undefined,
+
+        processEquipmentConfig:
+          newType === "processEquipment"
+            ? normalizeProcessEquipmentConfig(
+                newProcessEquipmentConfig
+              )
+            : undefined,
+
+        processViewConfig:
+          newType === "processView"
+            ? normalizeProcessViewConfig({
+                ...newProcessViewConfig,
+                templateId:
+                  newProcessViewConfig?.templateId ??
+                  selectedTemplate?.id ??
+                  null,
+              })
+            : undefined,
+
+        customLayoutConfig:
+          newType === "customLayout"
+            ? normalizeCustomLayoutConfig(
+                newCustomLayoutConfig
+              )
+            : undefined,
+
         sankeyConfig:
           newType === "sankey"
             ? getPreparedSankeyConfig()
@@ -5177,12 +6565,13 @@ export default function TemplateDesigner({
     : null;
 
   const isDataSourceRequired =
-    !["image", "sankey", "logs"].includes(newType);
+    !["image", "sankey", "logs", "processView"].includes(
+      newType
+    );
 
-  // Logs is fully configured after Appearance and does not require
-  // a direct process-field selection in Step 1.
+  // Events & Alarms keeps the legacy internal type "logs" and uses its dedicated event feed.
   const skipsWidgetDataSourceStep =
-    newType === "logs";
+    ["logs", "processView"].includes(newType);
 
   const hasSelectedDataSource =
     newType === "sankey"
@@ -5190,6 +6579,42 @@ export default function TemplateDesigner({
       : isMultiDataWidget
       ? newDataKeys.length > 0
       : Boolean(newDataKey);
+
+  const selectedSourceCount =
+    newType === "sankey"
+      ? getConfiguredSankeyOutputs().length
+      : isMultiDataWidget
+      ? newDataKeys.filter(Boolean).length
+      : newDataKey
+      ? 1
+      : 0;
+
+  const selectedWidgetTypeLabel =
+    allWidgetOptions.find((option) =>
+      option.isCustomWidgetType
+        ? option.optionId === newWidgetTypeId
+        : !newWidgetTypeId &&
+          option.type === newType
+    )?.label ||
+    getDefaultWidgetLabel(newType).replace(
+      / Widget$/,
+      ""
+    );
+
+  const widgetSummarySourceText =
+    newType === "image"
+      ? "Interactive process image / overlays"
+      : newType === "logs"
+      ? "Events / alarm feed"
+      : newType === "processView"
+      ? "Saved Process Flow"
+      : newType === "sankey"
+      ? `${selectedSourceCount} configured output${
+          selectedSourceCount === 1 ? "" : "s"
+        }`
+      : `${selectedSourceCount} source${
+          selectedSourceCount === 1 ? "" : "s"
+        }`;
 
   const selectedPreviewKeys = isMultiDataWidget
     ? newDataKeys
@@ -5308,58 +6733,111 @@ export default function TemplateDesigner({
   }, [rows, cols]);
 
   // Keep the editor grid geometry aligned with Dashboard.jsx.
-  const gridGapPx = DESIGNER_GRID_GAP_PX;
+  const gridGapPx = 8;
 
   /*
-   * DASHBOARD-MATCHED WIDGET HEIGHT
-   * -------------------------------
-   * Dashboard.jsx allows a normal 3-row dashboard to use up to 235px
-   * per grid row. The Template Designer used to derive row height from
-   * column width, which made the same widget look noticeably shorter in
-   * the editor.
+   * LANDSCAPE GRID CELLS
+   * --------------------
+   * A grid unit represents layout space, not a square.
    *
-   * Keep every designer row at the dashboard card height instead. This is
-   * intentionally independent of viewport height: a taller template simply
-   * extends the page and the existing template-builder overflow lets the
-   * user scroll up/down.
+   * The previous implementation derived row height from the remaining
+   * viewport height. At 12 columns this created very narrow, tall cells.
    *
-   * Fit / Fixed now affects horizontal sizing only.
+   * Instead, row height now follows COLUMN WIDTH.
+   *
+   * Target:
+   *   width : height ≈ 1.65 : 1
+   *
+   * Examples on a normal desktop:
+   *   4 columns  -> about 220px high (capped)
+   *   8 columns  -> about 115px high
+   *   12 columns -> about 70px high
+   *
+   * A minimum logical cell width is also preserved. If the screen becomes
+   * too narrow for all columns, the builder scrolls horizontally instead of
+   * turning cells into portrait rectangles.
    */
-  const dashboardGridRowHeight = DASHBOARD_GRID_ROW_HEIGHT_PX;
+  const targetCellAspectRatio = 1.65;
 
   /*
    * FIT MODE
    * --------
-   * All columns fit inside the visible editor width, matching Dashboard's
-   * responsive column behavior. Vertical widget height stays unchanged.
+   * All columns must fit inside the visible editor width, so cells shrink
+   * when more columns are added.
    */
-  const fitCellWidth = getDesignerCellWidth(
-    "fit",
-    gridViewportWidth,
-    cols
-  );
+  const fitMinimumCellWidthPx = 28;
+
+  const fitCellWidth =
+    Math.max(
+      fitMinimumCellWidthPx,
+      (
+        gridViewportWidth -
+        Math.max(0, cols - 1) *
+          gridGapPx
+      ) /
+        cols
+    );
 
   /*
-   * FIXED / HORIZONTAL-SCROLL MODE
-   * ------------------------------
-   * Preserve a comfortable column width when there are many columns.
-   * Row height remains the exact same dashboard-matched height.
+   * SCROLL MODE
+   * -----------
+   * Cell size must NOT shrink when more columns are added.
+   *
+   * We use the comfortable size of a 4-column canvas as the reference cell
+   * size. A 4-column, 8-column, or 12-column template therefore uses the
+   * SAME 1×1 widget-box dimensions in Scroll mode.
+   *
+   * More columns only make the canvas wider, which produces horizontal
+   * scrolling.
    */
-  const scrollCellWidth = getDesignerCellWidth(
-    "scroll",
-    gridViewportWidth,
-    cols
-  );
+  const scrollReferenceColumns = 4;
+  const scrollMinimumCellWidthPx = 180;
+  const scrollMaximumCellWidthPx = 320;
+
+  const scrollCellWidth =
+    Math.round(
+      Math.max(
+        scrollMinimumCellWidthPx,
+        Math.min(
+          scrollMaximumCellWidthPx,
+          (
+            gridViewportWidth -
+            Math.max(
+              0,
+              scrollReferenceColumns - 1
+            ) *
+              gridGapPx
+          ) /
+            scrollReferenceColumns
+        )
+      )
+    );
+
+  const maximumGridRowHeight = 220;
+  const minimumFitRowHeight = 34;
+  const minimumScrollRowHeight = 105;
 
   const calculatedCellWidth =
     canvasMode === "scroll"
       ? scrollCellWidth
       : fitCellWidth;
 
-  // Deliberately fixed to Dashboard's standard 3-row card height.
-  // Do not shrink this to make all configured rows fit on one screen.
+  const minimumRowHeight =
+    canvasMode === "scroll"
+      ? minimumScrollRowHeight
+      : minimumFitRowHeight;
+
   const fittedGridRowHeight =
-    dashboardGridRowHeight;
+    Math.round(
+      Math.max(
+        minimumRowHeight,
+        Math.min(
+          maximumGridRowHeight,
+          calculatedCellWidth /
+            targetCellAspectRatio
+        )
+      )
+    );
 
   const scrollGridWidth =
     cols * scrollCellWidth +
@@ -5675,23 +7153,56 @@ export default function TemplateDesigner({
                 ["max", "Maximum"],
                 ["warning", "Warning"],
                 ["danger", "Danger"],
-              ].map(([key, label]) => (
-                <div key={key}>
-                  <label className="mb-1 block text-[10px] font-semibold text-slate-500">
-                    {label}
-                  </label>
-                  <input
-                    type="number"
-                    value={partConfig.rangeConfig[key]}
-                    onChange={(event) =>
-                      updateNested("rangeConfig", {
-                        [key]: event.target.value,
-                      })
-                    }
-                    className={compactInput}
-                  />
-                </div>
-              ))}
+              ].map(([key, label]) => {
+                const optionalThreshold = key === "warning" || key === "danger";
+                const thresholdEnabled = optionalThreshold
+                  ? isThresholdEnabled(partConfig.rangeConfig[key])
+                  : true;
+
+                return (
+                  <div key={key}>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label className="block text-[10px] font-semibold text-slate-500">
+                        {label}
+                      </label>
+
+                      {optionalThreshold && (
+                        <label className="flex cursor-pointer items-center gap-1 text-[9px] font-semibold text-slate-400">
+                          <input
+                            type="checkbox"
+                            checked={thresholdEnabled}
+                            onChange={(event) =>
+                              updateNested("rangeConfig", {
+                                [key]: event.target.checked
+                                  ? getDefaultThresholdValue(key, partConfig.rangeConfig)
+                                  : "",
+                              })
+                            }
+                          />
+                          Enabled
+                        </label>
+                      )}
+                    </div>
+
+                    <input
+                      type="number"
+                      value={partConfig.rangeConfig[key] ?? ""}
+                      disabled={optionalThreshold && !thresholdEnabled}
+                      placeholder={optionalThreshold && !thresholdEnabled ? "Disabled" : ""}
+                      onChange={(event) =>
+                        updateNested("rangeConfig", {
+                          [key]: event.target.value,
+                        })
+                      }
+                      className={`${compactInput} ${
+                        optionalThreshold && !thresholdEnabled
+                          ? "cursor-not-allowed opacity-50"
+                          : ""
+                      }`}
+                    />
+                  </div>
+                );
+              })}
 
               <div className="col-span-2">
                 <label className="mb-1 block text-[10px] font-semibold text-slate-500">
@@ -5821,11 +7332,7 @@ export default function TemplateDesigner({
                     Y-axis
                   </label>
                   <select
-                    value={
-                      partConfig.chartDisplay.yAxisMode === "auto"
-                        ? "auto"
-                        : "fixed"
-                    }
+                    value={partConfig.chartDisplay.yAxisMode || "auto"}
                     onChange={(event) =>
                       updateNested("chartDisplay", {
                         yAxisMode: event.target.value,
@@ -5833,44 +7340,11 @@ export default function TemplateDesigner({
                     }
                     className={compactInput}
                   >
-                    <option value="auto">Smart Auto</option>
-                    <option value="fixed">Fixed Scale</option>
+                    <option value="auto">Automatic</option>
+                    <option value="range">Data Range</option>
                   </select>
                 </div>
               </div>
-
-              {partConfig.chartDisplay.yAxisMode !== "auto" && (
-                <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900/60">
-                  {[
-                    ["yAxisMin", "Min", partConfig.rangeConfig.min],
-                    ["yAxisMax", "Max", partConfig.rangeConfig.max],
-                    ["yAxisInterval", "Interval", ""],
-                  ].map(([key, label, placeholder]) => (
-                    <div key={key}>
-                      <label className="mb-1 block text-[10px] font-semibold text-slate-500">
-                        {label}
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        min={key === "yAxisInterval" ? "0" : undefined}
-                        value={partConfig.chartDisplay[key] ?? ""}
-                        placeholder={String(placeholder ?? "")}
-                        onChange={(event) =>
-                          updateNested("chartDisplay", {
-                            yAxisMode: "fixed",
-                            [key]: event.target.value,
-                          })
-                        }
-                        className={compactInput}
-                      />
-                    </div>
-                  ))}
-                  <p className="col-span-3 text-[10px] leading-4 text-slate-500 dark:text-slate-400">
-                    Example: 0 to 400 with interval 100 gives 0, 100, 200, 300, 400.
-                  </p>
-                </div>
-              )}
 
               <div className="grid grid-cols-2 gap-1.5">
                 {[
@@ -5985,7 +7459,6 @@ export default function TemplateDesigner({
             </div>
           )}
 
-
         </div>
       </details>
     );
@@ -6000,34 +7473,34 @@ export default function TemplateDesigner({
         }
 
         .dark .template-builder .bg-white {
-          background-color: #111B34 !important;
+          background-color: #0f172a !important;
         }
 
         .dark .template-builder .bg-gray-50 {
-          background-color: #0B1328 !important;
+          background-color: #0b1220 !important;
         }
 
         .dark .template-builder .bg-gray-100 {
-          background-color: #0B1328 !important;
+          background-color: #0b1220 !important;
         }
 
         .dark .template-builder .bg-gray-200 {
-          background-color: #1B2948 !important;
+          background-color: #1e293b !important;
         }
 
         .dark .template-builder .bg-gray-800,
         .dark .template-builder .bg-slate-800 {
-          background-color: #1B2948 !important;
+          background-color: #1e293b !important;
         }
 
         .dark .template-builder .bg-gray-900,
         .dark .template-builder .bg-slate-900 {
-          background-color: #111B34 !important;
+          background-color: #0f172a !important;
         }
 
         .dark .template-builder .bg-gray-950,
         .dark .template-builder .bg-slate-950 {
-          background-color: #081022 !important;
+          background-color: #020617 !important;
         }
 
         .dark .template-builder .border-gray-200,
@@ -6035,7 +7508,7 @@ export default function TemplateDesigner({
         .dark .template-builder .border-gray-700,
         .dark .template-builder .border-slate-700,
         .dark .template-builder .border-slate-600 {
-          border-color: #2C3C61 !important;
+          border-color: #334155 !important;
         }
 
         .dark .template-builder .text-gray-900,
@@ -6061,7 +7534,7 @@ export default function TemplateDesigner({
         .dark .template-builder select,
         .dark .template-builder textarea {
           color: #f8fafc !important;
-          background-color: #081022 !important;
+          background-color: #020617 !important;
           border-color: #475569 !important;
         }
 
@@ -6072,17 +7545,17 @@ export default function TemplateDesigner({
 
         .dark .template-builder option {
           color: #f8fafc !important;
-          background-color: #081022 !important;
+          background-color: #020617 !important;
         }
 
         .dark .template-builder .hover\:bg-gray-100:hover,
         .dark .template-builder .hover\:bg-gray-50:hover {
-          background-color: #1B2948 !important;
+          background-color: #1e293b !important;
         }
 
         .dark .template-builder .dark\:hover\:bg-gray-800:hover,
         .dark .template-builder .dark\:hover\:bg-slate-800:hover {
-          background-color: #1B2948 !important;
+          background-color: #1e293b !important;
         }
 
         .template-builder .data-mapping-toggle {
@@ -6463,7 +7936,7 @@ export default function TemplateDesigner({
                   dark:border-slate-700
                   dark:bg-slate-950
                 "
-                title="Both modes keep Dashboard-height widgets · Fit fits columns to the page · Fixed preserves column width and scrolls horizontally"
+                title="Fit shrinks cells to show everything · Fixed preserves widget size and scrolls horizontally"
               >
                 <button
                   type="button"
@@ -6483,7 +7956,7 @@ export default function TemplateDesigner({
                         : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                     }
                   `}
-                  title="Fit all columns inside the page while keeping Dashboard widget height"
+                  title="Fit all columns inside the page"
                 >
                   <Scan size={12} />
                   Fit
@@ -6510,7 +7983,7 @@ export default function TemplateDesigner({
                         : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                     }
                   `}
-                  title="Keep Dashboard-height widgets and a comfortable column width · horizontal scrolling appears when needed"
+                  title="Fixed-size widgets · horizontal scrolling appears when needed"
                 >
                   <MoveHorizontal
                     size={12}
@@ -6613,10 +8086,10 @@ export default function TemplateDesigner({
       >
         <span>
           {canvasMode === "fit"
-            ? `Dashboard size · Fit columns · ${Math.round(
+            ? `Fit mode · all ${cols} columns visible · ${Math.round(
                 calculatedCellWidth
-              )} × ${fittedGridRowHeight}px per unit · vertical scrolling allowed`
-            : `Dashboard size · Fixed columns · ${scrollCellWidth} × ${fittedGridRowHeight}px per unit · scrolling allowed`}
+              )} × ${fittedGridRowHeight}px per unit`
+            : `Fixed mode · ${scrollCellWidth} × ${fittedGridRowHeight}px per unit · adding columns only widens the canvas`}
         </span>
 
         <span>
@@ -6730,6 +8203,8 @@ export default function TemplateDesigner({
                 setNewW(1);
                 setNewH(1);
                 setImageDraftPins([]);
+                setImageDraftDataOptions([]);
+                setImageDraftDataMapping(null);
                 setImageDraft(defaultImageDraft);
 
                 setWidgetStep(1);
@@ -6861,10 +8336,9 @@ export default function TemplateDesigner({
 
               if (didDrag) return;
 
-              setActiveItemId(item.id);
-              setActiveCell(null);
-              setWidgetStep(1);
-              setShowModal(true);
+              openWidgetForEdit(
+                item
+              );
             }}
             className={`
               group
@@ -6983,7 +8457,7 @@ export default function TemplateDesigner({
               "
             >
               {item.type === "image" ? (
-                <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-[#081022]">
+                <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-[#050a1e]">
                   <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
                     <WidgetRenderer
                       type={item.type}
@@ -7092,8 +8566,12 @@ export default function TemplateDesigner({
             backdrop-blur-xl
             ${
               toast.type === "error"
-                ? "border-red-200 bg-white dark:bg-slate-900/95 text-red-800 dark:border-red-900 dark:bg-gray-900/95 dark:text-red-200"
-                : "border-emerald-200 bg-white dark:bg-slate-900/95 text-emerald-800 dark:border-emerald-900 dark:bg-gray-900/95 dark:text-emerald-200"
+                ? "border-red-200 bg-white text-red-800 dark:border-red-900 dark:bg-gray-900/95 dark:text-red-200"
+                : toast.type === "warning"
+                ? "border-amber-200 bg-white text-amber-800 dark:border-amber-900 dark:bg-gray-900/95 dark:text-amber-200"
+                : toast.type === "info"
+                ? "border-sky-200 bg-white text-sky-800 dark:border-sky-900 dark:bg-gray-900/95 dark:text-sky-200"
+                : "border-emerald-200 bg-white text-emerald-800 dark:border-emerald-900 dark:bg-gray-900/95 dark:text-emerald-200"
             }
           `}
           role="status"
@@ -7104,11 +8582,16 @@ export default function TemplateDesigner({
               ${
                 toast.type === "error"
                   ? "bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-300"
+                  : toast.type === "warning"
+                  ? "bg-amber-100 text-amber-600 dark:bg-amber-950/70 dark:text-amber-300"
+                  : toast.type === "info"
+                  ? "bg-sky-100 text-sky-600 dark:bg-sky-950/70 dark:text-sky-300"
                   : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-300"
               }
             `}
           >
-            {toast.type === "error" ? (
+            {toast.type === "error" ||
+            toast.type === "warning" ? (
               <AlertCircle size={19} />
             ) : (
               <CheckCircle2 size={19} />
@@ -7117,7 +8600,14 @@ export default function TemplateDesigner({
 
           <div className="min-w-0 flex-1 pt-0.5">
             <p className="text-sm font-bold">
-              {toast.type === "error" ? "Action required" : "Template created"}
+              {toast.title ||
+                (toast.type === "error"
+                  ? "Action required"
+                  : toast.type === "warning"
+                  ? "Check configuration"
+                  : toast.type === "info"
+                  ? "Information"
+                  : "Changes saved")}
             </p>
             <p className="mt-1 text-sm leading-relaxed opacity-90">
               {toast.message}
@@ -7129,7 +8619,7 @@ export default function TemplateDesigner({
             onClick={() => setToast(null)}
             className="
               rounded-xl p-1.5 text-gray-400 dark:text-slate-400 transition
-              hover:bg-gray-100 dark:bg-[#081022] hover:text-gray-700 dark:text-slate-200
+              hover:bg-gray-100 dark:bg-[#050a1e] hover:text-gray-700 dark:text-slate-200
               dark:hover:bg-gray-800 dark:hover:text-white
             "
             aria-label="Dismiss notification"
@@ -7213,18 +8703,15 @@ export default function TemplateDesigner({
                   <button
                     type="button"
                     onClick={async () => {
-                      const confirmed =
-                        await confirmAction({
-                          title: "Delete widget?",
-                          message: "Delete this widget from the template?",
-                          confirmLabel: "Delete Widget",
-                          tone: "danger",
-                        });
+                      const confirmed = await confirmAction({
+                        title: "Delete widget?",
+                        message: "Remove this widget from the template?",
+                        confirmLabel: "Delete Widget",
+                        tone: "danger",
+                      });
 
                       if (confirmed) {
-                        removeWidget(
-                          selectedItem.id
-                        );
+                        removeWidget(selectedItem.id);
                       }
                     }}
                     className="
@@ -7325,7 +8812,7 @@ export default function TemplateDesigner({
               "
               style={{
                 gridTemplateColumns:
-                  `minmax(0, ${studioSplit}fr) 8px minmax(300px, ${100 - studioSplit}fr)`,
+                  `minmax(0, ${studioSplit}fr) 8px minmax(400px, ${100 - studioSplit}fr)`,
               }}
             >
               {/* LEFT PREVIEW */}
@@ -7335,7 +8822,7 @@ export default function TemplateDesigner({
                   grid min-h-0
                   overflow-hidden
                   bg-slate-100
-                  dark:bg-[#081022]
+                  dark:bg-[#050a1e]
                 "
                 style={{
                   gridTemplateRows:
@@ -7343,11 +8830,16 @@ export default function TemplateDesigner({
                 }}
               >
                 <div
-                  className="
+                  className={`
                     min-h-0 overflow-hidden
                     px-4 pb-3 pt-3
                     flex flex-col
-                  "
+                    ${
+                      newType === "processView"
+                        ? "pointer-events-auto"
+                        : "pointer-events-none"
+                    }
+                  `}
                 >
                   <div className="mb-4">
                     <p
@@ -7385,7 +8877,7 @@ export default function TemplateDesigner({
                           dark:text-slate-500
                         "
                       >
-                        Actual size {newW}×{newH}
+                        Preview {newW}×{newH}
                       </span>
 
                       {isMultiDataWidget &&
@@ -7436,27 +8928,24 @@ export default function TemplateDesigner({
                   </div>
 
                   <div
+                    ref={studioPreviewHostRef}
                     className="
-                      min-h-0 flex-1 overflow-auto
+                      min-h-0 flex-1
+                      flex items-center justify-center
+                      overflow-hidden
                     "
                   >
                     <div
-                      className="
-                        flex min-h-full min-w-full
-                        items-center justify-center p-2
-                      "
-                      style={{
-                        width: "max-content",
-                        height: "max-content",
-                      }}
-                    >
-                    <div
                       className={
                         newType === "image"
-                          ? "pointer-events-none overflow-hidden rounded-xl bg-gray-200 dark:bg-gray-950"
-                          : "pointer-events-none overflow-hidden"
+                          ? "overflow-hidden rounded-xl bg-gray-200 dark:bg-gray-950"
+                          : "overflow-hidden"
                       }
-                      style={studioPreviewFrameSize}
+                      style={{
+                        ...studioPreviewFrameSize,
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                      }}
                     >
                       {showEmptyLivePreview || showNoValuesLivePreview ? (
                         <button
@@ -7522,6 +9011,8 @@ export default function TemplateDesigner({
                                     ? "line chart"
                                     : newType === "bar"
                                     ? "bar chart"
+                                    : newType === "heatmap"
+                                    ? "heatmap"
                                     : "widget"
                                 } preview.`}
                           </p>
@@ -7534,7 +9025,7 @@ export default function TemplateDesigner({
                               px-5 py-3
                               text-sm font-bold
                               text-white
-                              shadow-sm shadow-cyan-500/20
+                              shadow-sm shadow-emerald-600/20
                               transition
                               group-hover:bg-emerald-700
                               dark:bg-emerald-500
@@ -7566,6 +9057,11 @@ export default function TemplateDesigner({
                                 : undefined,
                           }}
                           history={previewHistory}
+                          historyWindow={
+                            ["line", "heatmap", "composite"].includes(newType)
+                              ? newHistoryWindow
+                              : "15m"
+                          }
                           dataKey={
                             isMultiDataWidget
                               ? newDataKeys[0] ||
@@ -7604,14 +9100,14 @@ export default function TemplateDesigner({
                                 : undefined,
 
                             chartDisplay:
-                              ["line", "bar", "composite"].includes(
+                              ["line", "bar", "heatmap", "composite"].includes(
                                 newType
                               )
-                                ? { ...newChartDisplay }
+                                ? normalizeChartDisplay(newChartDisplay)
                                 : undefined,
 
                             historyWindow:
-                              ["line", "composite"].includes(
+                              ["line", "heatmap", "composite"].includes(
                                 newType
                               )
                                 ? newHistoryWindow
@@ -7634,13 +9130,9 @@ export default function TemplateDesigner({
 
                             logDisplay:
                               newType === "logs"
-                                ? {
-                                    ...newLogDisplay,
-                                    levelFilter: [
-                                      ...(newLogDisplay.levelFilter ||
-                                        []),
-                                    ],
-                                  }
+                                ? getPreparedLogDisplay(
+                                    newLogDisplay
+                                  )
                                 : undefined,
 
                             logs:
@@ -7660,6 +9152,11 @@ export default function TemplateDesigner({
                               ? { ...newRangeConfig }
                               : undefined,
 
+                            gaugeDisplay:
+                              newType === "gauge"
+                                ? normalizeGaugeDisplay(newGaugeDisplay)
+                                : undefined,
+
                             image:
                               newType === "image"
                                 ? imageDraft
@@ -7673,6 +9170,36 @@ export default function TemplateDesigner({
                                   base?.pins ||
                                   [],
 
+                            processEquipmentConfig:
+                              newType === "processEquipment"
+                                ? normalizeProcessEquipmentConfig(
+                                    newProcessEquipmentConfig
+                                  )
+                                : selectedItem?.processEquipmentConfig ||
+                                  base?.processEquipmentConfig,
+
+                            processViewConfig:
+                              newType === "processView"
+                                ? normalizeProcessViewConfig({
+                                    ...newProcessViewConfig,
+                                    templateId:
+                                      newProcessViewConfig?.templateId ??
+                                      selectedItem?.processViewConfig?.templateId ??
+                                      base?.processViewConfig?.templateId ??
+                                      selectedTemplate?.id ??
+                                      null,
+                                  })
+                                : selectedItem?.processViewConfig ||
+                                  base?.processViewConfig,
+
+                            customLayoutConfig:
+                              newType === "customLayout"
+                                ? normalizeCustomLayoutConfig(
+                                    newCustomLayoutConfig
+                                  )
+                                : selectedItem?.customLayoutConfig ||
+                                  base?.customLayoutConfig,
+
                             sankeyConfig:
                               newType === "sankey"
                                 ? getPreparedSankeyConfig()
@@ -7682,7 +9209,6 @@ export default function TemplateDesigner({
                           editMode={false}
                         />
                       )}
-                    </div>
                     </div>
                   </div>
                 </div>
@@ -7798,16 +9324,20 @@ export default function TemplateDesigner({
 
                             <div className="min-w-0">
                               <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                No process source required
+                                {newType === "sankey"
+                                  ? "Data source required in Sankey editor"
+                                  : "No process source required"}
                               </h4>
 
                               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                                 {newType === "logs"
-                                  ? "Logs reads event and activity data through its own log configuration."
+                                  ? "Events & Alarms uses its own event feed and can render as Event Log, Alarm Summary, or Alarm List."
                                   : newType === "image"
-                                  ? "Image widgets configure live sensor pins inside the image editor."
+                                  ? "Interactive Process Image configures live data overlays inside the image editor."
                                   : newType === "sankey"
-                                  ? "Sankey widgets configure their input and output flows inside the Sankey editor."
+                                  ? "Sankey requires connected data sources. Add/edit sources and assign them to terminal flows inside the Sankey editor."
+                                  : newType === "processView"
+                                  ? "Process View can reference a saved Process Flow directly, so Plant Simulator and Dashboard render the same topology."
                                   : "This widget manages its data through a dedicated configuration."}
                               </p>
                             </div>
@@ -7993,24 +9523,39 @@ export default function TemplateDesigner({
                                     dataOption.key);
 
                               return (
-                                <button
+                                <div
                                   key={dataOption.key}
-                                  type="button"
+                                  role="button"
+                                  tabIndex={0}
                                   onClick={() =>
                                     toggleWizardDataSource(
                                       dataOption.key
                                     )
                                   }
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key ===
+                                        "Enter" ||
+                                      event.key === " "
+                                    ) {
+                                      event.preventDefault();
+
+                                      toggleWizardDataSource(
+                                        dataOption.key
+                                      );
+                                    }
+                                  }}
                                   className={`
                                     group/source relative
                                     flex min-w-0 w-full
+                                    cursor-pointer
                                     items-start gap-3
                                     rounded-xl border
                                     p-3 text-left
                                     transition-colors
                                     ${
                                       selected
-                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:border-cyan-500/30 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
                                         : "border-slate-200 bg-slate-50/60 hover:border-emerald-300 hover:bg-emerald-50/40 dark:border-slate-700 dark:bg-slate-950/50 dark:hover:border-emerald-500/40"
                                     }
                                   `}
@@ -8031,7 +9576,7 @@ export default function TemplateDesigner({
                                     <Check size={11} />
                                   </span>
 
-                                  <span className="min-w-0 flex-1 pr-6">
+                                  <span className="min-w-0 flex-1 pr-24">
                                     <span className="block truncate text-sm font-bold text-slate-800 dark:text-white">
                                       {dataOption.label}
                                     </span>
@@ -8069,42 +9614,96 @@ export default function TemplateDesigner({
                                     )}
                                   </span>
 
-                                  {dataOption.isCustom && (
-                                    <span
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        deleteCustomDataSource(
-                                          dataOption.key
-                                        );
-                                      }}
-                                      onKeyDown={(event) => {
-                                        if (
-                                          event.key ===
-                                          "Enter"
-                                        ) {
+                                  <div
+                                    className="
+                                      absolute right-2 top-2
+                                      flex items-center gap-0.5
+                                    "
+                                    onClick={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onKeyDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                  >
+                                    {dataOption.source && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+
+                                            openCopyDataSourceModal(
+                                              dataOption
+                                            );
+                                          }}
+                                          className="
+                                            rounded-lg p-1.5
+                                            text-slate-400
+                                            transition-colors
+                                            hover:bg-sky-50
+                                            hover:text-sky-600
+                                            dark:hover:bg-sky-950/40
+                                            dark:hover:text-sky-300
+                                          "
+                                          title="Copy data source"
+                                          aria-label={`Copy ${dataOption.label}`}
+                                        >
+                                          <Copy size={13} />
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+
+                                            openEditDataSourceModal(
+                                              dataOption
+                                            );
+                                          }}
+                                          className="
+                                            rounded-lg p-1.5
+                                            text-slate-400
+                                            transition-colors
+                                            hover:bg-amber-50
+                                            hover:text-amber-600
+                                            dark:hover:bg-amber-950/40
+                                            dark:hover:text-amber-300
+                                          "
+                                          title="Edit data source"
+                                          aria-label={`Edit ${dataOption.label}`}
+                                        >
+                                          <Pencil size={13} />
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {dataOption.isCustom && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
                                           event.stopPropagation();
+
                                           deleteCustomDataSource(
                                             dataOption.key
                                           );
-                                        }
-                                      }}
-                                      className="
-                                        absolute right-2 top-2
-                                        rounded-lg p-1
-                                        text-slate-400
-                                        transition-colors
-                                        hover:bg-red-50
-                                        hover:text-red-500
-                                        dark:hover:bg-red-950/40
-                                      "
-                                      title="Delete data source"
-                                    >
-                                      <X size={13} />
-                                    </span>
-                                  )}
-                                </button>
+                                        }}
+                                        className="
+                                          rounded-lg p-1.5
+                                          text-slate-400
+                                          transition-colors
+                                          hover:bg-red-50
+                                          hover:text-red-500
+                                          dark:hover:bg-red-950/40
+                                        "
+                                        title="Delete data source"
+                                        aria-label={`Delete ${dataOption.label}`}
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
@@ -8202,7 +9801,11 @@ export default function TemplateDesigner({
                       dark:text-white
                     "
                   >
-                    Add Data Source
+                    {customDataMode === "edit"
+                      ? "Edit Data Source"
+                      : customDataMode === "copy"
+                      ? "Copy Data Source"
+                      : "Add Data Source"}
                   </h3>
 
                   <p
@@ -8212,16 +9815,22 @@ export default function TemplateDesigner({
                       dark:text-slate-300
                     "
                   >
-                    Configure the Influx source directly for this widget, then give it a dashboard name.
+                    {customDataMode === "edit"
+                      ? "Update this connection without breaking widgets that already reference it."
+                      : customDataMode === "copy"
+                      ? "Start from this connection, change only what you need, then save it as a new source."
+                      : "Configure the Influx source directly for this widget, then give it a dashboard name."}
                   </p>
                 </div>
               </div>
 
               <button
                 type="button"
-                onClick={() =>
-                  setShowCustomDataModal(false)
-                }
+                onClick={() => {
+                  setShowCustomDataModal(false);
+                  setCustomDataMode("add");
+                  setEditingDataSourceKey("");
+                }}
                 className="
                   rounded-xl p-2
                   text-slate-400 transition
@@ -9030,32 +10639,40 @@ export default function TemplateDesigner({
                       <input
                         type="text"
                         value={customDataDraft.key}
-                        list="dashboard-key-options"
+                        list={
+                          customDataMode === "edit"
+                            ? undefined
+                            : "dashboard-key-options"
+                        }
+                        readOnly={
+                          customDataMode === "edit"
+                        }
                         onChange={(event) =>
                           setCustomDataDraft(
                             (current) => ({
                               ...current,
-                              key: event.target.value,
+                              key:
+                                event.target.value,
                             })
                           )
                         }
                         placeholder="Auto generated if empty"
-                        className="
+                        className={`
                           mt-2 w-full rounded-xl
-                          border border-slate-300
-                          bg-white px-3 py-2.5
-                          text-sm text-slate-900
-                          outline-none
-                          focus:ring-2
-                          focus:ring-emerald-500
-                          dark:border-slate-600
-                          dark:bg-slate-950
-                          dark:text-white
-                        "
+                          border px-3 py-2.5
+                          text-sm outline-none
+                          ${
+                            customDataMode === "edit"
+                              ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                              : "border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                          }
+                        `}
                       />
 
                       <p className="mt-1 text-[11px] text-slate-400">
-                        Example: doorPressure, sterilizerTemp, oilFlowrate.
+                        {customDataMode === "edit"
+                          ? "Key is kept unchanged so existing widgets continue to work."
+                          : "Example: doorPressure, sterilizerTemp, oilFlowrate."}
                       </p>
                     </label>
 
@@ -9111,7 +10728,11 @@ export default function TemplateDesigner({
                         dark:text-emerald-200
                       "
                     >
-                      After adding, this source becomes available to the current widget.
+                      {customDataMode === "edit"
+                        ? "Saving updates this shared source everywhere it is used."
+                        : customDataMode === "copy"
+                        ? "The copied source gets a new dashboard key and can be changed independently."
+                        : "After adding, this source becomes available to the current widget."}
                     </div>
                   </div>
                 </div>
@@ -9151,9 +10772,11 @@ export default function TemplateDesigner({
             >
               <button
                 type="button"
-                onClick={() =>
-                  setShowCustomDataModal(false)
-                }
+                onClick={() => {
+                  setShowCustomDataModal(false);
+                  setCustomDataMode("add");
+                  setEditingDataSourceKey("");
+                }}
                 className="
                   rounded-xl border
                   border-slate-300 bg-white
@@ -9171,18 +10794,29 @@ export default function TemplateDesigner({
 
               <button
                 type="button"
-                onClick={addCustomDataSource}
+                onClick={saveCustomDataSource}
                 className="
                   inline-flex items-center gap-2
-                  rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500
+                  rounded-xl bg-emerald-600
                   px-5 py-3 text-sm
                   font-semibold text-white
                   shadow-sm shadow-emerald-600/20
-                  transition hover:from-cyan-400 hover:to-indigo-400
+                  transition hover:bg-emerald-700
                 "
               >
-                <Plus size={17} />
-                Connect & Select
+                {customDataMode === "edit" ? (
+                  <Save size={17} />
+                ) : customDataMode === "copy" ? (
+                  <Copy size={17} />
+                ) : (
+                  <Plus size={17} />
+                )}
+
+                {customDataMode === "edit"
+                  ? "Save Changes"
+                  : customDataMode === "copy"
+                  ? "Create Copy"
+                  : "Connect & Select"}
               </button>
             </div>
           </div>
@@ -9235,555 +10869,56 @@ export default function TemplateDesigner({
 
               {/* RIGHT SETTINGS / WIDGET CONFIGURATION */}
               <div
+                ref={
+                  widgetSettingsScrollRef
+                }
                 className="
-                  widget-settings-panel
                   relative min-h-0
                   overflow-y-auto overflow-x-hidden
                   overscroll-contain
                   bg-slate-50/70
-                  px-3.5 pb-4 pt-0
+                  px-3.5 pt-3.5 pb-0
                   dark:bg-slate-950/60
                   flex flex-col
                 "
               >
-                <style>{`
-                  .widget-settings-panel {
-                    font-size: 11px;
-                  }
-
-                  .widget-settings-panel h3 {
-                    font-size: 12px !important;
-                    line-height: 1.25rem !important;
-                  }
-
-                  .widget-settings-panel h4 {
-                    font-size: 11px !important;
-                    line-height: 1rem !important;
-                  }
-
-                  .widget-settings-panel label {
-                    font-size: 10px !important;
-                    line-height: 0.95rem !important;
-                  }
-
-                  .widget-settings-panel p {
-                    font-size: 10px !important;
-                    line-height: 0.95rem !important;
-                  }
-
-                  .widget-settings-panel button,
-                  .widget-settings-panel input,
-                  .widget-settings-panel select,
-                  .widget-settings-panel textarea {
-                    font-size: 11px !important;
-                  }
-
-                  .widget-settings-panel button div,
-                  .widget-settings-panel button span {
-                    font-size: 10px !important;
-                  }
-
-                  .widget-settings-panel .widget-settings-title {
-                    font-size: 12px !important;
-                    line-height: 1rem !important;
-                  }
-
-                  .widget-settings-panel .widget-settings-live {
-                    font-size: 9px !important;
-                  }
-                `}</style>
-                <div
-                  className="
-                    sticky top-0 z-20
-                    -mx-3.5 mb-3
-                    border-b border-slate-200/90
-                    bg-white/95 px-4 py-3
-                    shadow-[0_1px_0_rgba(15,23,42,0.02)]
-                    backdrop-blur-md
-                    dark:border-slate-700/90
-                    dark:bg-slate-900/95
-                  "
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="
-                        flex h-9 w-9 shrink-0
-                        items-center justify-center
-                        rounded-xl border
-                        border-emerald-100
-                        bg-emerald-50
-                        text-emerald-600
-                        dark:border-emerald-500/20
-                        dark:bg-emerald-500/10
-                        dark:text-emerald-300
-                      "
-                    >
-                      <Pencil size={16} />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="widget-settings-title font-bold text-slate-900 dark:text-white">
-                          Widget Settings
-                        </p>
-
-                        <span
-                          className="
-                            shrink-0 rounded-full
-                            border border-slate-200
-                            bg-slate-50 px-2 py-0.5
-                            widget-settings-live font-semibold
-                            text-slate-500
-                            dark:border-slate-700
-                            dark:bg-slate-800
-                            dark:text-slate-400
-                          "
-                        >
-                          Live
-                        </span>
-                      </div>
-
-                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                        Changes update the preview instantly.
-                      </p>
-                    </div>
-                  </div>
+                <div className="mb-3 px-1">
+                  <p className="text-base font-bold text-slate-900 dark:text-white">
+                    Widget Settings
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    Choose the visualization, configure its display, then review the size before saving.
+                  </p>
                 </div>
 
                 {/* WIDGET TYPE */}
-                {true && (
-                  <>
-                    <div
-                      className="
-                        rounded-2xl border
-                        border-slate-200
-                        bg-white p-4
-                        shadow-sm shadow-slate-200/30
-                        dark:border-slate-700
-                        dark:bg-slate-900
-                        dark:shadow-none
-                      "
-                    >
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="font-bold dark:text-white">
-                            Widget Type
-                          </h3>
-                          <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-300">
-                            Pick the visualization first. Only settings that apply to it will appear below.
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomWidgetModal(true)}
-                          className="
-                            inline-flex shrink-0
-                            items-center justify-center
-                            gap-1.5 rounded-xl
-                            border border-slate-200
-                            bg-white px-2.5 py-2
-                            text-[11px] font-semibold
-                            text-slate-600 transition
-                            hover:border-emerald-300
-                            hover:text-emerald-700
-                            dark:border-slate-700
-                            dark:bg-slate-900
-                            dark:text-slate-300
-                          "
-                          title="Add custom widget type"
-                        >
-                          <Plus size={14} />
-                          <span className="hidden xl:inline">
-                            Custom
-                          </span>
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        {allWidgetOptions.map((w) => {
-                          const Icon = w.icon || LayoutGrid;
-                          const selected = w.isCustomWidgetType
-                            ? newWidgetTypeId === w.optionId
-                            : !newWidgetTypeId && newType === w.type;
-
-                          return (
-                            <button
-                              key={w.optionId}
-                              type="button"
-                              onClick={() =>
-                                handleWidgetTypeChange(
-                                  w.type,
-                                  w.isCustomWidgetType ? w.optionId : ""
-                                )
-                              }
-                              className={`
-                                relative
-                                min-h-[60px]
-                                p-2.5 rounded-xl border transition-colors text-center
-
-                                ${
-                                  selected
-                                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 shadow-sm dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20"
-                                    : "border-slate-200 bg-slate-50/70 text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/5"
-                                }
-                              `}
-                            >
-                              {w.isCustomWidgetType && (
-                                <span
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    deleteCustomWidgetType(w.optionId);
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.stopPropagation();
-                                      deleteCustomWidgetType(w.optionId);
-                                    }
-                                  }}
-                                  className={`absolute right-2 top-2 rounded-lg p-1 transition ${
-                                    selected
-                                      ? "text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/15"
-                                      : "text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                                  }`}
-                                  title="Delete custom widget type"
-                                >
-                                  <X size={14} />
-                                </span>
-                              )}
-
-                              <Icon className="mx-auto mb-1.5 w-5 h-5" />
-
-                              <div className="text-xs font-semibold">
-                                {w.label}
-                              </div>
-
-                              <div
-                                className={`
-                                  hidden
-                                  ${
-                                    selected
-                                      ? "text-emerald-600 dark:text-emerald-300"
-                                      : "text-gray-400 dark:text-slate-400"
-                                  }
-                                `}
-                              >
-                                {w.isCustomWidgetType
-                                  ? w.description || `Based on ${w.baseType}`
-                                  : w.type === "gauge"
-                                  ? "Semi-circle meter"
-                                  : w.type === "linearGauge"
-                                  ? "Progress meter"
-                                  : w.type === "line"
-                                  ? "Trend over time"
-                                  : w.type === "image"
-                                  ? "Mimic diagram"
-                                  : w.type === "bar"
-                                  ? "Bar comparison"
-                                  : w.type === "bignumber"
-                                  ? "KPI number"
-                                  : w.type === "composite"
-                                  ? "Two compatible views in one card"
-                                  : w.type === "alarm"
-                                  ? "Status warning"
-                                  : w.type === "pie"
-                                  ? "Ratio chart"
-                                  : w.type === "sankey"
-                                  ? "Flow split diagram"
-                                  : "Widget"}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {newType === "composite" && (
-                      <div
-                        className="
-                          mt-4 rounded-xl border
-                          border-gray-200 bg-gray-50
-                          p-4
-                          dark:border-slate-700
-                          dark:bg-slate-950
-                        "
-                      >
-                        <div className="mb-4">
-                          <h3 className="font-bold text-gray-900 dark:text-white">
-                            Composite Layout
-                          </h3>
-
-                          <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-                            Choose the two views to combine. The live preview updates immediately when you select a preset.
-                          </p>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          {getCompatibleCompositePresets(
-                            Math.max(
-                              1,
-                              newDataKeys.length ||
-                                (newDataKey ? 1 : 0)
-                            )
-                          ).map((preset) => {
-                            const selected =
-                              newCompositeConfig.preset ===
-                              preset.id;
-
-                            return (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                onClick={() =>
-                                  handleCompositePresetChange(
-                                    preset
-                                  )
-                                }
-                                className={`
-                                  rounded-xl border p-4
-                                  text-left transition-all
-                                  ${
-                                    selected
-                                      ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-300 dark:bg-emerald-500/10 dark:ring-emerald-500/30"
-                                      : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
-                                  }
-                                `}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-bold text-gray-900 dark:text-white">
-                                      {preset.label}
-                                    </div>
-
-                                    <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-                                      {preset.description}
-                                    </p>
-                                  </div>
-
-                                  {selected && (
-                                    <CheckCircle2
-                                      size={17}
-                                      className="shrink-0 text-emerald-600 dark:text-emerald-300"
-                                    />
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                          <div>
-                            <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                              Arrangement
-                            </label>
-
-                            <select
-                              value={newCompositeConfig.layout}
-                              onChange={(event) =>
-                                setNewCompositeConfig(
-                                  (previous) => ({
-                                    ...previous,
-                                    layout:
-                                      event.target.value,
-                                  })
-                                )
-                              }
-                              className="
-                                w-full rounded-xl
-                                border border-gray-300
-                                bg-white px-4 py-2.5
-                                text-gray-900 outline-none
-                                focus:ring-2 focus:ring-emerald-500
-                                dark:border-slate-600
-                                dark:bg-slate-900
-                                dark:text-white
-                              "
-                            >
-                              <option value="horizontal">
-                                Side by Side
-                              </option>
-                              <option value="vertical">
-                                KPI / Chart Stacked
-                              </option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="mb-2 flex items-center justify-between text-sm font-semibold text-gray-800 dark:text-white">
-                              <span>Primary Size</span>
-                              <span className="text-xs text-gray-400">
-                                {newCompositeConfig.ratio}%
-                              </span>
-                            </label>
-
-                            <input
-                              type="range"
-                              min="25"
-                              max="70"
-                              step="1"
-                              value={newCompositeConfig.ratio}
-                              onChange={(event) =>
-                                setNewCompositeConfig(
-                                  (previous) => ({
-                                    ...previous,
-                                    ratio: Number(
-                                      event.target.value
-                                    ),
-                                  })
-                                )
-                              }
-                              className="w-full accent-emerald-600"
-                            />
-                          </div>
-                        </div>
-
-                        <div
-                          className="
-                            mt-4 overflow-hidden
-                            rounded-xl border
-                            border-gray-200 bg-white
-                            dark:border-slate-700
-                            dark:bg-slate-900
-                          "
-                        >
-                          <div
-                            className={
-                              newCompositeConfig.layout ===
-                              "horizontal"
-                                ? "flex h-28"
-                                : "flex h-36 flex-col"
-                            }
-                          >
-                            <div
-                              className="
-                                flex items-center justify-center
-                                border-gray-200
-                                bg-blue-50 text-xs
-                                font-bold text-blue-700
-                                dark:bg-blue-500/10
-                                dark:text-blue-300
-                              "
-                              style={{
-                                ...(newCompositeConfig.layout ===
-                                "horizontal"
-                                  ? {
-                                      width: `${newCompositeConfig.ratio}%`,
-                                      borderRightWidth: 1,
-                                    }
-                                  : {
-                                      height: `${newCompositeConfig.ratio}%`,
-                                      borderBottomWidth: 1,
-                                    }),
-                              }}
-                            >
-                              {
-                                getCompositePreset(
-                                  newCompositeConfig.preset
-                                ).label.split(" + ")[0]
-                              }
-                            </div>
-
-                            <div
-                              className="
-                                flex flex-1 items-center
-                                justify-center text-xs
-                                font-bold text-slate-500
-                                dark:text-slate-300
-                              "
-                            >
-                              {
-                                getCompositePreset(
-                                  newCompositeConfig.preset
-                                ).label.split(" + ")[1]
-                              }
-                            </div>
-                          </div>
-                        </div>
-
-                        <div
-                          className="
-                            mt-4 rounded-xl
-                            border border-slate-200
-                            bg-slate-50/70 p-3
-                            dark:border-slate-700
-                            dark:bg-slate-950/60
-                          "
-                        >
-                          <div className="mb-3">
-                            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                              Configure Combined Widgets
-                            </h3>
-
-                            <p className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                              Configure each child independently. Child labels, source selection, ranges, chart settings, and Pie options are saved with this Composite widget.
-                            </p>
-                          </div>
-
-                          <div className="space-y-2">
-                            {renderCompositePartConfiguration(
-                              "primary",
-                              getCompositePreset(
-                                newCompositeConfig.preset
-                              ).primaryType
-                            )}
-
-                            {renderCompositePartConfiguration(
-                              "secondary",
-                              getCompositePreset(
-                                newCompositeConfig.preset
-                              ).secondaryType
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="hidden">
-                      <button
-                        type="button"
-                        onClick={() => setWidgetStep(1)}
-                        className="
-                          rounded-xl border
-                          border-gray-300 bg-white
-                          px-5 py-3 font-semibold
-                          text-gray-700 transition
-                          hover:bg-gray-100
-                          dark:border-slate-600
-                          dark:bg-slate-900
-                          dark:text-white
-                          dark:hover:bg-slate-800
-                        "
-                      >
-                        Back
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={goToNextWidgetStep}
-                        className="
-                          rounded-xl
-                          bg-emerald-600 hover:bg-emerald-700
-                          text-white
-                          px-6 py-3
-                          font-semibold
-                          transition
-                        "
-                      >
-                        Next: Appearance
-                      </button>
-                    </div>
-                  </>
-                )}
-
+                <WidgetTypePanel
+                  allWidgetOptions={allWidgetOptions}
+                  newWidgetTypeId={newWidgetTypeId}
+                  newType={newType}
+                  handleWidgetTypeChange={handleWidgetTypeChange}
+                  deleteCustomWidgetType={deleteCustomWidgetType}
+                  setShowCustomWidgetModal={setShowCustomWidgetModal}
+                  newDataKeys={newDataKeys}
+                  newDataKey={newDataKey}
+                  newCompositeConfig={newCompositeConfig}
+                  getCompatibleCompositePresets={getCompatibleCompositePresets}
+                  handleCompositePresetChange={handleCompositePresetChange}
+                  setNewCompositeConfig={setNewCompositeConfig}
+                  getCompositePreset={getCompositePreset}
+                  renderCompositePartConfiguration={renderCompositePartConfiguration}
+                  setWidgetStep={setWidgetStep}
+                  goToNextWidgetStep={goToNextWidgetStep}
+                />
 
                 {/* WIDGET DETAILS / SIZE */}
                 {true && (
                   <>
                     <div className="space-y-4">
                       <div
+                        ref={
+                          widgetDetailsRef
+                        }
                         className="
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
@@ -9827,1505 +10962,20 @@ export default function TemplateDesigner({
                       </div>
 
                       {newType === "logs" && (
-                        <div
-                          className="
-                            rounded-xl border
-                            border-gray-200 bg-gray-50
-                            p-4
-                            dark:border-slate-700
-                            dark:bg-slate-950
-                          "
-                        >
-                          <div className="mb-4 flex items-start gap-3">
-                            <div
-                              className="
-                                flex h-10 w-10
-                                shrink-0 items-center
-                                justify-center rounded-xl
-                                bg-blue-100 text-blue-600
-                                dark:bg-blue-500/15
-                                dark:text-blue-300
-                              "
-                            >
-                              <ScrollText size={19} />
-                            </div>
-
-                            <div>
-                              <h3 className="font-bold text-gray-900 dark:text-white">
-                                Logs Display
-                              </h3>
-
-                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                Configure how alarms, device events, and system activity are displayed.
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                Sort Order
-                              </label>
-
-                              <select
-                                value={
-                                  newLogDisplay.sortOrder
-                                }
-                                onChange={(event) =>
-                                  setNewLogDisplay(
-                                    (previous) => ({
-                                      ...previous,
-                                      sortOrder:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                                className="
-                                  w-full rounded-xl
-                                  border border-gray-300
-                                  bg-white px-4 py-3
-                                  text-gray-900 outline-none
-                                  focus:ring-2
-                                  focus:ring-blue-500
-                                  dark:border-slate-600
-                                  dark:bg-slate-900
-                                  dark:text-white
-                                "
-                              >
-                                <option value="newest">
-                                  Newest First
-                                </option>
-
-                                <option value="oldest">
-                                  Oldest First
-                                </option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                Maximum Entries
-                              </label>
-
-                              <input
-                                type="number"
-                                min="1"
-                                max="500"
-                                value={
-                                  newLogDisplay.maxEntries
-                                }
-                                onChange={(event) =>
-                                  setNewLogDisplay(
-                                    (previous) => ({
-                                      ...previous,
-                                      maxEntries:
-                                        Math.min(
-                                          500,
-                                          Math.max(
-                                            1,
-                                            Number(
-                                              event.target
-                                                .value
-                                            ) || 1
-                                          )
-                                        ),
-                                    })
-                                  )
-                                }
-                                className="
-                                  w-full rounded-xl
-                                  border border-gray-300
-                                  bg-white px-4 py-3
-                                  text-gray-900 outline-none
-                                  focus:ring-2
-                                  focus:ring-blue-500
-                                  dark:border-slate-600
-                                  dark:bg-slate-900
-                                  dark:text-white
-                                "
-                              />
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {[
-                              {
-                                key: "showTimestamp",
-                                label: "Show Timestamp",
-                              },
-                              {
-                                key: "showSource",
-                                label: "Show Source",
-                              },
-                              {
-                                key: "showLevel",
-                                label: "Show Level",
-                              },
-                              {
-                                key: "showSearch",
-                                label: "Show Search",
-                              },
-                              {
-                                key: "compact",
-                                label: "Compact Rows",
-                              },
-                            ].map((option) => (
-                              <label
-                                key={option.key}
-                                className="
-                                  flex items-center
-                                  justify-between gap-3
-                                  rounded-xl border
-                                  border-gray-200 bg-white
-                                  p-4
-                                  dark:border-slate-700
-                                  dark:bg-slate-900
-                                "
-                              >
-                                <span className="text-sm font-medium text-gray-800 dark:text-white">
-                                  {option.label}
-                                </span>
-
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(
-                                    newLogDisplay[
-                                      option.key
-                                    ]
-                                  )}
-                                  onChange={(event) =>
-                                    setNewLogDisplay(
-                                      (previous) => ({
-                                        ...previous,
-                                        [option.key]:
-                                          event.target
-                                            .checked,
-                                      })
-                                    )
-                                  }
-                                  className="h-5 w-5 accent-blue-600"
-                                />
-                              </label>
-                            ))}
-                          </div>
-
-                          <div className="mt-4">
-                            <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                              Visible Log Levels
-                            </label>
-
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                              {[
-                                "info",
-                                "success",
-                                "warning",
-                                "error",
-                              ].map((level) => {
-                                const selected =
-                                  (
-                                    newLogDisplay.levelFilter ||
-                                    []
-                                  ).includes(level);
-
-                                return (
-                                  <button
-                                    key={level}
-                                    type="button"
-                                    onClick={() =>
-                                      setNewLogDisplay(
-                                        (previous) => {
-                                          const levels =
-                                            previous.levelFilter ||
-                                            [];
-
-                                          return {
-                                            ...previous,
-                                            levelFilter:
-                                              levels.includes(
-                                                level
-                                              )
-                                                ? levels.filter(
-                                                    (
-                                                      item
-                                                    ) =>
-                                                      item !==
-                                                      level
-                                                  )
-                                                : [
-                                                    ...levels,
-                                                    level,
-                                                  ],
-                                          };
-                                        }
-                                      )
-                                    }
-                                    className={`
-                                      rounded-xl border
-                                      px-3 py-3
-                                      text-sm font-bold
-                                      capitalize transition
-
-                                      ${
-                                        selected
-                                          ? "border-blue-600 bg-blue-600 text-white"
-                                          : "border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-                                      }
-                                    `}
-                                  >
-                                    {level}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          <div
-                            className="
-                              mt-4 rounded-xl
-                              border border-blue-100
-                              bg-blue-50 p-4
-                              text-xs leading-relaxed
-                              text-blue-700
-                              dark:border-blue-900/60
-                              dark:bg-blue-950/30
-                              dark:text-blue-200
-                            "
-                          >
-                            Sample events are shown in the preview so you can test the layout and filters. On the dashboard, these entries are replaced by logs returned from your backend or live data feed.
-                          </div>
-                        </div>
+                        <EventsAlarmsSettings
+                          newLogDisplay={newLogDisplay}
+                          setNewLogDisplay={setNewLogDisplay}
+                        />
                       )}
 
-
-                      {newType === "bignumber" && (
-                        <div
-                          className="
-                            rounded-xl border
-                            border-gray-200 bg-gray-50
-                            p-4
-                            dark:border-slate-700
-                            dark:bg-slate-950
-                          "
-                        >
-                          <div className="mb-4">
-                            <h3 className="font-bold text-gray-900 dark:text-white">
-                              Stat Display
-                            </h3>
-
-                            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                              Display a numeric KPI or convert incoming values into readable status text.
-                            </p>
-                          </div>
-
-                          {/* DISPLAY MODE */}
-                          <div>
-                            <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                              Display Mode
-                            </label>
-
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                              {[
-                                {
-                                  value: "number",
-                                  label: "Number",
-                                  description:
-                                    "Show a numeric value, unit, and optional trend.",
-                                },
-                                {
-                                  value: "valueMapping",
-                                  label: "Value Mapping",
-                                  description:
-                                    "Convert raw values such as 0, 1, and 2 into status text.",
-                                },
-                                {
-                                  value: "combined",
-                                  label: "Stat + Status",
-                                  description:
-                                    "Show a live numeric KPI together with machine operating status.",
-                                },
-                              ].map((option) => {
-                                const selected =
-                                  newBigNumberDisplay.mode ===
-                                  option.value;
-
-                                return (
-                                  <button
-                                    key={option.value}
-                                    type="button"
-                                    onClick={() =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          mode: option.value,
-
-                                          ...(option.value ===
-                                          "valueMapping"
-                                            ? {
-                                                showTrend: false,
-                                                showUnit: false,
-                                                statusDataKey: "",
-                                              }
-                                            : {}),
-
-                                          ...(option.value ===
-                                          "combined"
-                                            ? {
-                                                statusSource: "mapping",
-                                                statusDataKey:
-                                                  previous.statusDataKey ||
-                                                  newDataKeys.find(
-                                                    (key) =>
-                                                      key &&
-                                                      key !==
-                                                        (newDataKeys[0] ||
-                                                          newDataKey)
-                                                  ) ||
-                                                  "",
-                                              }
-                                            : {}),
-                                        })
-                                      )
-                                    }
-                                    className={`
-                                      rounded-xl border
-                                      p-4 text-left
-                                      transition-all
-                                      ${
-                                        selected
-                                          ? "border-emerald-600 bg-emerald-600 text-white shadow"
-                                          : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
-                                      }
-                                    `}
-                                  >
-                                    <div className="text-sm font-bold">
-                                      {option.label}
-                                    </div>
-
-                                    <div
-                                      className={`
-                                        mt-1 text-[11px]
-                                        ${
-                                          selected
-                                            ? "text-emerald-50"
-                                            : "text-gray-400 dark:text-slate-400"
-                                        }
-                                      `}
-                                    >
-                                      {option.description}
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* COMMON STAT SETTINGS */}
-                          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                Alignment
-                              </label>
-
-                              <select
-                                value={
-                                  newBigNumberDisplay.alignment
-                                }
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay(
-                                    (previous) => ({
-                                      ...previous,
-                                      alignment:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                                className="
-                                  w-full rounded-xl
-                                  border border-gray-300
-                                  bg-white px-4 py-3
-                                  text-gray-900 outline-none
-                                  focus:ring-2
-                                  focus:ring-emerald-500
-                                  dark:border-slate-600
-                                  dark:bg-slate-900
-                                  dark:text-white
-                                "
-                              >
-                                <option value="left">
-                                  Left
-                                </option>
-                                <option value="center">
-                                  Center
-                                </option>
-                                <option value="right">
-                                  Right
-                                </option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                Value Size
-                              </label>
-
-                              <select
-                                value={
-                                  newBigNumberDisplay.valueSize
-                                }
-                                onChange={(event) =>
-                                  setNewBigNumberDisplay(
-                                    (previous) => ({
-                                      ...previous,
-                                      valueSize:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                                className="
-                                  w-full rounded-xl
-                                  border border-gray-300
-                                  bg-white px-4 py-3
-                                  text-gray-900 outline-none
-                                  focus:ring-2
-                                  focus:ring-emerald-500
-                                  dark:border-slate-600
-                                  dark:bg-slate-900
-                                  dark:text-white
-                                "
-                              >
-                                <option value="small">
-                                  Small
-                                </option>
-                                <option value="medium">
-                                  Medium
-                                </option>
-                                <option value="large">
-                                  Large
-                                </option>
-                                <option value="xlarge">
-                                  Extra Large
-                                </option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <label
-                            className="
-                              mt-4 flex items-center
-                              justify-between gap-3
-                              rounded-xl border
-                              border-gray-200 bg-white
-                              p-4
-                              dark:border-slate-700
-                              dark:bg-slate-900
-                            "
-                          >
-                            <span className="text-sm font-medium text-gray-800 dark:text-white">
-                              Show Label
-                            </span>
-
-                            <input
-                              type="checkbox"
-                              checked={Boolean(
-                                newBigNumberDisplay.showLabel
-                              )}
-                              onChange={(event) =>
-                                setNewBigNumberDisplay(
-                                  (previous) => ({
-                                    ...previous,
-                                    showLabel:
-                                      event.target.checked,
-                                  })
-                                )
-                              }
-                              className="h-5 w-5 accent-emerald-600"
-                            />
-                          </label>
-
-                          {/* NUMBER MODE */}
-                          {newBigNumberDisplay.mode ===
-                            "number" && (
-                            <div className="mt-4 space-y-4">
-                              <div>
-                                <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                  Display Style
-                                </label>
-
-                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                  {[
-                                    {
-                                      value: "modern",
-                                      label: "Modern",
-                                      description:
-                                        "Large KPI with optional trend",
-                                    },
-                                    {
-                                      value: "compact",
-                                      label: "Compact",
-                                      description:
-                                        "Smaller layout for 1×1 cards",
-                                    },
-                                    {
-                                      value: "simple",
-                                      label: "Simple",
-                                      description:
-                                        "Clean value and unit display",
-                                    },
-                                  ].map((option) => {
-                                    const selected =
-                                      newBigNumberDisplay.style ===
-                                      option.value;
-
-                                    return (
-                                      <button
-                                        key={option.value}
-                                        type="button"
-                                        onClick={() =>
-                                          setNewBigNumberDisplay(
-                                            (previous) => ({
-                                              ...previous,
-                                              style:
-                                                option.value,
-                                            })
-                                          )
-                                        }
-                                        className={`
-                                          rounded-xl border
-                                          p-4 text-left
-                                          transition-all
-                                          ${
-                                            selected
-                                              ? "border-emerald-600 bg-emerald-600 text-white shadow"
-                                              : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
-                                          }
-                                        `}
-                                      >
-                                        <div className="text-sm font-bold">
-                                          {option.label}
-                                        </div>
-
-                                        <div
-                                          className={`
-                                            mt-2 flex h-8
-                                            items-center
-                                            ${
-                                              option.value ===
-                                              "compact"
-                                                ? "justify-start"
-                                                : option.value ===
-                                                  "simple"
-                                                ? "justify-center"
-                                                : "justify-between"
-                                            }
-                                            rounded-lg px-2
-                                            ${
-                                              selected
-                                                ? "bg-white/10"
-                                                : "bg-slate-50 dark:bg-slate-950"
-                                            }
-                                          `}
-                                        >
-                                          <span
-                                            className={`
-                                              font-black
-                                              ${
-                                                option.value ===
-                                                "compact"
-                                                  ? "text-base"
-                                                  : "text-lg"
-                                              }
-                                            `}
-                                          >
-                                            44.1
-                                          </span>
-
-                                          {option.value ===
-                                            "modern" && (
-                                            <span
-                                              className={`
-                                                h-1 w-10
-                                                overflow-hidden
-                                                rounded-full
-                                                ${
-                                                  selected
-                                                    ? "bg-white/20"
-                                                    : "bg-slate-200 dark:bg-slate-700"
-                                                }
-                                              `}
-                                            >
-                                              <span
-                                                className="
-                                                  block h-full
-                                                  w-2/3 rounded-full
-                                                  bg-[#58D7FF]
-                                                "
-                                              />
-                                            </span>
-                                          )}
-
-                                          {option.value ===
-                                            "compact" && (
-                                            <span
-                                              className={`
-                                                ml-2 text-[9px]
-                                                ${
-                                                  selected
-                                                    ? "text-emerald-50"
-                                                    : "text-slate-400"
-                                                }
-                                              `}
-                                            >
-                                              ↗ Rising
-                                            </span>
-                                          )}
-
-                                          {option.value ===
-                                            "simple" && (
-                                            <span
-                                              className={`
-                                                ml-1 text-[9px]
-                                                ${
-                                                  selected
-                                                    ? "text-emerald-50"
-                                                    : "text-slate-400"
-                                                }
-                                              `}
-                                            >
-                                              psi
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        <div
-                                          className={`
-                                            mt-1.5 text-[11px]
-                                            ${
-                                              selected
-                                                ? "text-emerald-50"
-                                                : "text-gray-400 dark:text-slate-400"
-                                            }
-                                          `}
-                                        >
-                                          {option.description}
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                {[
-                                  {
-                                    key: "showUnit",
-                                    label: "Show Unit",
-                                  },
-                                  {
-                                    key: "showTrend",
-                                    label: "Show Trend",
-                                  },
-                                ].map((option) => (
-                                  <label
-                                    key={option.key}
-                                    className="
-                                      flex items-center
-                                      justify-between gap-3
-                                      rounded-xl border
-                                      border-gray-200 bg-white
-                                      p-4
-                                      dark:border-slate-700
-                                      dark:bg-slate-900
-                                    "
-                                  >
-                                    <span className="text-sm font-medium text-gray-800 dark:text-white">
-                                      {option.label}
-                                    </span>
-
-                                    <input
-                                      type="checkbox"
-                                      checked={Boolean(
-                                        newBigNumberDisplay[
-                                          option.key
-                                        ]
-                                      )}
-                                      onChange={(event) =>
-                                        setNewBigNumberDisplay(
-                                          (previous) => ({
-                                            ...previous,
-                                            [option.key]:
-                                              event.target
-                                                .checked,
-                                          })
-                                        )
-                                      }
-                                      className="h-5 w-5 accent-emerald-600"
-                                    />
-                                  </label>
-                                ))}
-                              </div>
-
-                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Decimal Places
-                                  </label>
-
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="6"
-                                    value={
-                                      newBigNumberDisplay.decimals
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          decimals: Math.min(
-                                            6,
-                                            Math.max(
-                                              0,
-                                              Number(
-                                                event.target
-                                                  .value
-                                              ) || 0
-                                            )
-                                          ),
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl
-                                      border border-gray-300
-                                      bg-white px-4 py-3
-                                      text-gray-900 outline-none
-                                      focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Unit Override
-                                  </label>
-
-                                  <input
-                                    type="text"
-                                    placeholder="Example: psi"
-                                    value={
-                                      newBigNumberDisplay.unit
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          unit: event.target
-                                            .value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl
-                                      border border-gray-300
-                                      bg-white px-4 py-3
-                                      text-gray-900 outline-none
-                                      focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Number Color
-                                  </label>
-
-                                  <select
-                                    value={
-                                      newBigNumberDisplay.valueColor
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          valueColor:
-                                            event.target
-                                              .value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl
-                                      border border-gray-300
-                                      bg-white px-4 py-3
-                                      text-gray-900 outline-none
-                                      focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  >
-                                    <option value="default">
-                                      Default
-                                    </option>
-                                    <option value="green">
-                                      Green
-                                    </option>
-                                    <option value="blue">
-                                      Blue
-                                    </option>
-                                    <option value="amber">
-                                      Amber
-                                    </option>
-                                    <option value="orange">
-                                      Orange
-                                    </option>
-                                    <option value="red">
-                                      Red
-                                    </option>
-                                    <option value="purple">
-                                      Purple
-                                    </option>
-                                    <option value="gray">
-                                      Gray
-                                    </option>
-                                  </select>
-                                </div>
-
-                                {newBigNumberDisplay.showTrend && (
-                                  <div>
-                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                      Stable Threshold
-                                    </label>
-
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.1"
-                                      value={
-                                        newBigNumberDisplay.trendThreshold
-                                      }
-                                      onChange={(event) =>
-                                        setNewBigNumberDisplay(
-                                          (previous) => ({
-                                            ...previous,
-                                            trendThreshold:
-                                              Math.max(
-                                                0,
-                                                Number(
-                                                  event.target
-                                                    .value
-                                                ) || 0
-                                              ),
-                                          })
-                                        )
-                                      }
-                                      className="
-                                        w-full rounded-xl
-                                        border border-gray-300
-                                        bg-white px-4 py-3
-                                        text-gray-900 outline-none
-                                        focus:ring-2
-                                        focus:ring-emerald-500
-                                        dark:border-slate-600
-                                        dark:bg-slate-900
-                                        dark:text-white
-                                      "
-                                    />
-
-                                    <p className="mt-2 text-xs text-gray-400 dark:text-slate-400">
-                                      Changes smaller than this value are considered stable.
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {newBigNumberDisplay.mode ===
-                            "combined" && (
-                            <div
-                              className="
-                                mt-4 rounded-xl border
-                                border-cyan-200 bg-cyan-50/60
-                                p-4
-                                dark:border-emerald-500/25
-                                dark:bg-emerald-500/[0.05]
-                              "
-                            >
-                              <div className="mb-4">
-                                <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                                  Stat + Status Data
-                                </h4>
-
-                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                  This display uses two different data sources: one numeric field for the Stat value and one field for the machine status.
-                                </p>
-                              </div>
-
-                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Numeric Stat Data
-                                  </label>
-
-                                  <div
-                                    className="
-                                      min-h-[48px] rounded-xl border
-                                      border-gray-200 bg-white
-                                      px-4 py-3 text-sm font-semibold
-                                      text-gray-800
-                                      dark:border-slate-700
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  >
-                                    {newDataKeys[0] || newDataKey
-                                      ? getDataSourceLabel(
-                                          newDataKeys[0] ||
-                                            newDataKey
-                                        )
-                                      : "No numeric source selected"}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Status Data
-                                  </label>
-
-                                  <select
-                                    value={
-                                      newBigNumberDisplay.statusDataKey ||
-                                      ""
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          statusSource: "mapping",
-                                          statusDataKey:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 text-gray-900
-                                      outline-none focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  >
-                                    <option value="">
-                                      Select second data source
-                                    </option>
-
-                                    {newDataKeys
-                                      .filter(
-                                        (key) =>
-                                          key &&
-                                          key !==
-                                            (newDataKeys[0] ||
-                                              newDataKey)
-                                      )
-                                      .map((key) => (
-                                        <option
-                                          key={key}
-                                          value={key}
-                                        >
-                                          {getDataSourceLabel(
-                                            key
-                                          )}
-                                        </option>
-                                      ))}
-                                  </select>
-                                </div>
-
-                                <div className="sm:col-span-2">
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Status Label
-                                  </label>
-
-                                  <input
-                                    type="text"
-                                    value={
-                                      newBigNumberDisplay.statusLabel ||
-                                      ""
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          statusLabel:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    placeholder="Machine Status"
-                                    className="
-                                      w-full rounded-xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 text-gray-900
-                                      outline-none focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  />
-                                </div>
-                              </div>
-
-                              {newDataKeys.length < 2 && (
-                                <div
-                                  className="
-                                    mt-4 rounded-xl border
-                                    border-amber-200 bg-amber-50
-                                    px-3 py-2 text-xs
-                                    text-amber-700
-                                    dark:border-amber-500/25
-                                    dark:bg-amber-500/10
-                                    dark:text-amber-300
-                                  "
-                                >
-                                  Select two data sources in Step 1 to use Stat + Status.
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {["valueMapping", "combined"].includes(
-                            newBigNumberDisplay.mode
-                          ) && (
-                            <div className="mt-4 space-y-4">
-                              <div>
-                                <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                                  Value Mappings
-                                </h4>
-
-                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                  Convert incoming values into readable operating states.
-                                </p>
-                              </div>
-
-                              <div className="space-y-3">
-                                {(
-                                  newBigNumberDisplay.mappings ||
-                                  []
-                                ).map(
-                                  (mapping, index) => (
-                                    <div
-                                      key={`${index}-${mapping.value}`}
-                                      className="
-                                        grid min-w-0
-                                        grid-cols-[minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(90px,1fr)_36px]
-                                        gap-1.5 rounded-xl
-                                        border border-gray-200
-                                        bg-white p-2.5
-                                        dark:border-slate-700
-                                        dark:bg-slate-900
-                                      "
-                                    >
-                                      <input
-                                        type="text"
-                                        value={
-                                          mapping.value ??
-                                          ""
-                                        }
-                                        placeholder="Value"
-                                        onChange={(
-                                          event
-                                        ) =>
-                                          setNewBigNumberDisplay(
-                                            (previous) => ({
-                                              ...previous,
-
-                                              mappings: (
-                                                previous.mappings ||
-                                                []
-                                              ).map(
-                                                (
-                                                  item,
-                                                  currentIndex
-                                                ) =>
-                                                  currentIndex ===
-                                                  index
-                                                    ? {
-                                                        ...item,
-                                                        value:
-                                                          event
-                                                            .target
-                                                            .value,
-                                                      }
-                                                    : item
-                                              ),
-                                            })
-                                          )
-                                        }
-                                        className="
-                                          min-w-0 rounded-xl border
-                                          border-gray-300
-                                          bg-white px-3 py-2
-                                          text-sm text-gray-900
-                                          outline-none
-                                          focus:ring-2
-                                          focus:ring-emerald-500
-                                          dark:border-slate-600
-                                          dark:bg-slate-950
-                                          dark:text-white
-                                        "
-                                      />
-
-                                      <input
-                                        type="text"
-                                        value={
-                                          mapping.text ||
-                                          ""
-                                        }
-                                        placeholder="Display text"
-                                        onChange={(
-                                          event
-                                        ) =>
-                                          setNewBigNumberDisplay(
-                                            (previous) => ({
-                                              ...previous,
-
-                                              mappings: (
-                                                previous.mappings ||
-                                                []
-                                              ).map(
-                                                (
-                                                  item,
-                                                  currentIndex
-                                                ) =>
-                                                  currentIndex ===
-                                                  index
-                                                    ? {
-                                                        ...item,
-                                                        text: event
-                                                          .target
-                                                          .value,
-                                                      }
-                                                    : item
-                                              ),
-                                            })
-                                          )
-                                        }
-                                        className="
-                                          min-w-0 rounded-xl border
-                                          border-gray-300
-                                          bg-white px-3 py-2
-                                          text-sm text-gray-900
-                                          outline-none
-                                          focus:ring-2
-                                          focus:ring-emerald-500
-                                          dark:border-slate-600
-                                          dark:bg-slate-950
-                                          dark:text-white
-                                        "
-                                      />
-
-                                      <select
-                                        value={
-                                          mapping.color ||
-                                          "default"
-                                        }
-                                        onChange={(
-                                          event
-                                        ) =>
-                                          setNewBigNumberDisplay(
-                                            (previous) => ({
-                                              ...previous,
-
-                                              mappings: (
-                                                previous.mappings ||
-                                                []
-                                              ).map(
-                                                (
-                                                  item,
-                                                  currentIndex
-                                                ) =>
-                                                  currentIndex ===
-                                                  index
-                                                    ? {
-                                                        ...item,
-                                                        color:
-                                                          event
-                                                            .target
-                                                            .value,
-                                                      }
-                                                    : item
-                                              ),
-                                            })
-                                          )
-                                        }
-                                        className="
-                                          min-w-0 rounded-xl border
-                                          border-gray-300
-                                          bg-white px-3 py-2
-                                          text-sm text-gray-900
-                                          outline-none
-                                          focus:ring-2
-                                          focus:ring-emerald-500
-                                          dark:border-slate-600
-                                          dark:bg-slate-950
-                                          dark:text-white
-                                        "
-                                      >
-                                        <option value="default">
-                                          Default
-                                        </option>
-                                        <option value="green">
-                                          Green
-                                        </option>
-                                        <option value="blue">
-                                          Blue
-                                        </option>
-                                        <option value="amber">
-                                          Amber
-                                        </option>
-                                        <option value="orange">
-                                          Orange
-                                        </option>
-                                        <option value="red">
-                                          Red
-                                        </option>
-                                        <option value="purple">
-                                          Purple
-                                        </option>
-                                        <option value="gray">
-                                          Gray
-                                        </option>
-                                      </select>
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setNewBigNumberDisplay(
-                                            (previous) => ({
-                                              ...previous,
-
-                                              mappings: (
-                                                previous.mappings ||
-                                                []
-                                              ).filter(
-                                                (
-                                                  _,
-                                                  currentIndex
-                                                ) =>
-                                                  currentIndex !==
-                                                  index
-                                              ),
-                                            })
-                                          )
-                                        }
-                                        className="
-                                          flex h-10 w-9 shrink-0
-                                          items-center justify-center
-                                          self-center justify-self-end
-                                          rounded-xl text-red-500
-                                          transition
-                                          hover:bg-red-50
-                                          dark:hover:bg-red-500/10
-                                        "
-                                        aria-label={`Remove mapping ${
-                                          index + 1
-                                        }`}
-                                      >
-                                        <Trash2
-                                          size={16}
-                                        />
-                                      </button>
-                                    </div>
-                                  )
-                                )}
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setNewBigNumberDisplay(
-                                    (previous) => ({
-                                      ...previous,
-
-                                      mappings: [
-                                        ...(previous.mappings ||
-                                          []),
-
-                                        {
-                                          value: "",
-                                          text: "",
-                                          color:
-                                            "default",
-                                        },
-                                      ],
-                                    })
-                                  )
-                                }
-                                className="
-                                  inline-flex items-center
-                                  gap-2 rounded-xl
-                                  border border-emerald-300
-                                  px-4 py-2.5
-                                  text-sm font-bold
-                                  text-emerald-700
-                                  transition
-                                  hover:bg-emerald-50
-                                  dark:border-emerald-800
-                                  dark:text-emerald-300
-                                  dark:hover:bg-emerald-500/10
-                                "
-                              >
-                                <Plus size={15} />
-                                Add Mapping
-                              </button>
-
-                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Fallback Text
-                                  </label>
-
-                                  <input
-                                    type="text"
-                                    value={
-                                      newBigNumberDisplay.fallbackText ||
-                                      ""
-                                    }
-                                    placeholder="Use raw value when empty"
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          fallbackText:
-                                            event.target
-                                              .value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl
-                                      border border-gray-300
-                                      bg-white px-4 py-3
-                                      text-gray-900 outline-none
-                                      focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Fallback Color
-                                  </label>
-
-                                  <select
-                                    value={
-                                      newBigNumberDisplay.fallbackColor ||
-                                      "default"
-                                    }
-                                    onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          fallbackColor:
-                                            event.target
-                                              .value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl
-                                      border border-gray-300
-                                      bg-white px-4 py-3
-                                      text-gray-900 outline-none
-                                      focus:ring-2
-                                      focus:ring-emerald-500
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
-                                  >
-                                    <option value="default">
-                                      Default
-                                    </option>
-                                    <option value="green">
-                                      Green
-                                    </option>
-                                    <option value="blue">
-                                      Blue
-                                    </option>
-                                    <option value="amber">
-                                      Amber
-                                    </option>
-                                    <option value="orange">
-                                      Orange
-                                    </option>
-                                    <option value="red">
-                                      Red
-                                    </option>
-                                    <option value="purple">
-                                      Purple
-                                    </option>
-                                    <option value="gray">
-                                      Gray
-                                    </option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <label
-                                className="
-                                  flex items-center
-                                  justify-between gap-3
-                                  rounded-xl border
-                                  border-gray-200 bg-white
-                                  p-4
-                                  dark:border-slate-700
-                                  dark:bg-slate-900
-                                "
-                              >
-                                <span className="text-sm font-medium text-gray-800 dark:text-white">
-                                  Show Raw Value
-                                </span>
-
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(
-                                    newBigNumberDisplay.showRawValue
-                                  )}
-                                  onChange={(event) =>
-                                    setNewBigNumberDisplay(
-                                      (previous) => ({
-                                        ...previous,
-                                        showRawValue:
-                                          event.target
-                                            .checked,
-                                      })
-                                    )
-                                  }
-                                  className="h-5 w-5 accent-emerald-600"
-                                />
-                              </label>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      <StatSettings
+                        newType={newType}
+                        newBigNumberDisplay={newBigNumberDisplay}
+                        setNewBigNumberDisplay={setNewBigNumberDisplay}
+                        newDataKeys={newDataKeys}
+                        newDataKey={newDataKey}
+                        getDataSourceLabel={getDataSourceLabel}
+                      />
 
 
                       {newType === "bar" && (
@@ -11352,7 +11002,7 @@ export default function TemplateDesigner({
                                   ${
                                     newOrientation === direction
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow"
-                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#081022] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
+                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                   }
                                 `}
                               >
@@ -11403,7 +11053,7 @@ export default function TemplateDesigner({
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow"
                                       : exceedsGrid
                                       ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-950 dark:border-slate-700 dark:text-slate-600"
-                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#081022] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
+                                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                   }
                                 `}
                               >
@@ -11439,7 +11089,7 @@ export default function TemplateDesigner({
                                 bg-emerald-100 dark:bg-emerald-900/30
                                 px-3 py-1
                                 text-xs font-bold
-                                text-cyan-700 dark:text-cyan-300
+                                text-emerald-700 dark:text-emerald-300
                               "
                             >
                               {newW} × {newH}
@@ -11512,7 +11162,73 @@ export default function TemplateDesigner({
 
                     </div>
 
+                    {skipsWidgetDataSourceStep && (
+                    <div
+                      className="
+                        mt-3 rounded-xl border
+                        border-slate-200 bg-white
+                        px-3 py-3
+                        dark:border-slate-700
+                        dark:bg-slate-900
+                      "
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
+                          className="
+                            mt-0.5 flex h-7 w-7
+                            shrink-0 items-center
+                            justify-center rounded-lg
+                            bg-emerald-50
+                            text-emerald-600
+                            dark:bg-emerald-500/10
+                            dark:text-emerald-300
+                          "
+                        >
+                          <CheckCircle2 size={15} />
+                        </div>
 
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                            Widget Summary
+                          </p>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="max-w-full truncate text-sm font-bold text-slate-800 dark:text-white">
+                              {newLabel.trim() ||
+                                getFallbackWidgetLabel(
+                                  newType,
+                                  isMultiDataWidget
+                                    ? newDataKeys[0] ||
+                                      newDataKey
+                                    : newDataKey
+                                )}
+                            </span>
+
+                            <span className="text-[10px] text-slate-400">
+                              {selectedWidgetTypeLabel}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {newW} × {newH}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {widgetSummarySourceText}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    )}
 
                   </>
                 )}
@@ -11541,11 +11257,11 @@ export default function TemplateDesigner({
                           className="mb-4 text-sm leading-5"
                           style={{
                             color: document.documentElement.classList.contains("dark")
-                              ? "#2C3C61"
+                              ? "#334155"
                               : "#475569",
                           }}
                         >
-                          Upload a process diagram first, then open the image editor to place pins and connect live data.
+                          Upload a process diagram first, then open the image editor to place live values, status badges, gauges, levels, bars, trends, or sensor markers.
                         </p>
 
                         <div
@@ -11665,6 +11381,29 @@ export default function TemplateDesigner({
                               ...target,
                               image: imageDraft,
                               pins: imageDraftPins,
+                              imageDataMapping:
+                                imageDraftDataMapping ||
+                                target.imageDataMapping ||
+                                {
+                                  bucket:
+                                    influxConfig.bucket ||
+                                    "",
+                                  measurement:
+                                    influxConfig.measurement ||
+                                    "",
+                                  tagKey:
+                                    influxConfig.tagKey ||
+                                    "id",
+                                  tagValue:
+                                    influxConfig.tagValue ||
+                                    influxConfig.id ||
+                                    "",
+                                },
+                              customDataOptions:
+                                deduplicateDataOptions([
+                                  ...customDataOptions,
+                                  ...imageDraftDataOptions,
+                                ]),
                               returnPage: designerPage,
                               resumeWidgetSettings: true,
                               designerSnapshot: getDesignerSnapshot(),
@@ -11714,9 +11453,7 @@ export default function TemplateDesigner({
 
                         </div>
 
-                        {["line", "bar"].includes(
-                          newType
-                        ) && (
+                        {newType === "processEquipment" && (
                           <div
                             className="
                               mt-4 rounded-xl border
@@ -11732,1158 +11469,157 @@ export default function TemplateDesigner({
                           >
                             <div className="mb-4">
                               <h3 className="font-bold text-gray-900 dark:text-white">
-                                Chart Display
+                                Process Equipment
                               </h3>
-                              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                Configure axes, grid, time labels and chart density. The chart automatically simplifies itself when the widget becomes small.
+                              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">
+                                Reuse the same equipment visuals as the Plant Process View, then map the data sources selected in Step 1 to the equipment measurements.
                               </p>
                             </div>
 
-                            {newType === "line" && (
-                              <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div className="sm:col-span-2">
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Chart Style
-                                  </label>
-
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                      {
-                                        value: "line",
-                                        label: "Line",
-                                      },
-                                      {
-                                        value: "area",
-                                        label: "Area",
-                                      },
-                                    ].map((option) => {
-                                      const selected =
-                                        (newChartDisplay.chartStyle ||
-                                          "line") === option.value;
-
-                                      return (
-                                        <button
-                                          key={option.value}
-                                          type="button"
-                                          onClick={() =>
-                                            setNewChartDisplay(
-                                              (previous) => ({
-                                                ...previous,
-                                                chartStyle:
-                                                  option.value,
-                                                curveType:
-                                                  previous.curveType ||
-                                                  "linear",
-                                                lineWeight:
-                                                  previous.lineWeight ||
-                                                  "normal",
-                                                linePattern:
-                                                  previous.linePattern ||
-                                                  "solid",
-                                                strokeWidth:
-                                                  previous.strokeWidth ||
-                                                  2.5,
-                                              })
-                                            )
-                                          }
-                                          className={`
-                                            rounded-xl border
-                                            px-3 py-2.5
-                                            text-sm font-semibold
-                                            transition-colors
-                                            ${
-                                              selected
-                                                ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20"
-                                                : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                            }
-                                          `}
-                                        >
-                                          {option.label}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Time Window
-                                  </label>
-                                  <select
-                                    value={
-                                      newHistoryWindow
-                                    }
-                                    onChange={(event) =>
-                                      setNewHistoryWindow(
-                                        event.target.value
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  >
-                                    <option value="5m">5 minutes</option>
-                                    <option value="15m">15 minutes</option>
-                                    <option value="1h">1 hour</option>
-                                    <option value="6h">6 hours</option>
-                                    <option value="24h">24 hours</option>
-                                    <option value="2d">2 days</option>
-                                    <option value="7d">7 days</option>
-                                    <option value="30d">30 days</option>
-                                    <option value="90d">90 days</option>
-                                  </select>
-                                </div>
-
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    X-axis Time Format
-                                  </label>
-                                  <select
-                                    value={
-                                      newChartDisplay.xAxisFormat
-                                    }
-                                    onChange={(event) =>
-                                      setNewChartDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          xAxisFormat:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  >
-                                    <option value="auto">Auto</option>
-                                    <option value="time">Time only</option>
-                                    <option value="date">Date only</option>
-                                    <option value="datetime">Date + time</option>
-                                  </select>
-                                </div>
-                              </div>
-                            )}
-
-                            {newType === "line" && (
-                              <div
-                                className="
-                                  mb-3 rounded-xl
-                                  border border-slate-200
-                                  bg-white p-3
-                                  dark:border-slate-700
-                                  dark:bg-slate-900
-                                "
-                              >
-                                <div
-                                  className="
-                                    flex flex-col gap-3
-                                    sm:flex-row
-                                    sm:items-center
-                                    sm:justify-between
-                                  "
-                                >
-                                  <div className="min-w-0">
-                                    <div
-                                      className="
-                                        text-xs font-bold
-                                        text-slate-800
-                                        dark:text-slate-100
-                                      "
-                                    >
-                                      Background Grid Lines
-                                    </div>
-
-                                    <p
-                                      className="
-                                        mt-0.5 text-[11px]
-                                        leading-4
-                                        text-slate-500
-                                        dark:text-slate-400
-                                      "
-                                    >
-                                      Show faint reference lines behind the trend to make values easier to compare.
-                                    </p>
-                                  </div>
-
-                                  <div
-                                    className="
-                                      inline-flex shrink-0
-                                      rounded-lg
-                                      border border-slate-200
-                                      bg-slate-50 p-1
-                                      dark:border-slate-700
-                                      dark:bg-slate-950
-                                    "
-                                  >
-                                    {[
-                                      {
-                                        value: true,
-                                        label: "Show",
-                                      },
-                                      {
-                                        value: false,
-                                        label: "Hide",
-                                      },
-                                    ].map((option) => {
-                                      const selected =
-                                        (newChartDisplay.showGrid !==
-                                          false) ===
-                                        option.value;
-
-                                      return (
-                                        <button
-                                          key={String(
-                                            option.value
-                                          )}
-                                          type="button"
-                                          onClick={() =>
-                                            setNewChartDisplay(
-                                              (previous) => ({
-                                                ...previous,
-                                                showGrid:
-                                                  option.value,
-                                              })
-                                            )
-                                          }
-                                          className={`
-                                            h-7 rounded-md
-                                            px-3 text-[11px]
-                                            font-semibold
-                                            transition-colors
-                                            ${
-                                              selected
-                                                ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
-                                                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-                                            }
-                                          `}
-                                        >
-                                          {option.label}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                {newChartDisplay.showGrid !==
-                                  false && (
-                                  <div
-                                    className="
-                                      mt-3 flex
-                                      flex-col gap-2
-                                      sm:flex-row
-                                      sm:items-center
-                                      sm:justify-between
-                                    "
-                                  >
-                                    <div>
-                                      <div
-                                        className="
-                                          text-[11px]
-                                          font-semibold
-                                          text-slate-700
-                                          dark:text-slate-200
-                                        "
-                                      >
-                                        Grid Density
-                                      </div>
-
-                                      <p
-                                        className="
-                                          mt-0.5
-                                          text-[10px]
-                                          text-slate-400
-                                        "
-                                      >
-                                        Keep major grid lines clear; add only faint horizontal guides between them.
-                                      </p>
-                                    </div>
-
-                                    <div
-                                      className="
-                                        inline-flex shrink-0
-                                        rounded-lg
-                                        border border-slate-200
-                                        bg-slate-50 p-1
-                                        dark:border-slate-700
-                                        dark:bg-slate-950
-                                      "
-                                    >
-                                      {[
-                                        {
-                                          value: "sparse",
-                                          label: "Low",
-                                        },
-                                        {
-                                          value: "normal",
-                                          label: "Balanced",
-                                        },
-                                        {
-                                          value: "dense",
-                                          label: "Dense",
-                                        },
-                                      ].map((option) => {
-                                        const selected =
-                                          (newChartDisplay.gridDensity ||
-                                            "dense") ===
-                                          option.value;
-
-                                        return (
-                                          <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() =>
-                                              setNewChartDisplay(
-                                                (previous) => ({
-                                                  ...previous,
-                                                  gridDensity:
-                                                    option.value,
-                                                })
-                                              )
-                                            }
-                                            className={`
-                                              h-7 rounded-md
-                                              px-2.5 text-[10px]
-                                              font-semibold
-                                              transition-colors
-                                              ${
-                                                selected
-                                                  ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
-                                                  : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-                                              }
-                                            `}
-                                          >
-                                            {option.label}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-
-                                <div
-                                  className="
-                                    mt-3 overflow-hidden
-                                    rounded-lg border
-                                    border-slate-200
-                                    bg-slate-50
-                                    dark:border-slate-700
-                                    dark:bg-slate-950
-                                  "
-                                  aria-hidden="true"
-                                >
-                                  <svg
-                                    viewBox="0 0 320 54"
-                                    className="h-12 w-full"
-                                    preserveAspectRatio="none"
-                                  >
-                                    {newChartDisplay.showGrid !==
-                                      false && (
-                                      <g
-                                        stroke="currentColor"
-                                        className="text-slate-300 dark:text-slate-700"
-                                        strokeWidth="1"
-                                        strokeDasharray="3 5"
-                                      >
-                                        {(() => {
-                                          const density =
-                                            newChartDisplay.gridDensity ||
-                                            "dense";
-
-                                          const horizontalLines =
-                                            density === "sparse"
-                                              ? [18, 36]
-                                              : density === "normal"
-                                              ? [13, 27, 41]
-                                              : [9, 18, 27, 36, 45];
-
-                                          const verticalLines =
-                                            density === "sparse"
-                                              ? [106, 213]
-                                              : density === "normal"
-                                              ? [80, 160, 240]
-                                              : [53, 106, 160, 213, 266];
-
-                                          return (
-                                            <>
-                                              {horizontalLines.map(
-                                                (y) => (
-                                                  <line
-                                                    key={`h-${y}`}
-                                                    x1="0"
-                                                    y1={y}
-                                                    x2="320"
-                                                    y2={y}
-                                                  />
-                                                )
-                                              )}
-
-                                              {verticalLines.map(
-                                                (x) => (
-                                                  <line
-                                                    key={`v-${x}`}
-                                                    x1={x}
-                                                    y1="0"
-                                                    x2={x}
-                                                    y2="54"
-                                                  />
-                                                )
-                                              )}
-                                            </>
-                                          );
-                                        })()}
-                                      </g>
-                                    )}
-
-                                    <polyline
-                                      points="0,37 38,30 78,33 116,20 155,24 198,15 240,23 280,12 320,18"
-                                      fill="none"
-                                      stroke="#58D7FF"
-                                      strokeWidth="2.5"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                              {[
-                                ...(newType === "bar"
-                                  ? [["showGrid", "Grid lines"]]
-                                  : []),
-                                ["showLegend", "Legend"],
-                                ["showTooltip", "Tooltip"],
-                                ["showXAxis", "X-axis"],
-                                ["showYAxis", "Y-axis"],
-                                ...(newType !== "bar"
-                                  ? [["showDots", "Data points"]]
-                                  : []),
-                              ].map(
-                                ([key, label]) => (
-                                  <label
-                                    key={key}
-                                    className="
-                                      flex items-center gap-2
-                                      rounded-xl border
-                                      border-gray-200 bg-white
-                                      px-3 py-2.5
-                                      dark:border-slate-700
-                                      dark:bg-slate-900
-                                    "
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={
-                                        newChartDisplay[
-                                          key
-                                        ] !== false
-                                      }
-                                      onChange={(event) =>
-                                        setNewChartDisplay(
-                                          (previous) => ({
-                                            ...previous,
-                                            [key]:
-                                              event.target.checked,
-                                          })
-                                        )
-                                      }
-                                    />
-                                    <span className="text-xs font-semibold text-gray-700 dark:text-white">
-                                      {label}
-                                    </span>
-                                  </label>
-                                )
-                              )}
-                            </div>
-
-                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                              <div>
-                                <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                  Y-axis Scale
-                                </label>
-                                <select
-                                  value={
-                                    newChartDisplay.yAxisMode === "auto"
-                                      ? "auto"
-                                      : "fixed"
-                                  }
-                                  onChange={(event) =>
-                                    setNewChartDisplay(
-                                      (previous) => ({
-                                        ...previous,
-                                        yAxisMode:
-                                          event.target.value,
-                                      })
-                                    )
-                                  }
-                                  className="
-                                    w-full rounded-xl border
-                                    border-gray-300 bg-white
-                                    px-4 py-3 dark:text-white
-                                    dark:border-slate-600
-                                    dark:bg-slate-900
-                                  "
-                                >
-                                  <option value="auto">
-                                    Smart Auto · recommended
-                                  </option>
-                                  <option value="fixed">
-                                    Fixed Scale · exact min / max / interval
-                                  </option>
-                                </select>
-
-                                <div
-                                  className={`
-                                    mt-2 rounded-xl px-3 py-2
-                                    text-[10px] leading-4
-                                    ${
-                                      newChartDisplay.yAxisMode === "auto"
-                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
-                                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-                                    }
-                                  `}
-                                >
-                                  {newChartDisplay.yAxisMode === "auto"
-                                    ? "Smart Auto follows the visible data and automatically keeps zero when it becomes meaningful."
-                                    : "Fixed Scale uses your exact minimum and maximum. Tick Interval controls the spacing between Y-axis labels."}
-                                </div>
-                              </div>
-
-                              {newChartDisplay.yAxisMode === "auto" && (
-                                <div>
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    Auto Tick Target
-                                  </label>
-                                  <input
-                                    type="number"
-                                    min="2"
-                                    max="12"
-                                    value={
-                                      newChartDisplay.yAxisTickCount
-                                    }
-                                    onChange={(event) =>
-                                      setNewChartDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          yAxisTickCount:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                    className="
-                                      w-full rounded-xl border
-                                      border-gray-300 bg-white
-                                      px-4 py-3 dark:text-white
-                                      dark:border-slate-600
-                                      dark:bg-slate-900
-                                    "
-                                  />
-                                  <p className="mt-2 text-[10px] leading-4 text-gray-500 dark:text-slate-400">
-                                    Approximate number of major Y-axis labels used by Smart Auto.
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-
-                            {newChartDisplay.yAxisMode !== "auto" && (
-                              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/25 dark:bg-amber-500/[0.05]">
-                                <div className="mb-3">
-                                  <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                                    Fixed Y-axis Scale
-                                  </h4>
-                                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                    Set the exact chart scale. For example, Minimum 0, Maximum 400, Interval 100 produces 0, 100, 200, 300, 400.
-                                  </p>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                                  <div>
-                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                      Minimum
-                                    </label>
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      value={newChartDisplay.yAxisMin}
-                                      placeholder={String(newRangeConfig.min ?? "0")}
-                                      onChange={(event) =>
-                                        setNewChartDisplay(
-                                          (previous) => ({
-                                            ...previous,
-                                            yAxisMode: "fixed",
-                                            yAxisMin: event.target.value,
-                                          })
-                                        )
-                                      }
-                                      className="
-                                        w-full rounded-xl border
-                                        border-gray-300 bg-white
-                                        px-4 py-3 dark:text-white
-                                        dark:border-slate-600
-                                        dark:bg-slate-900
-                                      "
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                      Maximum
-                                    </label>
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      value={newChartDisplay.yAxisMax}
-                                      placeholder={String(newRangeConfig.max ?? "100")}
-                                      onChange={(event) =>
-                                        setNewChartDisplay(
-                                          (previous) => ({
-                                            ...previous,
-                                            yAxisMode: "fixed",
-                                            yAxisMax: event.target.value,
-                                          })
-                                        )
-                                      }
-                                      className="
-                                        w-full rounded-xl border
-                                        border-gray-300 bg-white
-                                        px-4 py-3 dark:text-white
-                                        dark:border-slate-600
-                                        dark:bg-slate-900
-                                      "
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                      Tick Interval
-                                    </label>
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      min="0"
-                                      value={newChartDisplay.yAxisInterval ?? ""}
-                                      placeholder="Example: 100"
-                                      onChange={(event) =>
-                                        setNewChartDisplay(
-                                          (previous) => ({
-                                            ...previous,
-                                            yAxisMode: "fixed",
-                                            yAxisInterval: event.target.value,
-                                          })
-                                        )
-                                      }
-                                      className="
-                                        w-full rounded-xl border
-                                        border-gray-300 bg-white
-                                        px-4 py-3 dark:text-white
-                                        dark:border-slate-600
-                                        dark:bg-slate-900
-                                      "
-                                    />
-                                  </div>
-                                </div>
-
-                                <p className="mt-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
-                                  Leave Minimum or Maximum blank to fall back to the widget Data Range. Leave Tick Interval blank to divide the fixed range automatically.
-                                </p>
-                              </div>
-                            )}
-
-                            {newType === "line" && (
-                              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div className="sm:col-span-2">
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    {newChartDisplay.chartStyle ===
-                                    "area"
-                                      ? "Edge Type"
-                                      : "Line Type"}
-                                  </label>
-
-                                  <div className="grid grid-cols-3 gap-2">
-                                    {[
-                                      {
-                                        value: "linear",
-                                        label: "Normal",
-                                        description:
-                                          "Straight",
-                                        preview:
-                                          "M2 15 L12 8 L22 12 L34 3",
-                                      },
-                                      {
-                                        value: "monotone",
-                                        label: "Smooth",
-                                        description:
-                                          "Curved",
-                                        preview:
-                                          "M2 15 C8 15 8 8 14 8 C21 8 23 12 28 10 C32 8 32 3 34 3",
-                                      },
-                                      {
-                                        value: "step",
-                                        label: "Step",
-                                        description:
-                                          "Stepped",
-                                        preview:
-                                          "M2 15 H12 V8 H23 V12 H29 V3 H34",
-                                      },
-                                    ].map((option) => {
-                                      const selected =
-                                        (newChartDisplay.curveType ||
-                                          "linear") === option.value;
-
-                                      return (
-                                        <button
-                                          key={option.value}
-                                          type="button"
-                                          onClick={() =>
-                                            setNewChartDisplay(
-                                              (previous) => ({
-                                                ...previous,
-                                                curveType:
-                                                  option.value,
-                                              })
-                                            )
-                                          }
-                                          className={`
-                                            rounded-xl border p-2.5
-                                            text-left transition-colors
-                                            ${
-                                              selected
-                                                ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
-                                                : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
-                                            }
-                                          `}
-                                        >
-                                          <svg
-                                            viewBox="0 0 36 18"
-                                            className="mb-1.5 h-5 w-full"
-                                            aria-hidden="true"
-                                          >
-                                            <path
-                                              d={option.preview}
-                                              fill="none"
-                                              stroke="currentColor"
-                                              strokeWidth="2"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                              className={
-                                                selected
-                                                  ? "text-emerald-600 dark:text-emerald-300"
-                                                  : "text-slate-400"
-                                              }
-                                            />
-                                          </svg>
-
-                                          <div
-                                            className={`text-xs font-bold ${
-                                              selected
-                                                ? "text-cyan-700 dark:text-cyan-300"
-                                                : "text-slate-700 dark:text-slate-200"
-                                            }`}
-                                          >
-                                            {option.label}
-                                          </div>
-
-                                          <div className="mt-0.5 text-[10px] text-slate-400">
-                                            {option.description}
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                <div className="sm:col-span-2">
-                                  <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                    {newChartDisplay.chartStyle ===
-                                    "area"
-                                      ? "Edge Weight"
-                                      : "Line Weight"}
-                                  </label>
-
-                                  <div className="grid grid-cols-3 gap-2">
-                                    {[
-                                      {
-                                        value: "thin",
-                                        label: "Thin",
-                                        width: 1.5,
-                                      },
-                                      {
-                                        value: "normal",
-                                        label: "Normal",
-                                        width: 2.5,
-                                      },
-                                      {
-                                        value: "bold",
-                                        label: "Bold",
-                                        width: 4,
-                                      },
-                                    ].map((option) => {
-                                      const selected =
-                                        (newChartDisplay.lineWeight ||
-                                          "normal") === option.value;
-
-                                      return (
-                                        <button
-                                          key={option.value}
-                                          type="button"
-                                          onClick={() =>
-                                            setNewChartDisplay(
-                                              (previous) => ({
-                                                ...previous,
-                                                lineWeight:
-                                                  option.value,
-                                                strokeWidth:
-                                                  option.width,
-                                              })
-                                            )
-                                          }
-                                          className={`
-                                            rounded-xl border
-                                            px-3 py-2.5
-                                            transition-colors
-                                            ${
-                                              selected
-                                                ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
-                                                : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
-                                            }
-                                          `}
-                                        >
-                                          <div className="mb-2 flex h-4 items-center">
-                                            <span
-                                              className={`block w-full rounded-full ${
-                                                selected
-                                                  ? "bg-emerald-600 dark:bg-emerald-400"
-                                                  : "bg-slate-400 dark:bg-slate-500"
-                                              }`}
-                                              style={{
-                                                height:
-                                                  `${option.width}px`,
-                                              }}
-                                            />
-                                          </div>
-
-                                          <div
-                                            className={`text-xs font-bold ${
-                                              selected
-                                                ? "text-cyan-700 dark:text-cyan-300"
-                                                : "text-slate-700 dark:text-slate-200"
-                                            }`}
-                                          >
-                                            {option.label}
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-
-                                  <p className="mt-2 text-[10px] text-slate-400">
-                                    Normal is the default.
-                                  </p>
-                                </div>
-
-                                {newChartDisplay.chartStyle !==
-                                  "area" && (
-                                  <div className="sm:col-span-2">
-                                    <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                      Line Pattern
-                                    </label>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                      {[
-                                        {
-                                          value: "solid",
-                                          label: "Solid",
-                                          dash: "",
-                                        },
-                                        {
-                                          value: "dashed",
-                                          label: "Dashed",
-                                          dash: "8 5",
-                                        },
-                                        {
-                                          value: "dotted",
-                                          label: "Dotted",
-                                          dash: "2 5",
-                                        },
-                                      ].map((option) => {
-                                        const selected =
-                                          (newChartDisplay.linePattern ||
-                                            "solid") ===
-                                          option.value;
-
-                                        return (
-                                          <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() =>
-                                              setNewChartDisplay(
-                                                (previous) => ({
-                                                  ...previous,
-                                                  linePattern:
-                                                    option.value,
-                                                })
-                                              )
-                                            }
-                                            className={`
-                                              rounded-xl border
-                                              px-3 py-2.5
-                                              transition-colors
-                                              ${
-                                                selected
-                                                  ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
-                                                  : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
-                                              }
-                                            `}
-                                          >
-                                            <svg
-                                              viewBox="0 0 64 12"
-                                              className="mb-2 h-3 w-full"
-                                              aria-hidden="true"
-                                            >
-                                              <line
-                                                x1="2"
-                                                y1="6"
-                                                x2="62"
-                                                y2="6"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2.5"
-                                                strokeLinecap="round"
-                                                strokeDasharray={
-                                                  option.dash ||
-                                                  undefined
-                                                }
-                                                className={
-                                                  selected
-                                                    ? "text-emerald-600 dark:text-emerald-300"
-                                                    : "text-slate-400"
-                                                }
-                                              />
-                                            </svg>
-
-                                            <div
-                                              className={`text-xs font-bold ${
-                                                selected
-                                                  ? "text-cyan-700 dark:text-cyan-300"
-                                                  : "text-slate-700 dark:text-slate-200"
-                                              }`}
-                                            >
-                                              {option.label}
-                                            </div>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-
-                                    <p className="mt-2 text-[10px] text-slate-400">
-                                      Solid is the default.
-                                    </p>
-                                  </div>
-                                )}
-
-                                {newChartDisplay.chartStyle ===
-                                  "area" && (
-                                  <>
-                                    <div>
-                                      <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                        Area Opacity
-                                      </label>
-
-                                      <div className="flex items-center gap-3">
-                                        <input
-                                          type="range"
-                                          min="0.05"
-                                          max="0.9"
-                                          step="0.05"
-                                          value={
-                                            Number(
-                                              newChartDisplay.areaOpacity
-                                            ) || 0.34
-                                          }
-                                          onChange={(event) =>
-                                            setNewChartDisplay(
-                                              (previous) => ({
-                                                ...previous,
-                                                areaOpacity:
-                                                  Number(
-                                                    event.target.value
-                                                  ),
-                                              })
-                                            )
-                                          }
-                                          className="min-w-0 flex-1 accent-emerald-600"
-                                        />
-
-                                        <span className="w-12 text-right text-xs font-semibold text-gray-500 dark:text-slate-400">
-                                          {Math.round(
-                                            (Number(
-                                              newChartDisplay.areaOpacity
-                                            ) || 0.34) * 100
-                                          )}
-                                          %
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    <div>
-                                      <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
-                                        Fade End
-                                      </label>
-
-                                      <div className="flex items-center gap-3">
-                                        <input
-                                          type="range"
-                                          min="0"
-                                          max="0.4"
-                                          step="0.025"
-                                          value={
-                                            Number(
-                                              newChartDisplay.areaEndOpacity
-                                            ) || 0.025
-                                          }
-                                          onChange={(event) =>
-                                            setNewChartDisplay(
-                                              (previous) => ({
-                                                ...previous,
-                                                areaEndOpacity:
-                                                  Number(
-                                                    event.target.value
-                                                  ),
-                                              })
-                                            )
-                                          }
-                                          className="min-w-0 flex-1 accent-emerald-600"
-                                        />
-
-                                        <span className="w-12 text-right text-xs font-semibold text-gray-500 dark:text-slate-400">
-                                          {Math.round(
-                                            (Number(
-                                              newChartDisplay.areaEndOpacity
-                                            ) || 0.025) * 100
-                                          )}
-                                          %
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
+                            <ProcessEquipmentSettings
+                              config={newProcessEquipmentConfig}
+                              onChange={setNewProcessEquipmentConfig}
+                              selectedDataKeys={newDataKeys}
+                              dataOptions={allDataOptions}
+                            />
                           </div>
                         )}
 
-                        {supportsRangeConfiguration(
-      newType,
-      newBigNumberDisplay.mode
-    ) &&
+                        {newType === "processView" && (
+                          <div className="mt-4 rounded-xl border border-violet-200/80 bg-gradient-to-br from-violet-50/70 via-white to-cyan-50/60 p-4 dark:border-violet-500/20 dark:from-violet-950/20 dark:via-slate-950 dark:to-cyan-950/20">
+                            <div className="mb-4">
+                              <h3 className="font-bold text-gray-900 dark:text-white">
+                                Process View
+                              </h3>
+                              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">
+                                Choose a saved Process Flow. The dashboard widget renders that flow directly instead of keeping a second copy of the topology.
+                              </p>
+                            </div>
+
+                            <ProcessViewSettings
+                              config={newProcessViewConfig}
+                              onChange={setNewProcessViewConfig}
+                            />
+                          </div>
+                        )}
+
+                        {newType === "customLayout" && (
+                          <div className="mt-4 rounded-xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-cyan-50/50 p-4 dark:border-blue-500/20 dark:from-blue-950/20 dark:via-slate-950 dark:to-cyan-950/10">
+                            <div className="mb-4">
+                              <h3 className="font-bold text-gray-900 dark:text-white">
+                                Custom Widget Layout
+                              </h3>
+                              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">
+                                Combine up to four existing widget renderers inside one dashboard card.
+                              </p>
+                            </div>
+                            <CustomLayoutSettings
+                              config={newCustomLayoutConfig}
+                              onChange={setNewCustomLayoutConfig}
+                              availableDataKeys={newDataKeys}
+                              dataOptions={allDataOptions}
+                            />
+                          </div>
+                        )}
+
+                        <HeatmapSettings
+                          newType={newType}
+                          newHistoryWindow={newHistoryWindow}
+                          setNewHistoryWindow={setNewHistoryWindow}
+                          newChartDisplay={newChartDisplay}
+                          setNewChartDisplay={setNewChartDisplay}
+                        />
+                        <ChartDisplaySettings
+                          newType={newType}
+                          newHistoryWindow={newHistoryWindow}
+                          setNewHistoryWindow={setNewHistoryWindow}
+                          newChartDisplay={newChartDisplay}
+                          setNewChartDisplay={setNewChartDisplay}
+                        />
+                        {newType === "gauge" &&
                           hasSelectedDataSource && (
                             <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
-                              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <h3 className="font-bold dark:text-white">
-                                    Operating Range and Thresholds
-                                  </h3>
-
-                                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                    Configure the sensor unit, expected operating range, and warning thresholds. This is separate from the visible Y-axis scale.
-                                  </p>
-
-                                  {newType === "line" && (
-                                    <p className="mt-2 text-[10px] font-medium leading-4 text-blue-600 dark:text-blue-300">
-                                      {newChartDisplay.yAxisMode === "auto"
-                                        ? "Smart Auto uses live/history values for the visible Y-axis. This range remains the expected engineering range and no-data fallback."
-                                        : "Fixed Scale above controls the visible Y-axis. This section remains useful for the sensor unit, operating range, and thresholds."}
-                                    </p>
-                                  )}
-                                </div>
-
-
+                              <div className="mb-4">
+                                <h3 className="font-bold text-gray-900 dark:text-white">
+                                  Gauge Style
+                                </h3>
+                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                  Choose how the same Gauge data is visualized. You can switch styles without changing the data source or range settings.
+                                </p>
                               </div>
 
-                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                 {[
-                                  { key: "min", label: "Minimum" },
-                                  { key: "max", label: "Maximum" },
-                                  { key: "warning", label: "Warning Value" },
-                                  { key: "danger", label: "Danger Value" },
-                                ].map((field) => (
-                                  <div key={field.key}>
-                                    <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                      {field.label}
-                                    </label>
+                                  { key: "circular", label: "Circular", description: "Semi-circle instrument gauge" },
+                                  { key: "linear", label: "Linear", description: "Horizontal range position indicator" },
+                                ].map((option) => {
+                                  const selected =
+                                    newGaugeDisplay.style === option.key;
 
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      value={newRangeConfig[field.key]}
-                                      onChange={(event) =>
-                                        setNewRangeConfig((previous) => ({
-                                          ...previous,
-                                          [field.key]: event.target.value,
-                                        }))
+                                  return (
+                                    <button
+                                      key={option.key}
+                                      type="button"
+                                      onClick={() =>
+                                        setNewGaugeDisplay({ style: option.key })
                                       }
-                                      className="
-                                        w-full rounded-xl
-                                        border border-gray-300 dark:border-slate-600
-                                        bg-white dark:bg-slate-900
-                                        px-4 py-3
-                                        dark:text-white
-                                        outline-none
-                                        focus:ring-2 focus:ring-emerald-500
-                                      "
-                                    />
-                                  </div>
-                                ))}
-
-                                <div className="sm:col-span-2">
-                                  <label className="mb-2 block text-sm font-semibold dark:text-white">
-                                    Unit
-                                  </label>
-
-                                  <input
-                                    type="text"
-                                    placeholder="Example: bar, psi, °C"
-                                    value={newRangeConfig.unit}
-                                    onChange={(event) =>
-                                      setNewRangeConfig((previous) => ({
-                                        ...previous,
-                                        unit: event.target.value,
-                                      }))
-                                    }
-                                    className="
-                                      w-full rounded-xl
-                                      border border-gray-300 dark:border-slate-600
-                                      bg-white dark:bg-slate-900
-                                      px-4 py-3
-                                      dark:text-white
-                                      outline-none
-                                      focus:ring-2 focus:ring-emerald-500
-                                    "
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                                These settings are saved directly with this widget and are used by the dashboard at runtime.
+                                      className={`rounded-xl border p-3 text-left transition ${
+                                        selected
+                                          ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-100 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
+                                          : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                                      }`}
+                                    >
+                                      <div className="mb-3 flex h-14 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950">
+                                        {option.key === "circular" ? (
+                                          <div className="relative h-9 w-16 overflow-hidden">
+                                            <div className={`absolute inset-x-1 top-1 h-14 rounded-full border-[5px] ${selected ? "border-emerald-500" : "border-slate-300 dark:border-slate-600"}`} />
+                                            <div className="absolute inset-x-0 bottom-0 h-5 bg-slate-50 dark:bg-slate-950" />
+                                            <div className={`absolute bottom-1 left-1/2 h-0.5 w-6 origin-left -rotate-[35deg] rounded-full ${selected ? "bg-emerald-600" : "bg-slate-500"}`} />
+                                          </div>
+                                        ) : (
+                                          <div className="w-full max-w-[150px] px-2">
+                                            <div className="relative h-4">
+                                              <div className="absolute left-0 right-0 top-1.5 h-2 rounded-full bg-slate-200 dark:bg-slate-700" />
+                                              <div className={`absolute left-0 top-1.5 h-2 w-[58%] rounded-l-full ${selected ? "bg-emerald-500" : "bg-slate-400"}`} />
+                                              <div className={`absolute left-[58%] top-0 h-5 w-5 -translate-x-1/2 rounded-full border-4 border-white shadow-sm dark:border-slate-900 ${selected ? "bg-emerald-500" : "bg-slate-500"}`} />
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className={`text-sm font-bold ${selected ? "text-emerald-700 dark:text-emerald-300" : "text-slate-800 dark:text-white"}`}>
+                                        {option.label}
+                                      </div>
+                                      <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                        {option.description}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
+
+                        <RangeThresholdSettings
+                          enabled={
+                            supportsRangeConfiguration(
+                              newType,
+                              newBigNumberDisplay.mode
+                            ) && hasSelectedDataSource
+                          }
+                          newType={newType}
+                          newChartDisplay={newChartDisplay}
+                          newRangeConfig={newRangeConfig}
+                          setNewRangeConfig={setNewRangeConfig}
+                          isThresholdEnabled={isThresholdEnabled}
+                          getDefaultThresholdValue={getDefaultThresholdValue}
+                        />
 
                         {newType === "sankey" && (
                           <div
                             className="
                               mt-4 rounded-xl border p-4
-                              border-cyan-200 bg-cyan-50
-                              dark:border-cyan-500/30
+                              border-emerald-200 bg-emerald-50
+                              dark:border-emerald-500/40
                               dark:bg-slate-900
                             "
                           >
@@ -12897,15 +11633,15 @@ export default function TemplateDesigner({
                                   className="mt-1 text-sm leading-5"
                                   style={{
                                     color: document.documentElement.classList.contains("dark")
-                                      ? "#AAB7D4"
+                                      ? "#334155"
                                       : "#475569",
                                   }}
                                 >
-                                  Open the full-screen editor to create nodes and connect them into a multi-level flow network.
+                                  Open the full-screen editor to configure the source name and output data sources.
                                 </p>
 
-                                <p className="mt-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300">
-                                  Current setup: {getSankeyGraph().nodes.length} node(s) · {getSankeyOutputs().length} flow(s)
+                                <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                                  Current setup: {getSankeyOutputs().length} output(s)
                                 </p>
                               </div>
 
@@ -12926,7 +11662,9 @@ export default function TemplateDesigner({
                                     };
 
                                   const targetDataKeys =
-                                    getSankeyDataKeys(preparedConfig);
+                                    getSankeyDataKeys(
+                                      preparedConfig
+                                    );
 
                                   setEditingSankeyWidget({
                                     ...target,
@@ -12952,12 +11690,14 @@ export default function TemplateDesigner({
                                 }}
                                 className="
                                   inline-flex items-center justify-center
-                                  rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500
+                                  rounded-xl bg-emerald-600
                                   px-5 py-3 text-sm font-bold
                                   text-white shadow-sm
-                                  shadow-cyan-500/20
-                                  transition hover:from-cyan-400 hover:to-indigo-400
-                                  dark:text-white
+                                  shadow-emerald-600/20
+                                  transition hover:bg-emerald-700
+                                  dark:bg-emerald-500
+                                  dark:text-slate-950
+                                  dark:hover:bg-emerald-400
                                 "
                               >
                                 Open Sankey Flow Editor
@@ -12970,6 +11710,70 @@ export default function TemplateDesigner({
                       </div>
                     )}
 
+                    <div
+                      className="
+                        mt-3 rounded-xl border
+                        border-slate-200 bg-white
+                        px-3 py-3
+                        dark:border-slate-700
+                        dark:bg-slate-900
+                      "
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
+                          className="
+                            mt-0.5 flex h-7 w-7
+                            shrink-0 items-center
+                            justify-center rounded-lg
+                            bg-emerald-50
+                            text-emerald-600
+                            dark:bg-emerald-500/10
+                            dark:text-emerald-300
+                          "
+                        >
+                          <CheckCircle2 size={15} />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                            Widget Summary
+                          </p>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="max-w-full truncate text-sm font-bold text-slate-800 dark:text-white">
+                              {newLabel.trim() ||
+                                getFallbackWidgetLabel(
+                                  newType,
+                                  isMultiDataWidget
+                                    ? newDataKeys[0] ||
+                                      newDataKey
+                                    : newDataKey
+                                )}
+                            </span>
+
+                            <span className="text-[10px] text-slate-400">
+                              {selectedWidgetTypeLabel}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {newW} × {newH}
+                            </span>
+
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">
+                              •
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {widgetSummarySourceText}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
                   </>
                 )}
@@ -12986,16 +11790,16 @@ export default function TemplateDesigner({
           onClick={() => setShowCustomWidgetModal(false)}
         >
           <div
-            className="w-[min(620px,94vw)] max-h-[90vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            className="w-[min(980px,96vw)] max-h-[92vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 dark:border-slate-700">
               <div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Add Custom Widget Type
+                  Build Custom Widget
                 </h3>
                 <p className="mt-1 text-sm text-gray-500 dark:text-slate-300">
-                  Create a reusable widget preset using one of the existing display renderers.
+                  Build a reusable dashboard card by combining the existing widget renderers.
                 </p>
               </div>
 
@@ -13029,28 +11833,25 @@ export default function TemplateDesigner({
               </div>
 
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
-                  Based on widget renderer
-                </label>
-                <select
-                  value={customWidgetDraft.baseType}
-                  onChange={(event) =>
+                <div className="mb-2">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
+                    Widget composition
+                  </div>
+                  <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-400">
+                    Use the data sources selected in Step 1, then combine existing widgets into one reusable card.
+                  </p>
+                </div>
+                <CustomLayoutSettings
+                  config={customWidgetDraft.layoutConfig}
+                  onChange={(layoutConfig) =>
                     setCustomWidgetDraft((current) => ({
                       ...current,
-                      baseType: event.target.value,
+                      layoutConfig,
                     }))
                   }
-                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
-                >
-                  {widgetLibrary.map((widget) => (
-                    <option key={widget.type} value={widget.type}>
-                      {widget.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-400">
-                  This controls how the widget is rendered. The custom name is saved as a preset in this template.
-                </p>
+                  availableDataKeys={newDataKeys}
+                  dataOptions={allDataOptions}
+                />
               </div>
 
               <div>
@@ -13072,7 +11873,7 @@ export default function TemplateDesigner({
               </div>
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
-                Custom widget types are saved with the template as reusable display presets.
+                Custom widget layouts are saved with the template and can be reused like any other widget.
               </div>
             </div>
 
@@ -13090,7 +11891,7 @@ export default function TemplateDesigner({
                 onClick={addCustomWidgetType}
                 className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
               >
-                Add and Select Widget Type
+                Save and Select Custom Widget
               </button>
             </div>
           </div>

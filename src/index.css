@@ -263,9 +263,17 @@ html.dark textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  /*
+   * Keep the application's ordinary UI respectful of reduced-motion,
+   * but do NOT silently kill process visualization motion that the
+   * application explicitly marks as motion-enabled.
+   *
+   * Equipment animation can still be disabled with motionEnabled={false},
+   * and pipeline flow can still be disabled per connection.
+   */
+  *:not(.process-equipment-visual):not(.process-equipment-visual *):not(.process-flow-line),
+  *:not(.process-equipment-visual):not(.process-equipment-visual *):not(.process-flow-line)::before,
+  *:not(.process-equipment-visual):not(.process-equipment-visual *):not(.process-flow-line)::after {
     scroll-behavior: auto !important;
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;

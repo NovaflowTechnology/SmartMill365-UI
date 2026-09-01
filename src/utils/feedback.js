@@ -1,6 +1,9 @@
 let legacyAlertInstalled = false;
 const pendingToasts = [];
 
+export const TOAST_DURATION_MS = 5000;
+export const TOAST_FADE_MS = 300;
+
 const inferType = (message = "") => {
   const text = String(message).toLowerCase();
 
@@ -50,6 +53,8 @@ export const notify = (message, type = null) => {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     message: cleanMessage(message) || "Notification",
     type: type || inferType(message),
+    createdAt: Date.now(),
+    duration: TOAST_DURATION_MS,
   };
 
   if (window.__appFeedbackReady) {
@@ -65,7 +70,7 @@ export const notify = (message, type = null) => {
 
 export const consumePendingToasts = () => pendingToasts.splice(0);
 
-export const installLegacyAlertBridge = () => {
+export const installLegacyDialogGuards = () => {
   if (
     typeof window === "undefined" ||
     legacyAlertInstalled
@@ -75,17 +80,46 @@ export const installLegacyAlertBridge = () => {
 
   legacyAlertInstalled = true;
 
-  // Preserve the native function only for debugging. The app deliberately
-  // does not use it for user feedback so the browser never shows
-  // "localhost says..." dialogs.
-  if (!window.__nativeAlert) {
-    window.__nativeAlert = window.alert?.bind(window);
-  }
-
+  // Last-resort safety net. All known source usages are migrated to notify()
+  // and confirmAction(), but these guards prevent a future legacy call from
+  // reopening a browser "localhost says..." dialog.
   window.alert = (message) => {
     notify(message);
   };
+
+  window.confirm = (message) => {
+    console.error(
+      "Native window.confirm() was blocked. Use confirmAction() instead.",
+      message
+    );
+
+    notify(
+      "A legacy browser confirmation was blocked. This action needs confirmAction().",
+      "warning"
+    );
+
+    // Returning false is the safest fallback for an unmigrated destructive
+    // action. It prevents the action from continuing silently.
+    return false;
+  };
+
+  window.prompt = (message) => {
+    console.error(
+      "Native window.prompt() was blocked. Use an in-app form instead.",
+      message
+    );
+
+    notify(
+      "A legacy browser prompt was blocked. Use an in-app input instead.",
+      "warning"
+    );
+
+    return null;
+  };
 };
+
+// Backward-compatible name used by older App.jsx versions.
+export const installLegacyAlertBridge = installLegacyDialogGuards;
 
 export const confirmAction = ({
   title = "Confirm action",

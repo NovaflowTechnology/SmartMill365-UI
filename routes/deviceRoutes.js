@@ -9,6 +9,7 @@ import { isValidFluxColumnName } from "../utils/helpers.js";
 import {
   discoverSmartMillLogicalDevices,
   getLogicalDeviceKey,
+  collectRowsWithRetry,
 } from "../services/influxService.js";
 
 const router = express.Router();
@@ -131,6 +132,282 @@ router.get(
 
       return res.status(500).json({
         error: "Failed to fetch organization Influx devices",
+      });
+    }
+  }
+);
+
+
+// =====================================
+// BULK DEVICE-ID ASSIGNMENT
+// =====================================
+//
+// Device Management selects IDs directly from InfluxDB, not from
+// measurement-group cards. The server resolves every real measurement that
+// belongs to each selected Device ID and creates the existing measurement-
+// level permission rows internally so the runtime permission model remains
+// backward compatible.
+//
+// POST /organization-influx-devices/bulk-device-ids
+// {
+//   org_id,
+//   bucket_name,
+//   tag_key: "id",
+//   device_ids: ["SAMYSK_POM_250048", ...]
+// }
+// =====================================
+router.post(
+  "/organization-influx-devices/bulk-device-ids",
+  auth(["superadmin"]),
+  async (req, res) => {
+    const orgId = req.body?.org_id;
+    const bucketName = String(
+      req.body?.bucket_name || ""
+    ).trim();
+    const tagKey = String(
+      req.body?.tag_key || "id"
+    ).trim();
+    const deviceIds = [
+      ...new Set(
+        (
+          Array.isArray(
+            req.body?.device_ids
+          )
+            ? req.body.device_ids
+            : []
+        )
+          .map((value) =>
+            String(value || "").trim()
+          )
+          .filter(Boolean)
+      ),
+    ];
+
+    if (
+      !orgId ||
+      !bucketName ||
+      !deviceIds.length
+    ) {
+      return res.status(400).json({
+        error:
+          "org_id, bucket_name and at least one Device ID are required",
+      });
+    }
+
+    if (
+      !isValidFluxColumnName(
+        tagKey
+      )
+    ) {
+      return res.status(400).json({
+        error: "Invalid Influx tag key",
+      });
+    }
+
+    if (deviceIds.length > 200) {
+      return res.status(400).json({
+        error:
+          "Too many Device IDs in one request",
+      });
+    }
+
+    try {
+      const organizations =
+        await dbQuery(
+          `
+          SELECT id
+          FROM organizations
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [orgId]
+        );
+
+      if (!organizations.length) {
+        return res.status(404).json({
+          error: "Organization not found",
+        });
+      }
+
+      const queryApi =
+        influxDB.getQueryApi(org);
+
+      const measurementCache =
+        new Map();
+
+      const getMeasurementsForDevice =
+        async (deviceId) => {
+          if (
+            measurementCache.has(
+              deviceId
+            )
+          ) {
+            return measurementCache.get(
+              deviceId
+            );
+          }
+
+          // schema.measurements() can filter by tags, which gives us the
+          // complete measurement list for this Device ID without exposing
+          // measurement selection in Device Management.
+          const fluxQuery = `
+            import "influxdata/influxdb/schema"
+
+            schema.measurements(
+              bucket: "${escapeFluxString(bucketName)}",
+              start: -365d,
+              predicate: (r) =>
+                r["${escapeFluxString(tagKey)}"] == "${escapeFluxString(deviceId)}"
+            )
+          `;
+
+          const rows =
+            await collectRowsWithRetry({
+              queryApi,
+              fluxQuery,
+              label:
+                `Influx measurements for Device ID ${deviceId}`,
+            });
+
+          const measurements = [
+            ...new Set(
+              rows
+                .map((row) =>
+                  row._value ||
+                  row._measurement
+                )
+                .filter(Boolean)
+                .map(String)
+            ),
+          ].sort();
+
+          measurementCache.set(
+            deviceId,
+            measurements
+          );
+
+          return measurements;
+        };
+
+      let assigned = 0;
+      let skipped = 0;
+      const invalid = [];
+
+      for (const deviceId of deviceIds) {
+        let measurements = [];
+
+        try {
+          measurements =
+            await getMeasurementsForDevice(
+              deviceId
+            );
+        } catch (discoveryError) {
+          invalid.push({
+            tag_value: deviceId,
+            reason:
+              discoveryError?.message ||
+              "Failed to discover measurements for this Device ID",
+          });
+          continue;
+        }
+
+        if (!measurements.length) {
+          invalid.push({
+            tag_value: deviceId,
+            reason:
+              "Device ID was not found in the selected Influx bucket",
+          });
+          continue;
+        }
+
+        for (
+          const measurementName
+          of measurements
+        ) {
+          const existing =
+            await dbQuery(
+              `
+              SELECT id
+              FROM organization_influx_devices
+              WHERE org_id = ?
+                AND bucket_name = ?
+                AND measurement_name = ?
+                AND tag_key = ?
+                AND tag_value = ?
+              LIMIT 1
+              `,
+              [
+                orgId,
+                bucketName,
+                measurementName,
+                tagKey,
+                deviceId,
+              ]
+            );
+
+          if (existing.length) {
+            skipped += 1;
+            continue;
+          }
+
+          try {
+            await dbQuery(
+              `
+              INSERT INTO organization_influx_devices
+              (
+                org_id,
+                bucket_name,
+                measurement_name,
+                tag_key,
+                tag_value,
+                device_name
+              )
+              VALUES (?, ?, ?, ?, ?, ?)
+              `,
+              [
+                orgId,
+                bucketName,
+                measurementName,
+                tagKey,
+                deviceId,
+                deviceId,
+              ]
+            );
+
+            assigned += 1;
+          } catch (insertError) {
+            if (
+              insertError.code ===
+              "ER_DUP_ENTRY"
+            ) {
+              skipped += 1;
+              continue;
+            }
+
+            throw insertError;
+          }
+        }
+      }
+
+      return res.status(201).json({
+        success: true,
+        device_ids_requested:
+          deviceIds.length,
+        assigned,
+        skipped,
+        invalid,
+        message:
+          `${deviceIds.length} Device ID assignment request(s) processed`,
+      });
+    } catch (err) {
+      console.error(
+        "❌ Bulk Device ID assignment error:",
+        err
+      );
+
+      return res.status(500).json({
+        error:
+          "Failed to assign Device IDs",
       });
     }
   }

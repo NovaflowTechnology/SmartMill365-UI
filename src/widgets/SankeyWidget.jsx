@@ -697,12 +697,6 @@ function CustomLink({
   index,
   gradientPrefix,
 }) {
-  // Structural tier links exist only to stop Recharts from pushing an
-  // earlier terminal node into the final sink column. Never draw them.
-  if (payload?.layoutOnly) {
-    return <g />;
-  }
-
   const colorSet = getColorSet(
     payload?.color ||
       NODE_COLORS[(index + 1) % NODE_COLORS.length]
@@ -1125,61 +1119,6 @@ export default function SankeyWidget({
     });
   });
 
-  // Recharts normally right-aligns every terminal/sink node. That makes a
-  // Tier 2 terminal appear beside Tier 3 nodes. Add tiny invisible layout
-  // tails so terminal nodes stay in their explicit tier. The tails have an
-  // epsilon value and are never rendered, so they do not change the visible
-  // Sankey values or add fake flows.
-  const highestVisibleTier = Math.max(
-    1,
-    ...visibleNodes.map((node) => normalizeTier(node.tier, 1))
-  );
-
-  const LAYOUT_EPSILON = 0.0001;
-
-  visibleNodes.forEach((node) => {
-    const nodeTier = normalizeTier(node.tier, 1);
-    const outgoingVisible = visibleLinks.filter(
-      (link) => link.source === node.id
-    );
-
-    if (outgoingVisible.length > 0 || nodeTier >= highestVisibleTier) {
-      return;
-    }
-
-    let previousId = node.id;
-
-    for (
-      let tier = nodeTier + 1;
-      tier <= highestVisibleTier;
-      tier += 1
-    ) {
-      const spacerId = `__terminal-tier-anchor-${node.id}-${tier}`;
-
-      expandedNodes.push({
-        id: spacerId,
-        name: "",
-        color: node.color,
-        tier,
-        synthetic: true,
-        layoutOnly: true,
-      });
-
-      expandedLinks.push({
-        id: `__terminal-tier-link-${node.id}-${tier}`,
-        source: previousId,
-        target: spacerId,
-        color: node.color,
-        value: LAYOUT_EPSILON,
-        layoutOnly: true,
-        hideValueLabels: true,
-        syntheticSegment: true,
-      });
-
-      previousId = spacerId;
-    }
-  });
-
   const indexByNodeId = new Map(
     expandedNodes.map((node, index) => [
       node.id,
@@ -1255,21 +1194,17 @@ export default function SankeyWidget({
       ...link,
       source: indexByNodeId.get(link.source),
       target: indexByNodeId.get(link.target),
-      value: link.layoutOnly
-        ? Math.max(0.0001, Number(link.value) || 0.0001)
-        : link.value,
+      value: link.value,
       compact,
       flowStyle: config.flowStyle || "separated",
       flowGap: Number(config.flowGap ?? 7),
-      layoutOnly: Boolean(link.layoutOnly),
       hideValueLabels:
         Boolean(link.hideValueLabels) ||
-        Boolean(link.layoutOnly) ||
         compact ||
         linkCount > 9,
-      displayValue: link.layoutOnly
-        ? ""
-        : `${formatNumber(link.value)} ${config.unit || ""}`.trim(),
+      displayValue: `${formatNumber(
+        link.value
+      )} ${config.unit || ""}`.trim(),
     }))
     .filter(
       (link) =>
@@ -1424,7 +1359,7 @@ export default function SankeyWidget({
                 data={{ nodes, links }}
                 nodeWidth={12}
                 nodePadding={dynamicNodePadding}
-                linkCurvature={0.34}
+                linkCurvature={0.42}
                 iterations={dynamicIterations}
                 node={<CustomNode />}
                 link={

@@ -34,16 +34,21 @@ export default function GaugeWidget({
   const min = toFiniteNumber(config.min, 0);
   const configuredMax = toFiniteNumber(config.max, 100);
   const max = configuredMax > min ? configuredMax : min + 1;
-  const warning = clamp(
-    toFiniteNumber(config.warning, min + (max - min) * 0.8),
-    min,
-    max
-  );
-  const danger = clamp(
-    toFiniteNumber(config.danger, min + (max - min) * 0.9),
-    min,
-    max
-  );
+  const hasWarning =
+    config.warning !== null &&
+    config.warning !== undefined &&
+    String(config.warning).trim() !== "";
+  const hasDanger =
+    config.danger !== null &&
+    config.danger !== undefined &&
+    String(config.danger).trim() !== "";
+
+  const warning = hasWarning
+    ? clamp(toFiniteNumber(config.warning, min), min, max)
+    : null;
+  const danger = hasDanger
+    ? clamp(toFiniteNumber(config.danger, max), min, max)
+    : null;
   const unit = String(config.unit || "").trim();
   const numericValue = toFiniteNumber(value, min);
   const clampedValue = clamp(numericValue, min, max);
@@ -65,13 +70,15 @@ export default function GaugeWidget({
   }, [clampedValue]);
 
   const percent = clamp((displayValue - min) / (max - min), 0, 1);
-  const warningPercent = clamp((warning - min) / (max - min), 0, 1);
-  const dangerPercent = clamp((danger - min) / (max - min), 0, 1);
+  const warningPercent =
+    warning === null ? null : clamp((warning - min) / (max - min), 0, 1);
+  const dangerPercent =
+    danger === null ? null : clamp((danger - min) / (max - min), 0, 1);
 
   const status =
-    numericValue >= danger
+    danger !== null && numericValue >= danger
       ? "critical"
-      : numericValue >= warning
+      : warning !== null && numericValue >= warning
       ? "warning"
       : "normal";
 
@@ -79,8 +86,8 @@ export default function GaugeWidget({
     normal: {
       label: "Normal",
       color: TECH_ACCENT.lime,
-      text: "text-cyan-700 dark:text-[#58D7FF]",
-      bg: "bg-[#58D7FF]/10",
+      text: "text-[#5f8f25] dark:text-[#A4C65A]",
+      bg: "bg-[#7CB342]/10",
     },
     warning: {
       label: "Warning",
@@ -91,8 +98,8 @@ export default function GaugeWidget({
     critical: {
       label: "Critical",
       color: TECH_ACCENT.plum,
-      text: "text-[#8c365f] dark:text-[#FF9AAE]",
-      bg: "bg-[#FF6F88]/10",
+      text: "text-[#8c365f] dark:text-[#d989a7]",
+      bg: "bg-[#6D254D]/10",
     },
   }[status];
 
@@ -112,8 +119,8 @@ export default function GaugeWidget({
     };
   };
 
-  const warningPoint = pointForPercent(warningPercent);
-  const dangerPoint = pointForPercent(dangerPercent);
+  const warningPoint = warningPercent === null ? null : pointForPercent(warningPercent);
+  const dangerPoint = dangerPercent === null ? null : pointForPercent(dangerPercent);
   const needleAngle = -90 + percent * 180;
   const needleLength = tiny ? 58 : 70;
   const formattedValue = Number.isFinite(displayValue)
@@ -137,7 +144,7 @@ export default function GaugeWidget({
       <TechBackdrop />
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <div className="flex items-start justify-between gap-3 px-1 pr-14">
+        <div className="flex items-start justify-between gap-3 px-1">
           <div className="min-w-0">
             <div className={`${TECH_HEADER_CLASS} truncate`} title={label || dataKey}>
               {label || dataKey || "Gauge"}
@@ -175,9 +182,9 @@ export default function GaugeWidget({
                 y2="126"
                 gradientUnits="userSpaceOnUse"
               >
-                <stop offset="0%" stopColor="#58D7FF" />
-                <stop offset="58%" stopColor="#7D75E7" />
-                <stop offset="100%" stopColor="#A86BDF" />
+                <stop offset="0%" stopColor="#A4C65A" />
+                <stop offset="58%" stopColor="#7CB342" />
+                <stop offset="100%" stopColor="#2E7D32" />
               </linearGradient>
             </defs>
 
@@ -188,8 +195,7 @@ export default function GaugeWidget({
                 y1={tick.iy}
                 x2={tick.x}
                 y2={tick.y}
-                stroke="#CBD5E1"
-                className="dark:[stroke:#3A4A70]"
+                stroke="#CBD5C5"
                 strokeWidth={tick.major ? 1.6 : 1}
                 opacity={tick.major ? 0.9 : 0.55}
               />
@@ -200,10 +206,10 @@ export default function GaugeWidget({
                 cx + radius
               } ${cy}`}
               fill="none"
-              stroke="#E8EDF5"
+              stroke="#EDF0EA"
               strokeWidth="16"
               strokeLinecap="round"
-              className="dark:[stroke:#223253]"
+              className="dark:[stroke:#273029]"
             />
 
             <path
@@ -217,22 +223,26 @@ export default function GaugeWidget({
               strokeDasharray={`${arcLength * percent} ${arcLength}`}
             />
 
-            <circle
-              cx={warningPoint.x}
-              cy={warningPoint.y}
-              r="4.2"
-              fill="#E3A937"
-              stroke="#fff"
-              strokeWidth="2"
-            />
-            <circle
-              cx={dangerPoint.x}
-              cy={dangerPoint.y}
-              r="4.2"
-              fill={TECH_ACCENT.plum}
-              stroke="#fff"
-              strokeWidth="2"
-            />
+            {warningPoint && (
+              <circle
+                cx={warningPoint.x}
+                cy={warningPoint.y}
+                r="4.2"
+                fill="#E3A937"
+                stroke="#fff"
+                strokeWidth="2"
+              />
+            )}
+            {dangerPoint && (
+              <circle
+                cx={dangerPoint.x}
+                cy={dangerPoint.y}
+                r="4.2"
+                fill={TECH_ACCENT.plum}
+                stroke="#fff"
+                strokeWidth="2"
+              />
+            )}
 
             <g transform={`rotate(${needleAngle} ${cx} ${cy})`}>
               <line

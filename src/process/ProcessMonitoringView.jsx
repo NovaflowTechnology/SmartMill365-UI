@@ -519,6 +519,10 @@ export default function ProcessMonitoringView({
                         selected={false}
                         dark={dark}
                         variant="monitor"
+                        connectionStyle={
+                          connection.connectionStyle ||
+                          "pipe-icons"
+                        }
                       />
 
                       {(connection.label || Number.isFinite(value)) && (

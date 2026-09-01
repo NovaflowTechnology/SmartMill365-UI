@@ -6,8 +6,6 @@ import {
 
 import {
   Check,
-  Database,
-  Layers3,
   Plus,
   RefreshCw,
   Search,
@@ -20,7 +18,10 @@ import {
   PageHeader,
   controlClasses,
 } from "../components/ControlCenterUI";
-
+import {
+  confirmAction,
+  notify,
+} from "../utils/feedback";
 import {
   getMeasurementGroup,
 } from "../utils/measurementGroups";
@@ -28,17 +29,15 @@ import {
 const API_BASE_URL =
   "http://localhost:5000";
 
-const logicalAssignmentKey = ({
+const assignmentKey = ({
   orgId,
   bucket,
-  measurementGroup,
   tagKey,
   tagValue,
 }) =>
   [
     orgId,
     bucket,
-    measurementGroup,
     tagKey,
     tagValue,
   ]
@@ -47,62 +46,42 @@ const logicalAssignmentKey = ({
     )
     .join("::");
 
+// The database still stores one permission row per measurement so the
+// existing runtime access checks continue to work. Device Management hides
+// that implementation detail and groups those rows back into ONE Device ID.
 const groupAssignmentRows = (
   rows = []
 ) => {
-  const groups =
-    new Map();
+  const groups = new Map();
 
   rows.forEach((row) => {
-    const measurementGroup =
-      getMeasurementGroup(
-        row.measurement_name
-      );
-
-    const key =
-      logicalAssignmentKey({
-        orgId: row.org_id,
-        bucket:
-          row.bucket_name,
-        measurementGroup:
-          measurementGroup.key,
-        tagKey:
-          row.tag_key,
-        tagValue:
-          row.tag_value,
-      });
+    const key = assignmentKey({
+      orgId: row.org_id,
+      bucket: row.bucket_name,
+      tagKey: row.tag_key,
+      tagValue: row.tag_value,
+    });
 
     if (!groups.has(key)) {
       groups.set(key, {
         key,
-        org_id:
-          row.org_id,
-        org_name:
-          row.org_name,
-        bucket_name:
-          row.bucket_name,
-        tag_key:
-          row.tag_key,
-        tag_value:
-          row.tag_value,
-        device_type:
-          measurementGroup.key,
-        device_type_label:
-          measurementGroup.label,
+        org_id: row.org_id,
+        org_name: row.org_name,
+        bucket_name: row.bucket_name,
+        tag_key: row.tag_key || "id",
+        tag_value: row.tag_value,
         device_name:
           row.device_name ||
-          `${measurementGroup.label} · ${row.tag_value}`,
-        measurement_names:
-          [],
-        assignment_ids:
-          [],
+          row.tag_value,
+        measurement_names: [],
+        assignment_ids: [],
       });
     }
 
-    const group =
-      groups.get(key);
+    const group = groups.get(key);
 
     if (
+      row.measurement_name &&
       !group.measurement_names.includes(
         row.measurement_name
       )
@@ -112,21 +91,60 @@ const groupAssignmentRows = (
       );
     }
 
-    group.assignment_ids.push(
-      row.id
-    );
+    if (row.id) {
+      group.assignment_ids.push(row.id);
+    }
   });
 
-  return [
-    ...groups.values(),
-  ].map((group) => ({
-    ...group,
-    measurement_names:
-      [...group.measurement_names].sort(),
-    measurement_count:
-      group.measurement_names.length,
-  }));
+  return [...groups.values()].map(
+    (group) => ({
+      ...group,
+      measurement_names: [
+        ...group.measurement_names,
+      ].sort(),
+    })
+  );
 };
+
+const ORGANIZATION_HEADER_PALETTES = [
+  {
+    light: "from-cyan-50 via-sky-50 to-indigo-50 border-cyan-200",
+    dark: "from-cyan-400/10 via-sky-400/5 to-indigo-400/10 border-cyan-400/20",
+    iconLight: "bg-white/80 text-cyan-700 ring-1 ring-cyan-100",
+    iconDark: "bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-400/20",
+    badgeLight: "bg-cyan-100 text-cyan-800",
+    badgeDark: "bg-cyan-400/10 text-cyan-200",
+  },
+  {
+    light: "from-violet-50 via-fuchsia-50 to-indigo-50 border-violet-200",
+    dark: "from-violet-400/10 via-fuchsia-400/5 to-indigo-400/10 border-violet-400/20",
+    iconLight: "bg-white/80 text-violet-700 ring-1 ring-violet-100",
+    iconDark: "bg-violet-400/10 text-violet-200 ring-1 ring-violet-400/20",
+    badgeLight: "bg-violet-100 text-violet-800",
+    badgeDark: "bg-violet-400/10 text-violet-200",
+  },
+  {
+    light: "from-emerald-50 via-teal-50 to-cyan-50 border-emerald-200",
+    dark: "from-emerald-400/10 via-teal-400/5 to-cyan-400/10 border-emerald-400/20",
+    iconLight: "bg-white/80 text-emerald-700 ring-1 ring-emerald-100",
+    iconDark: "bg-emerald-400/10 text-emerald-200 ring-1 ring-emerald-400/20",
+    badgeLight: "bg-emerald-100 text-emerald-800",
+    badgeDark: "bg-emerald-400/10 text-emerald-200",
+  },
+  {
+    light: "from-amber-50 via-orange-50 to-rose-50 border-amber-200",
+    dark: "from-amber-400/10 via-orange-400/5 to-rose-400/10 border-amber-400/20",
+    iconLight: "bg-white/80 text-amber-700 ring-1 ring-amber-100",
+    iconDark: "bg-amber-400/10 text-amber-200 ring-1 ring-amber-400/20",
+    badgeLight: "bg-amber-100 text-amber-800",
+    badgeDark: "bg-amber-400/10 text-amber-200",
+  },
+];
+
+const getOrganizationPalette = (index) =>
+  ORGANIZATION_HEADER_PALETTES[
+    index % ORGANIZATION_HEADER_PALETTES.length
+  ];
 
 export default function DeviceManagement({
   setPage,
@@ -141,76 +159,47 @@ export default function DeviceManagement({
   const token =
     localStorage.getItem("token");
 
-  const [
-    organizations,
-    setOrganizations,
-  ] = useState([]);
+  const [organizations, setOrganizations] =
+    useState([]);
+  const [assignments, setAssignments] =
+    useState([]);
+  const [availableBuckets, setAvailableBuckets] =
+    useState([]);
+  const [availableMeasurements, setAvailableMeasurements] =
+    useState([]);
 
-  const [
-    assignments,
-    setAssignments,
-  ] = useState([]);
-
-  const [
-    availableBuckets,
-    setAvailableBuckets,
-  ] = useState([]);
-
-  const [
-    logicalDevices,
-    setLogicalDevices,
-  ] = useState([]);
+  // Device IDs are discovered exactly like the Data Source path:
+  // Bucket -> Measurement -> Device ID.
+  // The selected measurement is ONLY a discovery filter. Assignment itself
+  // remains Device ID -> Organization.
+  const [influxDeviceIds, setInfluxDeviceIds] =
+    useState([]);
 
   const [loading, setLoading] =
     useState(true);
-
-  const [
-    discoveryLoading,
-    setDiscoveryLoading,
-  ] = useState(false);
-
+  const [discoveryLoading, setDiscoveryLoading] =
+    useState(false);
   const [saving, setSaving] =
     useState(false);
 
-  const [
-    showAssignModal,
-    setShowAssignModal,
-  ] = useState(false);
-
-  const [
-    selectedOrgId,
-    setSelectedOrgId,
-  ] = useState("");
-
-  const [
-    selectedBucket,
-    setSelectedBucket,
-  ] = useState("");
-
-  const [
-    selectedLogicalKeys,
-    setSelectedLogicalKeys,
-  ] = useState([]);
-
-  const [
-    assignmentOrgFilter,
-    setAssignmentOrgFilter,
-  ] = useState("");
-
-  const [
-    assignmentSearch,
-    setAssignmentSearch,
-  ] = useState("");
-
-  const [
-    discoverySearch,
-    setDiscoverySearch,
-  ] = useState("");
-
-  const [error, setError] =
+  const [showAssignModal, setShowAssignModal] =
+    useState(false);
+  const [selectedOrgId, setSelectedOrgId] =
+    useState("");
+  const [selectedBucket, setSelectedBucket] =
+    useState("");
+  const [selectedMeasurement, setSelectedMeasurement] =
+    useState("");
+  const [selectedDeviceId, setSelectedDeviceId] =
     useState("");
 
-  const [notice, setNotice] =
+  const [assignmentOrgFilter, setAssignmentOrgFilter] =
+    useState("");
+  const [assignmentSearch, setAssignmentSearch] =
+    useState("");
+  const [discoverySearch, setDiscoverySearch] =
+    useState("");
+  const [error, setError] =
     useState("");
 
   const headers = (
@@ -232,16 +221,14 @@ export default function DeviceManagement({
     let payload = {};
 
     try {
-      payload =
-        await response.json();
+      payload = await response.json();
     } catch {
       payload = {};
     }
 
     if (!response.ok) {
       throw new Error(
-        payload?.error ||
-          fallback
+        payload?.error || fallback
       );
     }
 
@@ -265,15 +252,13 @@ export default function DeviceManagement({
         fetch(
           `${API_BASE_URL}/organizations`,
           {
-            headers:
-              headers(),
+            headers: headers(),
           }
         ),
         fetch(
           `${API_BASE_URL}/organization-influx-devices`,
           {
-            headers:
-              headers(),
+            headers: headers(),
           }
         ),
       ]);
@@ -299,9 +284,7 @@ export default function DeviceManagement({
       );
 
       setAssignments(
-        Array.isArray(
-          assignmentData
-        )
+        Array.isArray(assignmentData)
           ? assignmentData
           : []
       );
@@ -319,611 +302,465 @@ export default function DeviceManagement({
     loadPage();
   }, [isSuperadmin]);
 
-  useEffect(() => {
-    if (!notice) return;
+  const deviceAssignments = useMemo(
+    () => groupAssignmentRows(assignments),
+    [assignments]
+  );
 
-    const timer =
-      window.setTimeout(
-        () =>
-          setNotice(""),
-        3500
+  const filteredAssignments = useMemo(() => {
+    const query = assignmentSearch
+      .trim()
+      .toLowerCase();
+
+    return deviceAssignments.filter(
+      (item) => {
+        if (
+          assignmentOrgFilter &&
+          String(item.org_id) !==
+            String(assignmentOrgFilter)
+        ) {
+          return false;
+        }
+
+        if (!query) return true;
+
+        return [
+          item.org_name,
+          item.tag_value,
+          item.measurement_names?.join(" "),
+          item.bucket_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      }
+    );
+  }, [
+    deviceAssignments,
+    assignmentOrgFilter,
+    assignmentSearch,
+  ]);
+
+  const groupedAssignments = useMemo(() => {
+    const groups = new Map();
+
+    filteredAssignments.forEach((item) => {
+      const organizationKey = String(
+        item.org_id ?? item.org_name ?? "unassigned"
       );
 
-    return () =>
-      window.clearTimeout(
-        timer
-      );
-  }, [notice]);
+      if (!groups.has(organizationKey)) {
+        groups.set(organizationKey, {
+          key: organizationKey,
+          org_id: item.org_id,
+          org_name:
+            item.org_name || "Unassigned Organization",
+          devices: [],
+        });
+      }
 
-  const logicalAssignments =
-    useMemo(
-      () =>
-        groupAssignmentRows(
-          assignments
-        ),
-      [assignments]
+      groups.get(organizationKey).devices.push(item);
+    });
+
+    return [...groups.values()].sort((a, b) =>
+      String(a.org_name).localeCompare(
+        String(b.org_name),
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base",
+        }
+      )
+    );
+  }, [filteredAssignments]);
+
+
+  const fetchBuckets = async () => {
+    const response = await fetch(
+      `${API_BASE_URL}/influx/buckets`,
+      {
+        headers: headers(),
+      }
     );
 
-  const filteredAssignments =
-    useMemo(() => {
-      const query =
-        assignmentSearch
-          .trim()
-          .toLowerCase();
+    const payload = await readPayload(
+      response,
+      "Failed to load Influx buckets"
+    );
 
-      return logicalAssignments.filter(
-        (item) => {
-          if (
-            assignmentOrgFilter &&
-            String(
-              item.org_id
-            ) !==
-              String(
-                assignmentOrgFilter
-              )
-          ) {
-            return false;
-          }
+    const buckets = Array.isArray(
+      payload?.buckets
+    )
+      ? payload.buckets
+      : [];
 
-          if (!query) {
-            return true;
-          }
+    setAvailableBuckets(buckets);
+    return buckets;
+  };
 
-          return [
-            item.org_name,
-            item.device_name,
-            item.device_type_label,
-            item.tag_value,
-            item.bucket_name,
-            ...item.measurement_names,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase()
-            .includes(query);
-        }
-      );
-    }, [
-      logicalAssignments,
-      assignmentOrgFilter,
-      assignmentSearch,
-    ]);
+  const fetchMeasurements = async (
+    bucketName
+  ) => {
+    if (!bucketName) {
+      setAvailableMeasurements([]);
+      return [];
+    }
 
-  const assignedMeasurementsFor =
-    (logicalDevice) => {
-      if (!selectedOrgId) {
-        return [];
-      }
+    setDiscoveryLoading(true);
+    setError("");
 
-      const expectedKey =
-        logicalAssignmentKey({
-          orgId:
-            selectedOrgId,
-          bucket:
-            logicalDevice.bucket_name,
-          measurementGroup:
-            logicalDevice.device_type,
-          tagKey:
-            logicalDevice.tag_key,
-          tagValue:
-            logicalDevice.tag_value,
-        });
-
-      return (
-        logicalAssignments.find(
-          (item) =>
-            item.key ===
-            expectedKey
-        )?.measurement_names ||
-        []
-      );
-    };
-
-  const getAssignmentProgress =
-    (logicalDevice) => {
-      const assigned =
-        assignedMeasurementsFor(
-          logicalDevice
-        );
-
-      const total =
-        logicalDevice
-          .measurement_names
-          ?.length || 0;
-
-      const assignedCount =
-        logicalDevice
-          .measurement_names
-          ?.filter(
-            (measurement) =>
-              assigned.includes(
-                measurement
-              )
-          ).length || 0;
-
-      return {
-        assignedCount,
-        total,
-        complete:
-          total > 0 &&
-          assignedCount ===
-            total,
-        partial:
-          assignedCount > 0 &&
-          assignedCount <
-            total,
-      };
-    };
-
-  const fetchBuckets =
-    async () => {
-      const response =
-        await fetch(
-          `${API_BASE_URL}/influx/buckets`,
-          {
-            headers:
-              headers(),
-          }
-        );
-
-      const payload =
-        await readPayload(
-          response,
-          "Failed to load Influx buckets"
-        );
-
-      const buckets =
-        Array.isArray(
-          payload?.buckets
-        )
-          ? payload.buckets
-          : [];
-
-      setAvailableBuckets(
-        buckets
-      );
-
-      return buckets;
-    };
-
-  const discoverLogicalDevices =
-    async (bucketName) => {
-      if (!bucketName) {
-        setLogicalDevices(
-          []
-        );
-        return;
-      }
-
-      setDiscoveryLoading(
-        true
-      );
-
-      setError("");
-
-      try {
-        const query =
-          new URLSearchParams({
-            bucket:
-              bucketName,
-            tagKey: "id",
-          });
-
-        const response =
-          await fetch(
-            `${API_BASE_URL}/influx/logical-devices?${query.toString()}`,
-            {
-              headers:
-                headers(),
-            }
-          );
-
-        const payload =
-          await readPayload(
-            response,
-            "Failed to discover logical devices"
-          );
-
-        setLogicalDevices(
-          Array.isArray(
-            payload?.devices
-          )
-            ? payload.devices
-            : []
-        );
-      } catch (
-        requestError
-      ) {
-        setLogicalDevices(
-          []
-        );
-
-        setError(
-          requestError.message ||
-            "Failed to discover logical devices"
-        );
-      } finally {
-        setDiscoveryLoading(
-          false
-        );
-      }
-    };
-
-  const openAssignModal =
-    async () => {
-      setShowAssignModal(
-        true
-      );
-
-      setSelectedLogicalKeys(
-        []
-      );
-
-      setDiscoverySearch(
-        ""
-      );
-
-      setError("");
-
-      try {
-        const buckets =
-          await fetchBuckets();
-
-        const bucketName =
-          selectedBucket ||
-          buckets[0] ||
-          "";
-
-        setSelectedBucket(
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/influx/measurements?bucket=${encodeURIComponent(
           bucketName
-        );
-
-        if (bucketName) {
-          await discoverLogicalDevices(
-            bucketName
-          );
+        )}`,
+        {
+          headers: headers(),
         }
-      } catch (
-        requestError
-      ) {
-        setError(
-          requestError.message ||
-            "Failed to open device assignment"
-        );
-      }
-    };
+      );
 
-  const filteredLogicalDevices =
+      const payload = await readPayload(
+        response,
+        "Failed to load Influx measurements"
+      );
+
+      const measurements = Array.isArray(
+        payload?.measurements
+      )
+        ? payload.measurements
+        : [];
+
+      setAvailableMeasurements(measurements);
+
+      return measurements;
+    } catch (requestError) {
+      setAvailableMeasurements([]);
+      setError(
+        requestError.message ||
+          "Failed to load Influx measurements"
+      );
+      return [];
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
+  const discoverInfluxDeviceIds = async (
+    bucketName,
+    measurementName
+  ) => {
+    if (!bucketName || !measurementName) {
+      setInfluxDeviceIds([]);
+      return [];
+    }
+
+    setDiscoveryLoading(true);
+    setError("");
+
+    try {
+      const query = new URLSearchParams({
+        bucket: bucketName,
+        measurement: measurementName,
+        tagKey: "id",
+      });
+
+      const response = await fetch(
+        `${API_BASE_URL}/influx/ids?${query.toString()}`,
+        {
+          headers: headers(),
+        }
+      );
+
+      const payload = await readPayload(
+        response,
+        "Failed to discover Device IDs for the selected measurement"
+      );
+
+      const ids = Array.isArray(payload?.ids)
+        ? payload.ids
+        : [];
+
+      setInfluxDeviceIds(ids);
+
+      return ids;
+    } catch (requestError) {
+      setInfluxDeviceIds([]);
+      setError(
+        requestError.message ||
+          "Failed to discover Device IDs"
+      );
+      return [];
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
+  const resetSourcePathAfterBucket = () => {
+    setSelectedMeasurement("");
+    setSelectedDeviceId("");
+    setInfluxDeviceIds([]);
+    setDiscoverySearch("");
+  };
+
+  const resetSourcePathAfterMeasurement = () => {
+    setSelectedDeviceId("");
+    setDiscoverySearch("");
+  };
+
+  const openAssignModal = async () => {
+    setShowAssignModal(true);
+    setSelectedMeasurement("");
+    setSelectedDeviceId("");
+    setInfluxDeviceIds([]);
+    setAvailableMeasurements([]);
+    setDiscoverySearch("");
+    setError("");
+
+    try {
+      const buckets = await fetchBuckets();
+
+      // Do not auto-select a Device ID. The user follows the same
+      // Source Path flow as Template Designer.
+      const bucketName =
+        selectedBucket ||
+        buckets[0] ||
+        "";
+
+      setSelectedBucket(bucketName);
+
+      if (bucketName) {
+        await fetchMeasurements(bucketName);
+      }
+    } catch (requestError) {
+      setError(
+        requestError.message ||
+          "Failed to open device assignment"
+      );
+    }
+  };
+
+  const detectedDeviceType = useMemo(() => {
+    if (!selectedMeasurement) {
+      return "";
+    }
+
+    return getMeasurementGroup(
+      selectedMeasurement
+    ).label;
+  }, [selectedMeasurement]);
+
+  const assignedDeviceIdSet = useMemo(() => {
+    if (!selectedOrgId || !selectedBucket) {
+      return new Set();
+    }
+
+    return new Set(
+      deviceAssignments
+        .filter(
+          (item) =>
+            String(item.org_id) ===
+              String(selectedOrgId) &&
+            item.bucket_name ===
+              selectedBucket &&
+            (item.tag_key || "id") ===
+              "id"
+        )
+        .map((item) =>
+          String(item.tag_value)
+        )
+    );
+  }, [
+    deviceAssignments,
+    selectedOrgId,
+    selectedBucket,
+  ]);
+
+  const filteredInfluxDeviceIds =
     useMemo(() => {
-      const query =
-        discoverySearch
-          .trim()
-          .toLowerCase();
+      const query = discoverySearch
+        .trim()
+        .toLowerCase();
 
-      if (!query) {
-        return logicalDevices;
-      }
+      const ids = influxDeviceIds
+        .map(String)
+        .filter(Boolean)
+        .sort((a, b) =>
+          a.localeCompare(b, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          })
+        );
 
-      return logicalDevices.filter(
-        (device) =>
-          [
-            device
-              .device_type_label,
-            device.tag_value,
-            ...(
-              device
-                .measurement_names ||
-              []
-            ),
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase()
-            .includes(query)
+      if (!query) return ids;
+
+      return ids.filter((deviceId) =>
+        deviceId
+          .toLowerCase()
+          .includes(query)
       );
     }, [
-      logicalDevices,
+      influxDeviceIds,
       discoverySearch,
     ]);
 
-  const groupedDiscovery =
-    useMemo(() => {
-      const map =
-        new Map();
-
-      filteredLogicalDevices.forEach(
-        (device) => {
-          if (
-            !map.has(
-              device.device_type
-            )
-          ) {
-            map.set(
-              device.device_type,
-              {
-                key:
-                  device.device_type,
-                label:
-                  device
-                    .device_type_label,
-                devices: [],
-              }
-            );
-          }
-
-          map
-            .get(
-              device.device_type
-            )
-            .devices.push(
-              device
-            );
-        }
-      );
-
-      return [
-        ...map.values(),
-      ].sort((a, b) =>
-        a.label.localeCompare(
-          b.label
-        )
-      );
-    }, [
-      filteredLogicalDevices,
-    ]);
-
-  const selectableVisibleKeys =
-    filteredLogicalDevices
-      .filter(
-        (device) =>
-          !getAssignmentProgress(
-            device
-          ).complete
-      )
-      .map(
-        (device) =>
-          device.key
-      );
-
-  const allVisibleSelected =
-    selectableVisibleKeys.length >
-      0 &&
-    selectableVisibleKeys.every(
-      (key) =>
-        selectedLogicalKeys.includes(
-          key
+  const availableDeviceIds =
+    filteredInfluxDeviceIds.filter(
+      (deviceId) =>
+        !assignedDeviceIdSet.has(
+          String(deviceId)
         )
     );
 
-  const toggleLogicalDevice =
-    (device) => {
-      if (
-        getAssignmentProgress(
-          device
-        ).complete
-      ) {
-        return;
-      }
 
-      setSelectedLogicalKeys(
-        (current) =>
-          current.includes(
-            device.key
-          )
-            ? current.filter(
-                (key) =>
-                  key !==
-                  device.key
-              )
-            : [
-                ...current,
-                device.key,
-              ]
+  const assignSelected = async () => {
+    if (!selectedOrgId) {
+      setError(
+        "Select an organization first."
       );
-    };
+      return;
+    }
 
-  const toggleVisible =
-    () => {
-      if (
-        allVisibleSelected
-      ) {
-        setSelectedLogicalKeys(
-          (current) =>
-            current.filter(
-              (key) =>
-                !selectableVisibleKeys.includes(
-                  key
-                )
-            )
-        );
-
-        return;
-      }
-
-      setSelectedLogicalKeys(
-        (current) => [
-          ...new Set([
-            ...current,
-            ...selectableVisibleKeys,
-          ]),
-        ]
+    if (!selectedBucket) {
+      setError(
+        "Select an Influx bucket first."
       );
-    };
+      return;
+    }
 
-  const assignSelected =
-    async () => {
-      if (!selectedOrgId) {
-        setError(
-          "Select an organization first."
-        );
-        return;
-      }
+    if (!selectedMeasurement) {
+      setError(
+        "Select a measurement first."
+      );
+      return;
+    }
 
-      const selected =
-        logicalDevices.filter(
-          (device) =>
-            selectedLogicalKeys.includes(
-              device.key
+    if (!selectedDeviceId) {
+      setError(
+        "Select a Device ID."
+      );
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      // Use the same exact-source assignment method as the previous
+      // Device Management implementation:
+      //
+      // Bucket + Measurement + tag key + Device ID
+      //
+      // Do NOT rediscover the Device ID across the whole bucket after the
+      // user has already selected it from /influx/ids for this measurement.
+      const response = await fetch(
+        `${API_BASE_URL}/organization-influx-devices`,
+        {
+          method: "POST",
+          headers: headers(true),
+          body: JSON.stringify({
+            org_id: Number(selectedOrgId),
+            bucket_name: selectedBucket,
+            measurement_name:
+              selectedMeasurement,
+            tag_key: "id",
+            tag_value:
+              selectedDeviceId,
+            device_name:
+              selectedDeviceId,
+          }),
+        }
+      );
+
+      const payload = await readPayload(
+        response,
+        "Failed to assign Device ID"
+      );
+
+      const organizationName =
+        organizations.find(
+          (organization) =>
+            String(organization.id) ===
+            String(selectedOrgId)
+        )?.name || "organization";
+
+      notify(
+        `Device ID ${selectedDeviceId} assigned to ${organizationName}.`,
+        "success"
+      );
+
+      setSelectedDeviceId("");
+      await loadPage();
+      setShowAssignModal(false);
+    } catch (requestError) {
+      setError(
+        requestError.message ||
+          "Failed to assign Device ID"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+
+  const removeDeviceAssignment = async (
+    item
+  ) => {
+    const confirmed = await confirmAction({
+      title: "Remove device assignment?",
+      message: `Remove Device ID ${item.tag_value} from ${item.org_name}?`,
+      confirmLabel: "Remove Assignment",
+      tone: "danger",
+    });
+
+    if (!confirmed) return;
+
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/organization-influx-devices/bulk-remove`,
+        {
+          method: "POST",
+          headers: headers(true),
+          body: JSON.stringify({
+            assignment_ids:
+              item.assignment_ids,
+          }),
+        }
+      );
+
+      await readPayload(
+        response,
+        "Failed to remove Device ID"
+      );
+
+      setAssignments((current) =>
+        current.filter(
+          (row) =>
+            !item.assignment_ids.includes(
+              row.id
             )
-        );
+        )
+      );
 
-      if (!selected.length) {
-        setError(
-          "Select at least one logical device."
-        );
-        return;
-      }
-
-      setSaving(true);
-      setError("");
-
-      try {
-        const response =
-          await fetch(
-            `${API_BASE_URL}/organization-influx-devices/bulk-logical`,
-            {
-              method: "POST",
-              headers:
-                headers(true),
-              body: JSON.stringify({
-                org_id:
-                  selectedOrgId,
-                devices:
-                  selected.map(
-                    (device) => ({
-                      device_type:
-                        device
-                          .device_type,
-                      bucket_name:
-                        device
-                          .bucket_name,
-                      tag_key:
-                        device
-                          .tag_key,
-                      tag_value:
-                        device
-                          .tag_value,
-                      measurement_names:
-                        device
-                          .measurement_names,
-                      device_name:
-                        `${
-                          device
-                            .device_type_label
-                        } · ${
-                          device
-                            .tag_value
-                        }`,
-                    })
-                  ),
-              }),
-            }
-          );
-
-        const payload =
-          await readPayload(
-            response,
-            "Failed to assign logical devices"
-          );
-
-        setNotice(
-          `${
-            payload.assigned ||
-            0
-          } measurement permission(s) added${
-            payload.skipped
-              ? ` · ${payload.skipped} already existed`
-              : ""
-          }.`
-        );
-
-        setSelectedLogicalKeys(
-          []
-        );
-
-        await loadPage();
-
-        setShowAssignModal(
-          false
-        );
-      } catch (
-        requestError
-      ) {
-        setError(
-          requestError.message ||
-            "Failed to assign devices"
-        );
-      } finally {
-        setSaving(false);
-      }
-    };
-
-  const removeLogicalAssignment =
-    async (item) => {
-      const confirmed =
-        window.confirm(
-          `Remove ${item.device_type_label} ${item.tag_value} from ${item.org_name}? This removes ${item.assignment_ids.length} measurement permission(s).`
-        );
-
-      if (!confirmed) {
-        return;
-      }
-
-      setError("");
-
-      try {
-        const response =
-          await fetch(
-            `${API_BASE_URL}/organization-influx-devices/bulk-remove`,
-            {
-              method: "POST",
-              headers:
-                headers(true),
-              body: JSON.stringify({
-                assignment_ids:
-                  item
-                    .assignment_ids,
-              }),
-            }
-          );
-
-        await readPayload(
-          response,
-          "Failed to remove logical device"
-        );
-
-        setAssignments(
-          (current) =>
-            current.filter(
-              (row) =>
-                !item.assignment_ids.includes(
-                  row.id
-                )
-            )
-        );
-      } catch (
-        requestError
-      ) {
-        setError(
-          requestError.message ||
-            "Failed to remove logical device"
-        );
-      }
-    };
+      notify(
+        `Device ID ${item.tag_value} removed from ${item.org_name}.`,
+        "success"
+      );
+    } catch (requestError) {
+      setError(
+        requestError.message ||
+          "Failed to remove Device ID"
+      );
+    }
+  };
 
   if (!isSuperadmin) {
     return (
       <div className="p-3">
-        <div
-          className="
-            rounded-xl border
-            border-amber-200
-            bg-amber-50 p-3
-            text-xs text-amber-800
-          "
-        >
-          Device Management is
-          available to Superadmin.
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
+          Device Management is available to Superadmin.
         </div>
       </div>
     );
@@ -931,1018 +768,777 @@ export default function DeviceManagement({
 
   return (
     <div
-      className={`
-        min-h-full w-full
-        overflow-auto p-3
-        ${
-          dark
-            ? "text-slate-100"
-            : "text-slate-900"
-        }
-      `}
+      className={`min-h-full w-full overflow-auto p-3 ${
+        dark
+          ? "text-slate-100"
+          : "text-slate-900"
+      }`}
     >
-      {/* HEADER */}
+      <style>{`
+        .device-group-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: ${dark ? "#334155 #0f172a" : "#94a3b8 transparent"};
+        }
+
+        .device-group-scroll::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .device-group-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .device-group-scroll::-webkit-scrollbar-thumb {
+          background: ${dark ? "#334155" : "#cbd5e1"};
+          border-radius: 999px;
+        }
+
+        .device-group-scroll::-webkit-scrollbar-thumb:hover {
+          background: ${dark ? "#475569" : "#94a3b8"};
+        }
+      `}</style>
+
       <PageHeader
         icon={ServerCog}
         title="Device Management"
-        description="Assign a logical device once; measurement-level permissions are created automatically."
+        description="Follow the Influx source path to select the exact Device ID source and assign it to an organization."
         className="mb-3"
         actions={
           <button
             type="button"
-            onClick={
-              openAssignModal
-            }
+            onClick={openAssignModal}
             className={
               controlClasses.primary
             }
           >
             <Plus size={14} />
-            Assign Devices
+            Assign Device ID
           </button>
         }
       />
 
-      {(error || notice) && (
-        <div
-          className={`
-            mb-3 rounded-xl
-            border px-3 py-2
-            text-xs
-            ${
-              error
-                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-            }
-          `}
-        >
-          {error || notice}
+      {error && (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          {error}
         </div>
       )}
 
-      {/* FILTERS */}
       <div
-        className={`
-          mb-3 grid gap-2
-          rounded-xl border p-3
-          md:grid-cols-[220px_minmax(0,1fr)]
-          ${
-            dark
-              ? "border-slate-700 bg-slate-900"
-              : "border-slate-200 bg-white"
-          }
-        `}
+        className={`mb-4 rounded-2xl border px-4 py-4 shadow-sm ${
+          dark
+            ? "border-slate-700 bg-slate-900"
+            : "border-slate-200 bg-white"
+        }`}
       >
-        <select
-          value={
-            assignmentOrgFilter
-          }
-          onChange={(event) =>
-            setAssignmentOrgFilter(
-              event.target.value
-            )
-          }
-          className={`
-            h-9 rounded-lg
-            border px-3
-            text-xs outline-none
-            ${
-              dark
-                ? "border-slate-700 bg-slate-950"
-                : "border-slate-300 bg-white"
-            }
-          `}
-        >
-          <option value="">
-            All organizations
-          </option>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="w-full lg:w-[240px]">
+            <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.08em] text-slate-400">
+              Organization
+            </label>
 
-          {organizations.map(
-            (organization) => (
-              <option
-                key={
-                  organization.id
-                }
-                value={
-                  organization.id
-                }
-              >
-                {
-                  organization.name
-                }
-              </option>
-            )
-          )}
-        </select>
-
-        <div className="relative">
-          <Search
-            size={14}
-            className="
-              absolute left-3
-              top-1/2
-              -translate-y-1/2
-              text-slate-400
-            "
-          />
-
-          <input
-            value={
-              assignmentSearch
-            }
-            onChange={(event) =>
-              setAssignmentSearch(
-                event.target.value
-              )
-            }
-            placeholder="Search assigned logical devices..."
-            className={`
-              h-9 w-full
-              rounded-lg border
-              pl-9 pr-3
-              text-xs outline-none
-              ${
-                dark
-                  ? "border-slate-700 bg-slate-950"
-                  : "border-slate-300 bg-white"
+            <select
+              value={assignmentOrgFilter}
+              onChange={(event) =>
+                setAssignmentOrgFilter(
+                  event.target.value
+                )
               }
-            `}
-          />
+              className={`h-10 w-full rounded-xl border px-3 text-xs outline-none transition ${
+                dark
+                  ? "border-slate-700 bg-slate-950 text-slate-100 focus:border-cyan-400"
+                  : "border-slate-300 bg-white text-slate-900 focus:border-cyan-500"
+              }`}
+            >
+              <option value="">
+                All organizations
+              </option>
+
+              {organizations.map(
+                (organization) => (
+                  <option
+                    key={organization.id}
+                    value={organization.id}
+                  >
+                    {organization.name}
+                  </option>
+                )
+              )}
+            </select>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.08em] text-slate-400">
+              Search
+            </label>
+
+            <div className="relative">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+
+              <input
+                value={assignmentSearch}
+                onChange={(event) =>
+                  setAssignmentSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Search organization, Device ID, measurement, or bucket..."
+                className={`h-10 w-full rounded-xl border pl-10 pr-3 text-xs outline-none transition ${
+                  dark
+                    ? "border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400"
+                    : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500"
+                }`}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* CURRENT LOGICAL ASSIGNMENTS */}
-      <div
-        className={`
-          overflow-hidden
-          rounded-xl border
-          ${
+      {loading ? (
+        <div
+          className={`rounded-xl border p-8 text-center text-xs text-slate-400 ${
             dark
               ? "border-slate-700 bg-slate-900"
               : "border-slate-200 bg-white"
-          }
-        `}
-      >
-        <div
-          className={`
-            hidden border-b
-            px-3 py-2
-            text-[10px] font-bold
-            uppercase tracking-wider
-            md:grid
-            md:grid-cols-[minmax(150px,1fr)_minmax(180px,1.1fr)_minmax(220px,1.5fr)_100px_38px]
-            md:gap-3
-            ${
-              dark
-                ? "border-slate-700 text-slate-400"
-                : "border-slate-200 text-slate-400"
-            }
-          `}
+          }`}
         >
-          <span>
-            Organization
-          </span>
-          <span>
-            Logical Device
-          </span>
-          <span>
-            Measurements
-          </span>
-          <span>
-            Access
-          </span>
-          <span />
+          Loading device assignments...
         </div>
+      ) : groupedAssignments.length === 0 ? (
+        <div
+          className={`rounded-xl border p-8 text-center text-xs text-slate-400 ${
+            dark
+              ? "border-slate-700 bg-slate-900"
+              : "border-slate-200 bg-white"
+          }`}
+        >
+          No Device ID assignments found.
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+          {groupedAssignments.map(
+            (group, groupIndex) => {
 
-        {loading ? (
-          <div
-            className="
-              p-8 text-center
-              text-xs text-slate-400
-            "
-          >
-            Loading assignments...
-          </div>
-        ) : filteredAssignments.length ===
-          0 ? (
-          <div
-            className="
-              p-8 text-center
-              text-xs text-slate-400
-            "
-          >
-            No logical-device assignments found.
-          </div>
-        ) : (
-          filteredAssignments.map(
-            (item) => (
-              <div
-                key={
-                  item.key
-                }
-                className={`
-                  grid gap-2
-                  border-b px-3
-                  py-2.5
-                  last:border-b-0
-                  md:grid-cols-[minmax(150px,1fr)_minmax(180px,1.1fr)_minmax(220px,1.5fr)_100px_38px]
-                  md:items-center
-                  md:gap-3
-                  ${
-                    dark
-                      ? "border-slate-800"
-                      : "border-slate-100"
-                  }
-                `}
-              >
-                <div>
-                  <p
-                    className="
-                      text-[9px] font-bold
-                      uppercase tracking-wider
-                      text-slate-400 md:hidden
-                    "
-                  >
-                    Organization
-                  </p>
+              const palette =
+                getOrganizationPalette(
+                  groupIndex
+                );
 
-                  <p className="truncate text-xs font-semibold">
-                    {
-                      item.org_name
-                    }
-                  </p>
-                </div>
-
-                <div className="min-w-0">
-                  <p
-                    className="
-                      text-[9px] font-bold
-                      uppercase tracking-wider
-                      text-slate-400 md:hidden
-                    "
-                  >
-                    Logical Device
-                  </p>
-
-                  <p className="truncate text-xs font-semibold">
-                    {
-                      item
-                        .device_type_label
-                    }
-                  </p>
-
-                  <p className="mt-0.5 truncate font-mono text-[9px] text-slate-400">
-                    {
-                      item.tag_value
-                    }
-                  </p>
-                </div>
-
-                <div className="min-w-0">
-                  <p
-                    className="
-                      text-[9px] font-bold
-                      uppercase tracking-wider
-                      text-slate-400 md:hidden
-                    "
-                  >
-                    Measurements
-                  </p>
-
-                  <div
-                    className="
-                      flex flex-wrap
-                      gap-1
-                    "
-                  >
-                    {item
-                      .measurement_names
-                      .slice(0, 4)
-                      .map(
-                        (
-                          measurement
-                        ) => (
-                          <span
-                            key={
-                              measurement
-                            }
-                            className="
-                              rounded-md
-                              bg-slate-100
-                              px-1.5 py-0.5
-                              font-mono
-                              text-[9px]
-                              text-slate-500
-                              dark:bg-slate-800
-                              dark:text-slate-300
-                            "
-                          >
-                            {
-                              measurement
-                            }
-                          </span>
-                        )
-                      )}
-
-                    {item
-                      .measurement_names
-                      .length > 4 && (
-                      <span
-                        className="
-                          rounded-md
-                          bg-slate-100
-                          px-1.5 py-0.5
-                          text-[9px]
-                          text-slate-400
-                          dark:bg-slate-800
-                        "
-                      >
-                        +
-                        {item
-                          .measurement_names
-                          .length -
-                          4}{" "}
-                        more
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <span
-                    className="
-                      inline-flex
-                      rounded-full
-                      bg-emerald-50
-                      px-2 py-1
-                      text-[9px] font-bold
-                      text-emerald-700
-                      dark:bg-emerald-500/10
-                      dark:text-emerald-300
-                    "
-                  >
-                    {
-                      item
-                        .measurement_count
-                    }{" "}
-                    allowed
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    removeLogicalAssignment(
-                      item
+              const uniqueBuckets = [
+                ...new Set(
+                  group.devices
+                    .map(
+                      (item) =>
+                        item.bucket_name
                     )
-                  }
-                  className="
-                    flex h-8 w-8
-                    items-center
-                    justify-center
-                    rounded-lg
-                    text-slate-400
-                    hover:bg-red-50
-                    hover:text-red-500
-                    dark:hover:bg-red-500/10
-                  "
-                  title="Remove logical device"
-                >
-                  <Trash2
-                    size={14}
-                  />
-                </button>
-              </div>
-            )
-          )
-        )}
-      </div>
+                    .filter(Boolean)
+                ),
+              ];
 
-      {/* BULK LOGICAL ASSIGNMENT MODAL */}
+              return (
+                <section
+                  key={group.key}
+                  className={`overflow-hidden rounded-2xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                    dark
+                      ? "border-slate-700 bg-slate-900"
+                      : "border-slate-200 bg-white"
+                  }`}
+                >
+                  {/* Colored organization header — always visible, never collapses */}
+                  <div
+                    className={`flex w-full items-start justify-between gap-3 border-b bg-gradient-to-r px-4 py-3 text-left ${
+                      dark
+                        ? `${palette.dark} border-slate-700/80`
+                        : `${palette.light} border-slate-200`
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm ${
+                          dark
+                            ? palette.iconDark
+                            : palette.iconLight
+                        }`}
+                      >
+                        <ServerCog size={17} />
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate text-[13px] font-black text-slate-900 dark:text-white">
+                            {group.org_name}
+                          </h3>
+
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
+                              dark
+                                ? palette.badgeDark
+                                : palette.badgeLight
+                            }`}
+                          >
+                            {group.devices.length} {group.devices.length === 1 ? "Device" : "Devices"}
+                          </span>
+
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
+                              dark
+                                ? "bg-slate-800/70 text-slate-300"
+                                : "bg-white/80 text-slate-600"
+                            }`}
+                          >
+                            {uniqueBuckets.length} {uniqueBuckets.length === 1 ? "Bucket" : "Buckets"}
+                          </span>
+                        </div>
+
+                        <p className="mt-1 text-[9px] text-slate-500 dark:text-slate-400">
+                          Device IDs assigned to this organization
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Device IDs are shown directly. Up to 6 are visible; extra devices scroll inside the organization card. */}
+                  <div className="p-2.5">
+                    <div
+                      className={`grid gap-1.5 sm:grid-cols-2 ${
+                        group.devices.length > 6
+                          ? "max-h-[382px] overflow-y-auto overscroll-contain pr-1 sm:max-h-[190px] device-group-scroll"
+                          : ""
+                      }`}
+                    >
+                      {group.devices.map((item) => {
+                        const primaryMeasurement = item.measurement_names?.[0];
+                        const extraMeasurementCount = Math.max(
+                          0,
+                          (item.measurement_names?.length || 0) - 1
+                        );
+
+                        return (
+                          <div
+                            key={item.key}
+                            className={`group flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 transition ${
+                              dark
+                                ? "border-slate-800 bg-slate-950/55 hover:border-cyan-400/25 hover:bg-[#0E172D]"
+                                : "border-slate-200 bg-slate-50/70 hover:border-cyan-200 hover:bg-white"
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <p
+                                  className="min-w-0 truncate font-mono text-[10px] font-black text-cyan-700 dark:text-cyan-300"
+                                  title={item.tag_value}
+                                >
+                                  {item.tag_value}
+                                </p>
+
+                                {primaryMeasurement && (
+                                  <span
+                                    className="max-w-[42%] shrink-0 truncate rounded-md bg-violet-50 px-1.5 py-0.5 text-[7px] font-bold text-violet-700 dark:bg-violet-400/10 dark:text-violet-200"
+                                    title={`Measurements: ${item.measurement_names.join(", ")}`}
+                                  >
+                                    {primaryMeasurement}
+                                    {extraMeasurementCount > 0 ? ` +${extraMeasurementCount}` : ""}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[7px] text-slate-400">
+                                <span className="min-w-0 truncate font-mono text-slate-500 dark:text-slate-400" title={item.bucket_name}>
+                                  {item.bucket_name}
+                                </span>
+                                <span>•</span>
+                                <span className="inline-flex shrink-0 items-center gap-1 font-bold text-cyan-700 dark:text-cyan-300">
+                                  <Check size={8} /> Assigned
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => removeDeviceAssignment(item)}
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-65 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-500/10"
+                              title={`Remove ${item.tag_value} from ${group.org_name}`}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
+              );
+            }
+          )}
+        </div>
+      )}
+
       {showAssignModal && (
         <div
-          className="
-            fixed inset-0 z-50
-            flex items-center
-            justify-center
-            bg-black/55 p-3
-          "
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3"
           onClick={() =>
-            setShowAssignModal(
-              false
-            )
+            setShowAssignModal(false)
           }
         >
           <div
-            className={`
-              flex max-h-[92vh]
-              w-full max-w-4xl
-              flex-col overflow-hidden
-              rounded-2xl border
-              shadow-2xl
-              ${
-                dark
-                  ? "border-slate-700 bg-slate-900"
-                  : "border-slate-200 bg-white"
-              }
-            `}
+            className={`flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border shadow-2xl ${
+              dark
+                ? "border-slate-700 bg-slate-900"
+                : "border-slate-200 bg-white"
+            }`}
             onClick={(event) =>
               event.stopPropagation()
             }
           >
-            {/* MODAL HEADER */}
             <div
-              className={`
-                flex shrink-0
-                items-center
-                justify-between
-                border-b px-4
-                py-3
-                ${
-                  dark
-                    ? "border-slate-700"
-                    : "border-slate-200"
-                }
-              `}
+              className={`flex shrink-0 items-center justify-between border-b px-5 py-4 ${
+                dark
+                  ? "border-slate-700"
+                  : "border-slate-200"
+              }`}
             >
               <div>
                 <h2 className="text-base font-bold">
-                  Assign Logical Devices
+                  Assign Influx Device ID
                 </h2>
-
-                <p className="mt-0.5 text-[11px] text-slate-400">
-                  One selection can contain several measurement permissions.
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Follow the same source path used by Data Source configuration. The selected Bucket, Measurement, and Device ID are saved together as the assigned Influx source.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() =>
-                  setShowAssignModal(
-                    false
-                  )
+                  setShowAssignModal(false)
                 }
-                className="
-                  rounded-lg p-1.5
-                  text-slate-400
-                  hover:bg-slate-100
-                  dark:hover:bg-slate-800
-                "
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Close device assignment"
               >
                 <X size={17} />
               </button>
             </div>
 
-            {/* MODAL FILTERS */}
-            <div
-              className={`
-                shrink-0 border-b
-                px-4 py-3
-                ${
-                  dark
-                    ? "border-slate-700"
-                    : "border-slate-200"
-                }
-              `}
-            >
-              <div
-                className="
-                  grid gap-2
-                  md:grid-cols-[1fr_220px_auto]
-                "
-              >
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {/* ORGANIZATION */}
+              <div className="mb-5">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">
+                      Assign To
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Choose the organization / group that should be allowed to use this Device ID.
+                    </p>
+                  </div>
+                </div>
+
                 <select
-                  value={
-                    selectedOrgId
-                  }
+                  value={selectedOrgId}
                   onChange={(event) => {
                     setSelectedOrgId(
                       event.target.value
                     );
-
-                    setSelectedLogicalKeys(
-                      []
-                    );
+                    setSelectedDeviceId("");
                   }}
-                  className={`
-                    h-9 rounded-lg
-                    border px-3
-                    text-xs
-                    ${
-                      dark
-                        ? "border-slate-700 bg-slate-950"
-                        : "border-slate-300 bg-white"
-                    }
-                  `}
+                  className={`h-10 w-full rounded-xl border px-3 text-xs outline-none md:max-w-md ${
+                    dark
+                      ? "border-slate-700 bg-slate-950"
+                      : "border-slate-300 bg-white"
+                  }`}
                 >
                   <option value="">
-                    Select organization
+                    Select organization / group
                   </option>
 
                   {organizations.map(
                     (organization) => (
                       <option
-                        key={
-                          organization.id
-                        }
-                        value={
-                          organization.id
-                        }
+                        key={organization.id}
+                        value={organization.id}
                       >
-                        {
-                          organization.name
-                        }
+                        {organization.name}
                       </option>
                     )
                   )}
                 </select>
-
-                <select
-                  value={
-                    selectedBucket
-                  }
-                  onChange={async (
-                    event
-                  ) => {
-                    const value =
-                      event.target
-                        .value;
-
-                    setSelectedBucket(
-                      value
-                    );
-
-                    setSelectedLogicalKeys(
-                      []
-                    );
-
-                    await discoverLogicalDevices(
-                      value
-                    );
-                  }}
-                  className={`
-                    h-9 rounded-lg
-                    border px-3
-                    font-mono text-xs
-                    ${
-                      dark
-                        ? "border-slate-700 bg-slate-950"
-                        : "border-slate-300 bg-white"
-                    }
-                  `}
-                >
-                  {availableBuckets.map(
-                    (bucketName) => (
-                      <option
-                        key={
-                          bucketName
-                        }
-                        value={
-                          bucketName
-                        }
-                      >
-                        {
-                          bucketName
-                        }
-                      </option>
-                    )
-                  )}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    discoverLogicalDevices(
-                      selectedBucket
-                    )
-                  }
-                  disabled={
-                    discoveryLoading ||
-                    !selectedBucket
-                  }
-                  className="
-                    inline-flex h-9
-                    items-center
-                    justify-center
-                    gap-1.5
-                    rounded-lg
-                    bg-slate-800
-                    px-3 text-xs
-                    font-semibold
-                    text-white
-                    disabled:opacity-50
-                  "
-                >
-                  <RefreshCw
-                    size={13}
-                    className={
-                      discoveryLoading
-                        ? "animate-spin"
-                        : ""
-                    }
-                  />
-                  Refresh
-                </button>
               </div>
 
-              <div
-                className="
-                  mt-2 flex
-                  flex-col gap-2
-                  sm:flex-row
-                  sm:items-center
-                "
-              >
-                <div className="relative min-w-0 flex-1">
-                  <Search
-                    size={13}
-                    className="
-                      absolute left-3
-                      top-1/2
-                      -translate-y-1/2
-                      text-slate-400
-                    "
-                  />
+              {/* SOURCE PATH */}
+              <div>
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                      Source Path
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Use InfluxDB metadata to narrow down the exact Device ID.
+                    </p>
+                  </div>
 
-                  <input
-                    value={
-                      discoverySearch
-                    }
-                    onChange={(event) =>
-                      setDiscoverySearch(
-                        event.target
-                          .value
-                      )
-                    }
-                    placeholder="Search type, device ID, measurement..."
-                    className={`
-                      h-9 w-full
-                      rounded-lg border
-                      pl-9 pr-3
-                      text-xs
-                      ${
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const buckets =
+                          await fetchBuckets();
+
+                        if (
+                          selectedBucket &&
+                          buckets.includes(
+                            selectedBucket
+                          )
+                        ) {
+                          await fetchMeasurements(
+                            selectedBucket
+                          );
+
+                          if (
+                            selectedMeasurement
+                          ) {
+                            await discoverInfluxDeviceIds(
+                              selectedBucket,
+                              selectedMeasurement
+                            );
+                          }
+                        }
+                      } catch (
+                        requestError
+                      ) {
+                        setError(
+                          requestError.message ||
+                            "Failed to refresh Influx metadata"
+                        );
+                      }
+                    }}
+                    disabled={discoveryLoading}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-slate-800 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-[#17233F]"
+                  >
+                    <RefreshCw
+                      size={13}
+                      className={
+                        discoveryLoading
+                          ? "animate-spin"
+                          : ""
+                      }
+                    />
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                  {/* 1 BUCKET */}
+                  <label className={`rounded-xl border p-3 ${
+                    dark
+                      ? "border-slate-700 bg-[#0B1328]"
+                      : "border-slate-200 bg-white"
+                  }`}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200">
+                        1
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Bucket
+                      </span>
+                    </div>
+
+                    <select
+                      value={selectedBucket}
+                      onChange={async (
+                        event
+                      ) => {
+                        const value =
+                          event.target.value;
+
+                        setSelectedBucket(
+                          value
+                        );
+
+                        resetSourcePathAfterBucket();
+
+                        if (value) {
+                          await fetchMeasurements(
+                            value
+                          );
+                        } else {
+                          setAvailableMeasurements(
+                            []
+                          );
+                        }
+                      }}
+                      className={`w-full rounded-lg border px-2.5 py-2 font-mono text-xs outline-none ${
                         dark
                           ? "border-slate-700 bg-slate-950"
                           : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      <option value="">
+                        Select bucket
+                      </option>
+
+                      {availableBuckets.map(
+                        (bucketName) => (
+                          <option
+                            key={bucketName}
+                            value={bucketName}
+                          >
+                            {bucketName}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </label>
+
+                  {/* 2 MEASUREMENT */}
+                  <label className={`rounded-xl border p-3 ${
+                    dark
+                      ? "border-slate-700 bg-[#0B1328]"
+                      : "border-slate-200 bg-white"
+                  }`}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200">
+                        2
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Measurement
+                      </span>
+                    </div>
+
+                    <select
+                      value={selectedMeasurement}
+                      onChange={async (
+                        event
+                      ) => {
+                        const value =
+                          event.target.value;
+
+                        setSelectedMeasurement(
+                          value
+                        );
+
+                        resetSourcePathAfterMeasurement();
+
+                        if (
+                          selectedBucket &&
+                          value
+                        ) {
+                          await discoverInfluxDeviceIds(
+                            selectedBucket,
+                            value
+                          );
+                        } else {
+                          setInfluxDeviceIds(
+                            []
+                          );
+                        }
+                      }}
+                      disabled={
+                        discoveryLoading ||
+                        !selectedBucket
                       }
-                    `}
-                  />
+                      className={`w-full rounded-lg border px-2.5 py-2 font-mono text-xs outline-none disabled:opacity-50 ${
+                        dark
+                          ? "border-slate-700 bg-slate-950"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      <option value="">
+                        {selectedBucket
+                          ? "Select measurement"
+                          : "Select bucket first"}
+                      </option>
+
+                      {availableMeasurements.map(
+                        (measurement) => (
+                          <option
+                            key={measurement}
+                            value={measurement}
+                          >
+                            {measurement}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </label>
+
+                  {/* 3 DEVICE TYPE */}
+                  <div className={`rounded-xl border p-3 ${
+                    dark
+                      ? "border-slate-700 bg-[#0B1328]"
+                      : "border-slate-200 bg-white"
+                  }`}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200">
+                        3
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Device Type
+                      </span>
+                    </div>
+
+                    <div
+                      className={`flex min-h-[38px] items-center rounded-lg px-3 text-xs font-semibold ${
+                        selectedMeasurement
+                          ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200"
+                          : dark
+                          ? "bg-slate-950 text-slate-500"
+                          : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {selectedMeasurement
+                        ? detectedDeviceType
+                        : "Detected after measurement"}
+                    </div>
+                  </div>
+
+                  {/* 4 DEVICE ID */}
+                  <label className={`rounded-xl border p-3 ${
+                    dark
+                      ? "border-slate-700 bg-[#0B1328]"
+                      : "border-slate-200 bg-white"
+                  }`}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200">
+                        4
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Device ID
+                      </span>
+                    </div>
+
+                    <select
+                      value={selectedDeviceId}
+                      onChange={(event) =>
+                        setSelectedDeviceId(
+                          event.target.value
+                        )
+                      }
+                      disabled={
+                        discoveryLoading ||
+                        !selectedMeasurement
+                      }
+                      className={`w-full rounded-lg border px-2.5 py-2 font-mono text-xs outline-none disabled:opacity-50 ${
+                        dark
+                          ? "border-slate-700 bg-slate-950"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      <option value="">
+                        {!selectedMeasurement
+                          ? "Select measurement first"
+                          : discoveryLoading
+                          ? "Loading Device IDs..."
+                          : availableDeviceIds.length
+                          ? "Select Device ID"
+                          : "No available Device IDs"}
+                      </option>
+
+                      {availableDeviceIds.map(
+                        (deviceId) => (
+                          <option
+                            key={deviceId}
+                            value={deviceId}
+                          >
+                            {deviceId}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </label>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={
-                    toggleVisible
-                  }
-                  disabled={
-                    !selectedOrgId ||
-                    !selectableVisibleKeys.length
-                  }
-                  className="
-                    inline-flex h-9
-                    shrink-0 items-center
-                    justify-center
-                    gap-1.5 rounded-lg
-                    border border-slate-300
-                    px-3 text-xs
-                    font-semibold
-                    disabled:opacity-50
-                    dark:border-slate-700
-                  "
+                <div
+                  className={`mt-3 rounded-xl border px-3 py-2.5 ${
+                    dark
+                      ? "border-slate-700 bg-slate-950/60"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
                 >
-                  <Check size={13} />
-                  {allVisibleSelected
-                    ? "Clear Visible"
-                    : "Select Visible"}
-                </button>
+                  {selectedDeviceId ? (
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[10px]">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Measurement:
+                        {" "}
+                        <strong className="font-mono text-slate-800 dark:text-slate-200">
+                          {selectedMeasurement}
+                        </strong>
+                      </span>
+
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Type:
+                        {" "}
+                        <strong className="text-slate-800 dark:text-slate-200">
+                          {detectedDeviceType}
+                        </strong>
+                      </span>
+
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Device ID:
+                        {" "}
+                        <strong className="font-mono text-cyan-700 dark:text-cyan-300">
+                          {selectedDeviceId}
+                        </strong>
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400">
+                      Follow Bucket → Measurement → Device Type → Device ID. The selected Device ID is assigned using this exact Bucket + Measurement source path.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* DEVICE CARDS */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {!selectedOrgId ? (
-                <div
-                  className="
-                    p-10 text-center
-                    text-xs text-slate-400
-                  "
-                >
-                  Select an organization to see assignment status.
-                </div>
-              ) : discoveryLoading ? (
-                <div
-                  className="
-                    p-10 text-center
-                    text-xs text-slate-400
-                  "
-                >
-                  Discovering measurement + device-ID relationships...
-                </div>
-              ) : groupedDiscovery.length ===
-                0 ? (
-                <div
-                  className="
-                    p-10 text-center
-                    text-xs text-slate-400
-                  "
-                >
-                  No logical devices found.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {groupedDiscovery.map(
-                    (group) => (
-                      <section
-                        key={
-                          group.key
-                        }
-                      >
-                        <div
-                          className="
-                            mb-2 flex
-                            items-center
-                            justify-between
-                          "
-                        >
-                          <div
-                            className="
-                              flex items-center
-                              gap-2
-                            "
-                          >
-                            <Layers3
-                              size={14}
-                              className="text-emerald-500"
-                            />
-
-                            <h3 className="text-xs font-bold">
-                              {
-                                group.label
-                              }
-                            </h3>
-                          </div>
-
-                          <span className="text-[10px] text-slate-400">
-                            {
-                              group
-                                .devices
-                                .length
-                            }{" "}
-                            device(s)
-                          </span>
-                        </div>
-
-                        <div
-                          className="
-                            grid gap-2
-                            md:grid-cols-2
-                          "
-                        >
-                          {group.devices.map(
-                            (
-                              device
-                            ) => {
-                              const progress =
-                                getAssignmentProgress(
-                                  device
-                                );
-
-                              const selected =
-                                selectedLogicalKeys.includes(
-                                  device.key
-                                );
-
-                              return (
-                                <button
-                                  key={
-                                    device.key
-                                  }
-                                  type="button"
-                                  onClick={() =>
-                                    toggleLogicalDevice(
-                                      device
-                                    )
-                                  }
-                                  disabled={
-                                    progress.complete
-                                  }
-                                  className={`
-                                    flex min-w-0
-                                    items-start gap-3
-                                    rounded-xl border
-                                    p-3 text-left
-                                    transition-colors
-                                    ${
-                                      progress.complete
-                                        ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-950"
-                                        : selected
-                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
-                                        : dark
-                                        ? "border-slate-700 bg-slate-950 hover:border-emerald-500/40"
-                                        : "border-slate-200 bg-white hover:border-emerald-300"
-                                    }
-                                  `}
-                                >
-                                  <span
-                                    className={`
-                                      mt-0.5 flex
-                                      h-5 w-5
-                                      shrink-0
-                                      items-center
-                                      justify-center
-                                      rounded-md border
-                                      ${
-                                        selected
-                                          ? "border-emerald-500 bg-emerald-600 text-white"
-                                          : "border-slate-300 text-transparent dark:border-slate-600"
-                                      }
-                                    `}
-                                  >
-                                    <Check
-                                      size={12}
-                                    />
-                                  </span>
-
-                                  <span className="min-w-0 flex-1">
-                                    <span
-                                      className="
-                                        block truncate
-                                        font-mono
-                                        text-[11px]
-                                        font-bold
-                                      "
-                                    >
-                                      {
-                                        device
-                                          .tag_value
-                                      }
-                                    </span>
-
-                                    <span className="mt-1 block text-[10px] text-slate-400">
-                                      {
-                                        device
-                                          .measurement_count
-                                      }{" "}
-                                      measurement(s)
-                                    </span>
-
-                                    <span
-                                      className="
-                                        mt-1 block
-                                        truncate
-                                        text-[9px]
-                                        text-slate-400
-                                      "
-                                    >
-                                      {(
-                                        device
-                                          .measurement_names ||
-                                        []
-                                      )
-                                        .slice(
-                                          0,
-                                          5
-                                        )
-                                        .join(
-                                          " · "
-                                        )}
-
-                                      {(device
-                                        .measurement_names ||
-                                        [])
-                                        .length >
-                                      5
-                                        ? " …"
-                                        : ""}
-                                    </span>
-
-                                    {progress.complete ? (
-                                      <span
-                                        className="
-                                          mt-1.5
-                                          inline-flex
-                                          rounded-full
-                                          bg-emerald-100
-                                          px-2 py-0.5
-                                          text-[9px]
-                                          font-bold
-                                          text-emerald-700
-                                          dark:bg-emerald-500/10
-                                          dark:text-emerald-300
-                                        "
-                                      >
-                                        Fully assigned
-                                      </span>
-                                    ) : progress.partial ? (
-                                      <span
-                                        className="
-                                          mt-1.5
-                                          inline-flex
-                                          rounded-full
-                                          bg-amber-100
-                                          px-2 py-0.5
-                                          text-[9px]
-                                          font-bold
-                                          text-amber-700
-                                          dark:bg-amber-500/10
-                                          dark:text-amber-300
-                                        "
-                                      >
-                                        {
-                                          progress.assignedCount
-                                        }
-                                        /
-                                        {
-                                          progress.total
-                                        }{" "}
-                                        already assigned
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </button>
-                              );
-                            }
-                          )}
-                        </div>
-                      </section>
-                    )
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* FOOTER */}
             <div
-              className={`
-                flex shrink-0
-                items-center
-                justify-between
-                gap-3 border-t
-                px-4 py-3
-                ${
-                  dark
-                    ? "border-slate-700"
-                    : "border-slate-200"
-                }
-              `}
+              className={`flex shrink-0 items-center justify-between gap-3 border-t px-5 py-3 ${
+                dark
+                  ? "border-slate-700"
+                  : "border-slate-200"
+              }`}
             >
-              <p className="text-[11px] text-slate-400">
-                {
-                  selectedLogicalKeys.length
-                }{" "}
-                logical device(s) selected
-              </p>
+              <div className="min-w-0">
+                {selectedDeviceId ? (
+                  <p className="truncate text-[11px] text-slate-500 dark:text-slate-300">
+                    Ready to assign
+                    {" "}
+                    <strong className="font-mono text-cyan-700 dark:text-cyan-300">
+                      {selectedDeviceId}
+                    </strong>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Select one Device ID to continue.
+                  </p>
+                )}
+              </div>
 
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() =>
-                    setShowAssignModal(
-                      false
-                    )
+                    setShowAssignModal(false)
                   }
-                  className="
-                    h-9 rounded-lg
-                    border
-                    border-slate-300
-                    px-4 text-xs
-                    font-semibold
-                    dark:border-slate-700
-                  "
+                  className="h-9 rounded-lg border border-slate-300 px-4 text-xs font-semibold dark:border-slate-700"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="button"
-                  onClick={
-                    assignSelected
-                  }
+                  onClick={assignSelected}
                   disabled={
                     saving ||
                     !selectedOrgId ||
-                    selectedLogicalKeys.length ===
-                      0
+                    !selectedBucket ||
+                    !selectedMeasurement ||
+                    !selectedDeviceId
                   }
-                  className="
-                    h-9 rounded-lg
-                    bg-emerald-600
-                    px-4 text-xs
-                    font-semibold
-                    text-white
-                    disabled:opacity-50
-                  "
+                  className="h-9 rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 text-xs font-semibold text-white disabled:opacity-50"
                 >
                   {saving
                     ? "Assigning..."
-                    : `Assign ${
-                        selectedLogicalKeys.length
-                      } Device${
-                        selectedLogicalKeys.length ===
-                        1
-                          ? ""
-                          : "s"
-                      }`}
+                    : "Assign Device ID"}
                 </button>
               </div>
             </div>

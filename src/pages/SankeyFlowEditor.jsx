@@ -10,12 +10,14 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Copy,
   Database,
   Eye,
   GitBranch,
   Link2,
   Moon,
   Move,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -71,13 +73,11 @@ const MAX_SANKEY_NODES = 30;
 const MAX_SANKEY_LINKS = 60;
 const MAX_SANKEY_TIERS = 10;
 
-const GRAPH_WIDTH = 3600;
+const GRAPH_WIDTH = 2800;
 const GRAPH_HEIGHT = 920;
 const NODE_WIDTH = 188;
 const NODE_HEIGHT = 76;
-// Wider tier spacing keeps downstream stages visually "further back"
-// instead of crowding the previous tier.
-const NODE_GAP_X = 350;
+const NODE_GAP_X = 255;
 const NODE_GAP_Y = 112;
 
 const previewData = {
@@ -368,6 +368,159 @@ const getLinkPath = (
   } ${endY}, ${endX} ${endY}`;
 };
 
+const createSafeDataKey = (
+  value
+) => {
+  const cleaned =
+    String(value || "")
+      .trim()
+      .replace(
+        /[^a-zA-Z0-9_$]+(.)?/g,
+        (_, next) =>
+          next
+            ? next.toUpperCase()
+            : ""
+      )
+      .replace(
+        /^[^a-zA-Z_$]+/,
+        ""
+      );
+
+  return (
+    cleaned ||
+    `source${Date.now()}`
+  );
+};
+
+const getUniqueDataKey = (
+  baseKey,
+  options
+) => {
+  const used =
+    new Set(
+      options.map(
+        (option) =>
+          option.key
+      )
+    );
+
+  if (!used.has(baseKey)) {
+    return baseKey;
+  }
+
+  let index = 2;
+  let candidate =
+    `${baseKey}${index}`;
+
+  while (
+    used.has(candidate)
+  ) {
+    index += 1;
+    candidate =
+      `${baseKey}${index}`;
+  }
+
+  return candidate;
+};
+
+const normalizeManagedDataOption = (
+  option
+) => {
+  if (
+    !option ||
+    !option.key
+  ) {
+    return null;
+  }
+
+  const source =
+    option.source || {};
+
+  const channel =
+    String(
+      source.field ||
+        source.channel ||
+        ""
+    ).trim();
+
+  return {
+    ...option,
+    key:
+      String(
+        option.key
+      ).trim(),
+    label:
+      String(
+        option.label ||
+          option.key
+      ).trim(),
+    unit:
+      String(
+        option.unit || ""
+      ).trim(),
+    isCustom: true,
+    source: {
+      bucket:
+        String(
+          source.bucket || ""
+        ).trim(),
+      measurement:
+        String(
+          source.measurement ||
+            ""
+        ).trim(),
+      tagKey:
+        String(
+          source.tagKey ||
+            "id"
+        ).trim() ||
+        "id",
+      tagValue:
+        String(
+          source.tagValue ||
+            source.id ||
+            ""
+        ).trim(),
+      id:
+        String(
+          source.id ||
+            source.tagValue ||
+            ""
+        ).trim(),
+      field: channel,
+      channel,
+    },
+  };
+};
+
+const deduplicateManagedSources = (
+  options
+) => {
+  const map = new Map();
+
+  (
+    Array.isArray(options)
+      ? options
+      : []
+  ).forEach((option) => {
+    const normalized =
+      normalizeManagedDataOption(
+        option
+      );
+
+    if (normalized?.key) {
+      map.set(
+        normalized.key,
+        normalized
+      );
+    }
+  });
+
+  return [
+    ...map.values(),
+  ];
+};
+
 export default function SankeyFlowEditor({
   sankeyWidget,
   setSankeyWidget,
@@ -481,6 +634,17 @@ export default function SankeyFlowEditor({
       mappedSource.tagValue
   );
 
+  const initialManagedDataOptions =
+    useMemo(
+      () =>
+        deduplicateManagedSources(
+          sankeyWidget
+            ?.customDataOptions ||
+            []
+        ),
+      []
+    );
+
   const initialConfig = useMemo(() => {
     const raw =
       sankeyWidget?.sankeyConfig ||
@@ -521,14 +685,48 @@ export default function SankeyFlowEditor({
       ),
       links: normalized.links.map(
         (link, index) => {
-          const channel =
-            link.dataSource?.channel ||
-            link.dataKey ||
+          const existingChannel =
+            link.dataSource
+              ?.field ||
+            link.dataSource
+              ?.channel ||
             "";
+
+          const matchedSource =
+            initialManagedDataOptions.find(
+              (option) =>
+                option.key ===
+                  link.dataKey ||
+                (
+                  existingChannel &&
+                  (
+                    option.source
+                      ?.field ||
+                    option.source
+                      ?.channel
+                  ) ===
+                    existingChannel &&
+                  (
+                    !link.dataSource
+                      ?.tagValue ||
+                    option.source
+                      ?.tagValue ===
+                      link.dataSource
+                        ?.tagValue
+                  )
+                )
+            );
 
           return {
             ...link,
-            dataKey: channel,
+            // New format stores the dashboard/source key here.
+            // Legacy channel-style dataKey remains supported if no
+            // connected source can be matched.
+            dataKey:
+              matchedSource
+                ?.key ||
+              link.dataKey ||
+              "",
             color: normalizeHexColor(
               link.color,
               SANKEY_COLOR_PRESETS[
@@ -536,13 +734,18 @@ export default function SankeyFlowEditor({
                   SANKEY_COLOR_PRESETS.length
               ]
             ),
-            dataSource: {
-              ...(link.dataSource || {}),
-              ...(mappingReady
-                ? mappedSource
-                : {}),
-              channel,
-            },
+            dataSource:
+              matchedSource
+                ?.source
+                ? {
+                    ...matchedSource.source,
+                  }
+                : {
+                    ...(
+                      link.dataSource ||
+                      {}
+                    ),
+                  },
           };
         }
       ),
@@ -551,6 +754,71 @@ export default function SankeyFlowEditor({
 
   const [config, setConfig] =
     useState(initialConfig);
+
+  const [
+    managedDataOptions,
+    setManagedDataOptions,
+  ] = useState(
+    initialManagedDataOptions
+  );
+
+  const [
+    sourceEditorMode,
+    setSourceEditorMode,
+  ] = useState("add");
+
+  const [
+    editingSourceKey,
+    setEditingSourceKey,
+  ] = useState("");
+
+  const [
+    showSourceEditor,
+    setShowSourceEditor,
+  ] = useState(false);
+
+  const makeEmptySourceDraft =
+    () => ({
+      label: "",
+      key: "",
+      unit:
+        config?.unit || "",
+      bucket:
+        mappedSource.bucket ||
+        "",
+      measurement:
+        mappedSource
+          .measurement || "",
+      tagKey:
+        mappedSource.tagKey ||
+        "id",
+      tagValue:
+        mappedSource
+          .tagValue || "",
+      channel: "",
+    });
+
+  const [
+    sourceDraft,
+    setSourceDraft,
+  ] = useState(
+    makeEmptySourceDraft
+  );
+
+  const [
+    sourceChannels,
+    setSourceChannels,
+  ] = useState([]);
+
+  const [
+    sourceChannelsLoading,
+    setSourceChannelsLoading,
+  ] = useState(false);
+
+  const [
+    sourceEditorError,
+    setSourceEditorError,
+  ] = useState("");
 
   const safeNodes = Array.isArray(
     config.nodes
@@ -692,8 +960,15 @@ export default function SankeyFlowEditor({
   const configuredLinks =
     safeLinks.filter(
       (link) =>
-        link.dataSource?.channel ||
-        link.dataKey
+        managedDataOptions.some(
+          (option) =>
+            option.key ===
+            link.dataKey
+        ) ||
+        Boolean(
+          link.dataSource
+            ?.channel
+        )
     );
 
   const derivedLinks =
@@ -1080,12 +1355,7 @@ export default function SankeyFlowEditor({
             SANKEY_COLOR_PRESETS.length
         ],
       dataKey: "",
-      dataSource: {
-        ...(mappingReady
-          ? mappedSource
-          : {}),
-        channel: "",
-      },
+      dataSource: {},
     };
 
     if (
@@ -1112,84 +1382,6 @@ export default function SankeyFlowEditor({
     setSelectedNodeId(null);
     setSelectedLinkId(candidate.id);
     setConnectFrom(null);
-  };
-
-  const canConnectNodes = (sourceId, targetId) => {
-    if (!sourceId || !targetId || sourceId === targetId) {
-      return false;
-    }
-
-    const sourceTier = normalizeTier(
-      nodeMap.get(sourceId)?.tier,
-      1
-    );
-
-    const targetTier = normalizeTier(
-      nodeMap.get(targetId)?.tier,
-      sourceTier + 1
-    );
-
-    if (targetTier <= sourceTier) {
-      return false;
-    }
-
-    return !safeLinks.some(
-      (link) =>
-        link.source === sourceId &&
-        link.target === targetId
-    );
-  };
-
-  const beginConnectionFrom = (nodeId) => {
-    if (!nodeId) {
-      notify(
-        "Select a source node first, then press Connect.",
-        "info"
-      );
-      return;
-    }
-
-    setConnectFrom(nodeId);
-    setSelectedNodeId(nodeId);
-    setSelectedLinkId(null);
-
-    notify(
-      `Connecting from ${nodeMap.get(nodeId)?.name || "node"}. Click any highlighted node in a later tier.`,
-      "info"
-    );
-  };
-
-  const handleNodeCanvasClick = (nodeId) => {
-    if (connectFrom && nodeId !== connectFrom) {
-      if (canConnectNodes(connectFrom, nodeId)) {
-        addLinkBetween(connectFrom, nodeId);
-      } else {
-        const sourceTier = normalizeTier(
-          nodeMap.get(connectFrom)?.tier,
-          1
-        );
-        const targetTier = normalizeTier(
-          nodeMap.get(nodeId)?.tier,
-          1
-        );
-
-        if (targetTier <= sourceTier) {
-          notify(
-            `Choose a node after Tier ${sourceTier}. Sankey flows must move forward.`,
-            "warning"
-          );
-        } else {
-          notify(
-            "That flow already exists.",
-            "info"
-          );
-        }
-      }
-      return;
-    }
-
-    setSelectedNodeId(nodeId);
-    setSelectedLinkId(null);
   };
 
   const addDefaultLink = () => {
@@ -1228,6 +1420,478 @@ export default function SankeyFlowEditor({
     setSelectedLinkId(null);
   };
 
+  const openAddSource = () => {
+    setSourceEditorMode(
+      "add"
+    );
+    setEditingSourceKey("");
+    setSourceDraft(
+      makeEmptySourceDraft()
+    );
+    setSourceChannels([]);
+    setSourceEditorError("");
+    setShowSourceEditor(true);
+  };
+
+  const openEditSource = (
+    option
+  ) => {
+    if (!option) return;
+
+    const source =
+      option.source || {};
+
+    setSourceEditorMode(
+      "edit"
+    );
+    setEditingSourceKey(
+      option.key
+    );
+    setSourceDraft({
+      label:
+        option.label || "",
+      key:
+        option.key || "",
+      unit:
+        option.unit || "",
+      bucket:
+        source.bucket || "",
+      measurement:
+        source.measurement ||
+        "",
+      tagKey:
+        source.tagKey ||
+        "id",
+      tagValue:
+        source.tagValue ||
+        source.id ||
+        "",
+      channel:
+        source.field ||
+        source.channel ||
+        "",
+    });
+    setSourceChannels(
+      source.field ||
+      source.channel
+        ? [
+            source.field ||
+              source.channel,
+          ]
+        : []
+    );
+    setSourceEditorError("");
+    setShowSourceEditor(true);
+  };
+
+  const openCopySource = (
+    option
+  ) => {
+    if (!option) return;
+
+    const source =
+      option.source || {};
+
+    setSourceEditorMode(
+      "copy"
+    );
+    setEditingSourceKey("");
+    setSourceDraft({
+      label:
+        `${option.label || "Data Source"} Copy`,
+      key: "",
+      unit:
+        option.unit || "",
+      bucket:
+        source.bucket || "",
+      measurement:
+        source.measurement ||
+        "",
+      tagKey:
+        source.tagKey ||
+        "id",
+      tagValue:
+        source.tagValue ||
+        source.id ||
+        "",
+      channel:
+        source.field ||
+        source.channel ||
+        "",
+    });
+    setSourceChannels(
+      source.field ||
+      source.channel
+        ? [
+            source.field ||
+              source.channel,
+          ]
+        : []
+    );
+    setSourceEditorError("");
+    setShowSourceEditor(true);
+  };
+
+  const loadSourceChannels =
+    async () => {
+      const bucket =
+        String(
+          sourceDraft.bucket ||
+            ""
+        ).trim();
+
+      const measurement =
+        String(
+          sourceDraft
+            .measurement ||
+            ""
+        ).trim();
+
+      const tagKey =
+        String(
+          sourceDraft.tagKey ||
+            "id"
+        ).trim() ||
+        "id";
+
+      const tagValue =
+        String(
+          sourceDraft
+            .tagValue ||
+            ""
+        ).trim();
+
+      if (
+        !bucket ||
+        !measurement ||
+        !tagValue
+      ) {
+        setSourceEditorError(
+          "Enter Bucket, Measurement and Device ID before loading channels."
+        );
+        return;
+      }
+
+      const token =
+        localStorage.getItem(
+          "token"
+        );
+
+      const query =
+        new URLSearchParams({
+          bucket,
+          measurement,
+          tagKey,
+          tagValue,
+        });
+
+      setSourceChannelsLoading(
+        true
+      );
+      setSourceEditorError("");
+
+      try {
+        const response =
+          await fetch(
+            `http://localhost:5000/influx/channels?${query.toString()}`,
+            {
+              headers: {
+                Authorization:
+                  token,
+              },
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result?.error ||
+              "Failed to load channels."
+          );
+        }
+
+        setSourceChannels(
+          unique(
+            result?.channels ||
+              result?.fields ||
+              []
+          )
+        );
+      } catch (error) {
+        setSourceChannels([]);
+        setSourceEditorError(
+          error.message ||
+            "Failed to load channels."
+        );
+      } finally {
+        setSourceChannelsLoading(
+          false
+        );
+      }
+    };
+
+  const saveManagedSource = () => {
+    const label =
+      String(
+        sourceDraft.label ||
+          ""
+      ).trim();
+
+    const unit =
+      String(
+        sourceDraft.unit ||
+          ""
+      ).trim();
+
+    const bucket =
+      String(
+        sourceDraft.bucket ||
+          ""
+      ).trim();
+
+    const measurement =
+      String(
+        sourceDraft
+          .measurement ||
+          ""
+      ).trim();
+
+    const tagKey =
+      String(
+        sourceDraft.tagKey ||
+          "id"
+      ).trim() ||
+      "id";
+
+    const tagValue =
+      String(
+        sourceDraft
+          .tagValue ||
+          ""
+      ).trim();
+
+    const channel =
+      String(
+        sourceDraft.channel ||
+          ""
+      ).trim();
+
+    if (
+      !bucket ||
+      !measurement ||
+      !tagValue ||
+      !channel
+    ) {
+      setSourceEditorError(
+        "Bucket, Measurement, Device ID and Channel are required."
+      );
+      return;
+    }
+
+    const source = {
+      bucket,
+      measurement,
+      tagKey,
+      tagValue,
+      id: tagValue,
+      field: channel,
+      channel,
+    };
+
+    if (
+      sourceEditorMode ===
+        "edit" &&
+      editingSourceKey
+    ) {
+      const key =
+        editingSourceKey;
+
+      const existing =
+        managedDataOptions.find(
+          (option) =>
+            option.key === key
+        );
+
+      if (!existing) {
+        setSourceEditorError(
+          "The selected data source could not be found."
+        );
+        return;
+      }
+
+      const updated = {
+        ...existing,
+        key,
+        label:
+          label ||
+          existing.label ||
+          key,
+        unit,
+        isCustom: true,
+        source,
+      };
+
+      setManagedDataOptions(
+        (current) =>
+          current.map(
+            (option) =>
+              option.key === key
+                ? updated
+                : option
+          )
+      );
+
+      // Keep every Sankey link using this key in sync with the
+      // edited connection details without changing its key.
+      setConfig(
+        (current) => ({
+          ...current,
+          links:
+            current.links.map(
+              (link) =>
+                link.dataKey ===
+                key
+                  ? {
+                      ...link,
+                      dataSource: {
+                        ...source,
+                      },
+                    }
+                  : link
+            ),
+        })
+      );
+
+      notify(
+        "Data source updated.",
+        "success"
+      );
+    } else {
+      const baseKey =
+        createSafeDataKey(
+          sourceDraft.key ||
+            label ||
+            channel
+        );
+
+      const key =
+        getUniqueDataKey(
+          baseKey,
+          managedDataOptions
+        );
+
+      const created = {
+        key,
+        label:
+          label ||
+          channel,
+        unit,
+        isCustom: true,
+        source,
+      };
+
+      setManagedDataOptions(
+        (current) => [
+          ...current,
+          created,
+        ]
+      );
+
+      notify(
+        sourceEditorMode ===
+          "copy"
+          ? "Data source copied."
+          : "Data source added.",
+        "success"
+      );
+    }
+
+    setShowSourceEditor(
+      false
+    );
+    setSourceEditorMode(
+      "add"
+    );
+    setEditingSourceKey("");
+    setSourceEditorError("");
+  };
+
+  const deleteManagedSource = (
+    option
+  ) => {
+    const usedBy =
+      safeLinks.filter(
+        (link) =>
+          link.dataKey ===
+          option.key
+      );
+
+    if (usedBy.length) {
+      notify(
+        `This data source is used by ${usedBy.length} Sankey flow${
+          usedBy.length === 1
+            ? ""
+            : "s"
+        }. Reassign those flows before deleting it.`,
+        "warning"
+      );
+      return;
+    }
+
+    setManagedDataOptions(
+      (current) =>
+        current.filter(
+          (item) =>
+            item.key !==
+            option.key
+        )
+    );
+
+    notify(
+      "Data source deleted.",
+      "success"
+    );
+  };
+
+  const setLinkDataSourceKey = (
+    linkId,
+    key
+  ) => {
+    if (!key) {
+      updateLink(
+        linkId,
+        {
+          dataKey: "",
+          dataSource: {},
+        }
+      );
+      return;
+    }
+
+    const option =
+      managedDataOptions.find(
+        (item) =>
+          item.key === key
+      );
+
+    if (!option) {
+      return;
+    }
+
+    updateLink(
+      linkId,
+      {
+        dataKey:
+          option.key,
+        dataSource: {
+          ...option.source,
+        },
+      }
+    );
+  };
+
   const setLinkChannel = (
     linkId,
     channel
@@ -1239,14 +1903,14 @@ export default function SankeyFlowEditor({
       );
 
     updateLink(linkId, {
-      dataKey: channel,
+      dataKey:
+        existing?.dataKey ||
+        channel,
       dataSource: {
         ...(existing?.dataSource ||
           {}),
-        ...(mappingReady
-          ? mappedSource
-          : {}),
         channel,
+        field: channel,
       },
     });
   };
@@ -1285,20 +1949,13 @@ export default function SankeyFlowEditor({
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
-
-    // While a connection is being created, the whole target node becomes
-    // clickable. Users do not need to hit the tiny input port precisely.
-    if (connectFrom && nodeId !== connectFrom) {
-      handleNodeCanvasClick(nodeId);
-      return;
-    }
-
     const position =
       positions[nodeId];
 
     if (!position) return;
+
+    event.preventDefault();
+    event.stopPropagation();
 
     setSelectedNodeId(nodeId);
     setSelectedLinkId(null);
@@ -1381,12 +2038,15 @@ export default function SankeyFlowEditor({
     port
   ) => {
     if (port === "out") {
-      if (connectFrom === nodeId) {
-        setConnectFrom(null);
-        return;
-      }
+      setConnectFrom(
+        (current) =>
+          current === nodeId
+            ? null
+            : nodeId
+      );
 
-      beginConnectionFrom(nodeId);
+      setSelectedNodeId(nodeId);
+      setSelectedLinkId(null);
       return;
     }
 
@@ -1394,7 +2054,10 @@ export default function SankeyFlowEditor({
       port === "in" &&
       connectFrom
     ) {
-      handleNodeCanvasClick(nodeId);
+      addLinkBetween(
+        connectFrom,
+        nodeId
+      );
     }
   };
 
@@ -1495,9 +2158,34 @@ export default function SankeyFlowEditor({
         }
       );
 
+      managedDataOptions.forEach(
+        (option, index) => {
+          const channel =
+            option.source
+              ?.field ||
+            option.source
+              ?.channel ||
+            "";
+
+          if (
+            values[option.key] ===
+            undefined
+          ) {
+            values[option.key] =
+              values[channel] !==
+              undefined
+                ? values[channel]
+                : 22 + index * 7;
+          }
+        }
+      );
+
       return values;
     },
-    [availableChannels]
+    [
+      availableChannels,
+      managedDataOptions,
+    ]
   );
 
   const handleBack = () => {
@@ -1559,11 +2247,12 @@ export default function SankeyFlowEditor({
               link.target
         )
         .map((link, index) => {
-          const channel =
-            link.dataSource
-              ?.channel ||
-            link.dataKey ||
-            "";
+          const connectedSource =
+            managedDataOptions.find(
+              (option) =>
+                option.key ===
+                link.dataKey
+            );
 
           return {
             id:
@@ -1585,15 +2274,23 @@ export default function SankeyFlowEditor({
                     SANKEY_COLOR_PRESETS.length
                 ]
               ),
-            dataKey: channel,
-            dataSource: {
-              ...(link.dataSource ||
-                {}),
-              ...(mappingReady
-                ? mappedSource
-                : {}),
-              channel,
-            },
+            dataKey:
+              connectedSource
+                ?.key ||
+              link.dataKey ||
+              "",
+            dataSource:
+              connectedSource
+                ?.source
+                ? {
+                    ...connectedSource.source,
+                  }
+                : {
+                    ...(
+                      link.dataSource ||
+                      {}
+                    ),
+                  },
           };
         });
 
@@ -1641,15 +2338,43 @@ export default function SankeyFlowEditor({
 
     const unmappedTerminalLinks =
       cleanLinks.filter(
-        (link) =>
-          terminalNodeIds.has(
-            link.target
-          ) &&
-          !(
-            link.dataSource
-              ?.channel ||
-            link.dataKey
-          )
+        (link) => {
+          if (
+            !terminalNodeIds.has(
+              link.target
+            )
+          ) {
+            return false;
+          }
+
+          const connectedOption =
+            managedDataOptions.find(
+              (option) =>
+                option.key ===
+                link.dataKey
+            );
+
+          const source =
+            connectedOption?.source ||
+            link.dataSource ||
+            {};
+
+          const hasCompleteSource =
+            Boolean(
+              source.bucket &&
+                source.measurement &&
+                (
+                  source.tagValue ||
+                  source.id
+                ) &&
+                (
+                  source.field ||
+                  source.channel
+                )
+            );
+
+          return !hasCompleteSource;
+        }
       );
 
     if (
@@ -1657,9 +2382,15 @@ export default function SankeyFlowEditor({
       0
     ) {
       notify(
-        `${unmappedTerminalLinks.length} terminal flow${unmappedTerminalLinks.length === 1 ? " is" : "s are"} not mapped to a process field. They will show no live value until mapped.`,
+        `${unmappedTerminalLinks.length} terminal flow${
+          unmappedTerminalLinks.length ===
+          1
+            ? " still needs"
+            : "s still need"
+        } a connected data source. Assign a source before saving the Sankey.`,
         "warning"
       );
+      return;
     }
 
     const normalized =
@@ -1705,6 +2436,8 @@ export default function SankeyFlowEditor({
       ...sankeyWidget,
       sankeyConfig:
         persistedConfig,
+      customDataOptions:
+        managedDataOptions,
       dataKeys,
       dataKey:
         dataKeys[0] ||
@@ -1965,30 +2698,19 @@ export default function SankeyFlowEditor({
                 <button
                   type="button"
                   onClick={() => {
-                    if (connectFrom) {
-                      setConnectFrom(null);
-                      return;
-                    }
-
-                    if (selectedNodeId) {
-                      beginConnectionFrom(selectedNodeId);
-                      return;
-                    }
-
+                    setConnectFrom(null);
                     notify(
-                      "Select a source node first, then press Connect.",
+                      "Click a node's right port, then click the target node's left port.",
                       "info"
                     );
                   }}
-                  disabled={safeNodes.length < 2}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-black transition disabled:opacity-40 ${
-                    connectFrom
-                      ? "border-cyan-400 bg-cyan-500 text-white shadow-sm dark:border-cyan-300 dark:bg-cyan-400/20 dark:text-cyan-100"
-                      : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-400/20 dark:bg-indigo-400/10 dark:text-indigo-200"
-                  }`}
+                  disabled={
+                    safeNodes.length < 2
+                  }
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-[10px] font-black text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-40 dark:border-indigo-400/20 dark:bg-indigo-400/10 dark:text-indigo-200"
                 >
                   <Link2 size={13} />
-                  {connectFrom ? "Cancel Connect" : "Connect"}
+                  Connect
                 </button>
 
                 {connectFrom && (
@@ -2000,9 +2722,6 @@ export default function SankeyFlowEditor({
                       )?.name ||
                         "Node"}
                     </strong>
-                    <span className="hidden sm:inline text-[9px] font-medium opacity-75">
-                      → click a highlighted later-tier node
-                    </span>
                     <button
                       type="button"
                       onClick={() =>
@@ -2188,14 +2907,8 @@ export default function SankeyFlowEditor({
                       return (
                         <div
                           key={node.id}
-                          className={`sankey-editor-node absolute z-10 rounded-xl border shadow-sm transition-all ${
-                            connectFrom && node.id !== connectFrom
-                              ? canConnectNodes(connectFrom, node.id)
-                                ? "cursor-copy border-cyan-400 bg-cyan-50/90 ring-2 ring-cyan-300/30 hover:-translate-y-0.5 hover:shadow-md dark:border-cyan-300/60 dark:bg-cyan-400/10 dark:ring-cyan-400/15"
-                                : "opacity-45 border-slate-200 bg-slate-50 dark:border-[#263657] dark:bg-[#0D172D]"
-                              : connectFrom === node.id
-                              ? "border-indigo-400 bg-indigo-50/90 ring-2 ring-indigo-300/30 dark:border-indigo-300/60 dark:bg-indigo-400/10"
-                              : selected
+                          className={`sankey-editor-node absolute z-10 rounded-xl border shadow-sm transition ${
+                            selected
                               ? "border-cyan-400 bg-cyan-50/95 shadow-[0_0_0_2px_rgba(34,211,238,0.12)] dark:bg-[#13233D]"
                               : "border-slate-200 bg-white hover:border-cyan-300 dark:border-[#2C3C61] dark:bg-[#111B34]"
                           }`}
@@ -2209,15 +2922,12 @@ export default function SankeyFlowEditor({
                             event
                           ) => {
                             event.stopPropagation();
-
-                            if (connectFrom && node.id !== connectFrom) {
-                              event.preventDefault();
-                              handleNodeCanvasClick(node.id);
-                              return;
-                            }
-
-                            setSelectedNodeId(node.id);
-                            setSelectedLinkId(null);
+                            setSelectedNodeId(
+                              node.id
+                            );
+                            setSelectedLinkId(
+                              null
+                            );
                           }}
                         >
                           <button
@@ -2230,7 +2940,7 @@ export default function SankeyFlowEditor({
                                 "in"
                               )
                             }
-                            className={`absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition dark:border-[#111B34] ${
+                            className={`absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition dark:border-[#111B34] ${
                               connectFrom
                                 ? "bg-cyan-400 ring-4 ring-cyan-400/10 hover:scale-125"
                                 : "bg-slate-300 hover:bg-cyan-400 dark:bg-slate-600"
@@ -2252,7 +2962,7 @@ export default function SankeyFlowEditor({
                                 "out"
                               )
                             }
-                            className={`absolute -right-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition dark:border-[#111B34] ${
+                            className={`absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition dark:border-[#111B34] ${
                               connectFrom ===
                               node.id
                                 ? "bg-cyan-400 ring-4 ring-cyan-400/20"
@@ -2360,7 +3070,7 @@ export default function SankeyFlowEditor({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[10px] font-black text-slate-800 dark:text-slate-100">
-                      Template Data Mapping
+                      Template Data Mapping Shortcut
                     </p>
 
                     {mappingReady ? (
@@ -2382,7 +3092,7 @@ export default function SankeyFlowEditor({
                     </p>
                   ) : (
                     <p className="mt-1 text-[9px] font-semibold leading-4 text-amber-700 dark:text-amber-300">
-                      Complete Data Mapping to select live fields.
+                      Optional shortcut for pre-filling new Sankey data sources.
                     </p>
                   )}
 
@@ -2424,6 +3134,340 @@ export default function SankeyFlowEditor({
                 </div>
               </div>
             </div>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[#2C3C61] dark:bg-[#111B34]">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Connected Data Sources
+                  </p>
+                  <p className="mt-1 text-[9px] leading-4 text-slate-400">
+                    These sources are shared with Template Designer and can be assigned to Sankey terminal flows.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={openAddSource}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-cyan-500 px-2.5 text-[9px] font-black text-white hover:bg-cyan-400"
+                >
+                  <Plus size={11} />
+                  Add Source
+                </button>
+              </div>
+
+              <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-1">
+                {managedDataOptions.length ? (
+                  managedDataOptions.map(
+                    (option) => (
+                      <div
+                        key={option.key}
+                        className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-[#2C3C61] dark:bg-[#081022]"
+                      >
+                        <Database
+                          size={12}
+                          className="mt-0.5 shrink-0 text-cyan-500"
+                        />
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[9px] font-black text-slate-800 dark:text-slate-100">
+                            {option.label}
+                          </p>
+                          <p className="mt-0.5 truncate font-mono text-[8px] text-slate-400">
+                            {option.key} · {option.source?.measurement || "—"} · {option.source?.field || option.source?.channel || "—"}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openCopySource(
+                                option
+                              )
+                            }
+                            className="rounded-md p-1.5 text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-400/10"
+                            title="Copy data source"
+                          >
+                            <Copy size={11} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openEditSource(
+                                option
+                              )
+                            }
+                            className="rounded-md p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-400/10"
+                            title="Edit data source"
+                          >
+                            <Pencil size={11} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              deleteManagedSource(
+                                option
+                              )
+                            }
+                            className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-400/10"
+                            title="Delete data source"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  )
+                ) : (
+                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-2.5 text-[9px] leading-4 text-amber-700 dark:border-amber-400/25 dark:bg-amber-400/5 dark:text-amber-200">
+                    No connected data source yet. Add one before saving terminal Sankey flows.
+                  </div>
+                )}
+              </div>
+
+              {showSourceEditor && (
+                <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-400/20 dark:bg-cyan-400/5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-black text-slate-800 dark:text-slate-100">
+                      {sourceEditorMode === "edit"
+                        ? "Edit Data Source"
+                        : sourceEditorMode === "copy"
+                        ? "Copy Data Source"
+                        : "Add Data Source"}
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowSourceEditor(
+                          false
+                        )
+                      }
+                      className="text-[9px] font-bold text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="col-span-2">
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Display Name
+                      </span>
+                      <input
+                        value={sourceDraft.label}
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              label:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Steam Flowrate"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Dashboard Key
+                      </span>
+                      <input
+                        value={sourceDraft.key}
+                        readOnly={
+                          sourceEditorMode ===
+                          "edit"
+                        }
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              key:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Auto"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none read-only:cursor-not-allowed read-only:bg-slate-100 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white dark:read-only:bg-[#17233F]"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Unit
+                      </span>
+                      <input
+                        value={sourceDraft.unit}
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              unit:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="t/h"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Bucket
+                      </span>
+                      <input
+                        value={sourceDraft.bucket}
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              bucket:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="Mill"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Measurement
+                      </span>
+                      <input
+                        value={sourceDraft.measurement}
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              measurement:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="PBLR"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Tag Key
+                      </span>
+                      <input
+                        value={sourceDraft.tagKey}
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              tagKey:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="id"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        Device ID
+                      </span>
+                      <input
+                        value={sourceDraft.tagValue}
+                        onChange={(event) =>
+                          setSourceDraft(
+                            (current) => ({
+                              ...current,
+                              tagValue:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        placeholder="SAMYSK_POM_250048"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                      />
+                    </label>
+
+                    <div className="col-span-2">
+                      <div className="flex items-end gap-2">
+                        <label className="min-w-0 flex-1">
+                          <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">
+                            Channel
+                          </span>
+                          <input
+                            list="sankey-managed-source-channels"
+                            value={sourceDraft.channel}
+                            onChange={(event) =>
+                              setSourceDraft(
+                                (current) => ({
+                                  ...current,
+                                  channel:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                            placeholder="steam_flowrate"
+                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-[9px] outline-none dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={loadSourceChannels}
+                          disabled={
+                            sourceChannelsLoading
+                          }
+                          className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[8px] font-black text-slate-600 disabled:opacity-40 dark:border-[#2C3C61] dark:bg-[#17233F] dark:text-slate-200"
+                        >
+                          {sourceChannelsLoading
+                            ? "Loading..."
+                            : "Load Channels"}
+                        </button>
+                      </div>
+
+                      <datalist id="sankey-managed-source-channels">
+                        {sourceChannels.map(
+                          (channel) => (
+                            <option
+                              key={channel}
+                              value={channel}
+                            />
+                          )
+                        )}
+                      </datalist>
+                    </div>
+                  </div>
+
+                  {sourceEditorError && (
+                    <p className="mt-2 text-[8px] font-bold leading-4 text-rose-500 dark:text-rose-300">
+                      {sourceEditorError}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={saveManagedSource}
+                    className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-cyan-500 text-[9px] font-black text-white hover:bg-cyan-400"
+                  >
+                    <Save size={11} />
+                    {sourceEditorMode === "edit"
+                      ? "Save Source Changes"
+                      : sourceEditorMode === "copy"
+                      ? "Create Source Copy"
+                      : "Add Data Source"}
+                  </button>
+                </div>
+              )}
+            </section>
 
             <div className="grid grid-cols-4 gap-2">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-center dark:border-[#2C3C61] dark:bg-[#111B34]">
@@ -2658,31 +3702,6 @@ export default function SankeyFlowEditor({
                   </p>
                 </label>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (connectFrom === selectedNode.id) {
-                      setConnectFrom(null);
-                    } else {
-                      beginConnectionFrom(selectedNode.id);
-                    }
-                  }}
-                  disabled={
-                    safeNodes.length < 2 ||
-                    normalizeTier(selectedNode.tier, 1) >= tierCount
-                  }
-                  className={`mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border text-[10px] font-black transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                    connectFrom === selectedNode.id
-                      ? "border-cyan-400 bg-cyan-500 text-white dark:bg-cyan-400/20 dark:text-cyan-100"
-                      : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-400/20 dark:bg-indigo-400/10 dark:text-indigo-200"
-                  }`}
-                >
-                  <Link2 size={13} />
-                  {connectFrom === selectedNode.id
-                    ? "Cancel Connection"
-                    : "Connect From This Node"}
-                </button>
-
                 <div className="mt-3">
                   <p className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Color
@@ -2852,30 +3871,44 @@ export default function SankeyFlowEditor({
                   </label>
                 </div>
 
-                <label className="mt-3 block">
-                  <span className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Flow Field
-                  </span>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-2.5 dark:border-[#2C3C61] dark:bg-[#111B34]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Data Source
+                      </span>
+                      <p className="mt-0.5 text-[8px] leading-4 text-slate-400">
+                        Terminal flows require a connected source. Intermediate flows may be derived from their child flows.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={openAddSource}
+                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-cyan-200 bg-cyan-50 px-2 text-[8px] font-black text-cyan-700 hover:bg-cyan-100 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-200"
+                    >
+                      <Plus size={10} />
+                      Add
+                    </button>
+                  </div>
 
                   <select
                     value={
-                      selectedLink
-                        .dataSource
-                        ?.channel ||
-                      selectedLink.dataKey ||
-                      ""
+                      managedDataOptions.some(
+                        (option) =>
+                          option.key ===
+                          selectedLink.dataKey
+                      )
+                        ? selectedLink.dataKey
+                        : ""
                     }
                     onChange={(event) =>
-                      setLinkChannel(
+                      setLinkDataSourceKey(
                         selectedLink.id,
                         event.target.value
                       )
                     }
-                    disabled={
-                      !mappingReady ||
-                      loadingChannels
-                    }
-                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[10px] outline-none disabled:opacity-50 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[10px] outline-none focus:border-cyan-500 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
                   >
                     <option value="">
                       {(outgoingCounts.get(
@@ -2884,22 +3917,46 @@ export default function SankeyFlowEditor({
                       (incomingCounts.get(
                         selectedLink.target
                       ) || 0) === 1
-                        ? "Auto · sum child flows"
-                        : "No field selected"}
+                        ? "Auto · derive from child flows"
+                        : "Select connected data source"}
                     </option>
 
-                    {availableChannels.map(
-                      (field) => (
+                    {managedDataOptions.map(
+                      (option) => (
                         <option
-                          key={field}
-                          value={field}
+                          key={option.key}
+                          value={option.key}
                         >
-                          {field}
+                          {option.label} · {option.source?.field || option.source?.channel || option.key}
                         </option>
                       )
                     )}
                   </select>
-                </label>
+
+                  {selectedLink.dataKey &&
+                    managedDataOptions.some(
+                      (option) =>
+                        option.key ===
+                        selectedLink.dataKey
+                    ) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openEditSource(
+                            managedDataOptions.find(
+                              (option) =>
+                                option.key ===
+                                selectedLink.dataKey
+                            )
+                          )
+                        }
+                        className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1 rounded-lg border border-amber-200 bg-amber-50 text-[8px] font-black text-amber-700 hover:bg-amber-100 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200"
+                      >
+                        <Pencil size={10} />
+                        Edit Selected Source
+                      </button>
+                    )}
+                </div>
 
                 <div className="mt-3">
                   <p className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -2957,7 +4014,7 @@ export default function SankeyFlowEditor({
                     </p>
                     <p>
                       <strong>Connect:</strong>{" "}
-                      select a source and press Connect, then click any highlighted node in a later tier. Ports remain available as a shortcut.
+                      click the right port of a source, then the left port of a node in a later tier.
                     </p>
                     <p>
                       <strong>Edit flow:</strong>{" "}
@@ -2988,13 +4045,12 @@ export default function SankeyFlowEditor({
                     key={node.id}
                     type="button"
                     onClick={() => {
-                      if (connectFrom && node.id !== connectFrom) {
-                        handleNodeCanvasClick(node.id);
-                        return;
-                      }
-
-                      setSelectedNodeId(node.id);
-                      setSelectedLinkId(null);
+                      setSelectedNodeId(
+                        node.id
+                      );
+                      setSelectedLinkId(
+                        null
+                      );
                     }}
                     className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[9px] transition ${
                       selectedNodeId ===

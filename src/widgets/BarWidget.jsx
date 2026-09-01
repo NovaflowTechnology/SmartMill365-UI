@@ -72,6 +72,20 @@ const getNiceDomain = (values, tickCount = 5) => {
   let min = dataMin >= 0 ? 0 : dataMin;
   let max = dataMax <= 0 ? 0 : dataMax;
 
+  // V30: give Automatic axis more breathing room before rounding to a
+  // nice tick step. This commonly turns values such as 70-80 into a clean
+  // 0-100 scale instead of stopping just above the tallest bar.
+  if (min < 0 && max > 0) {
+    const span = max - min;
+    const pad = Math.max(span * 0.15, 1);
+    min -= pad;
+    max += pad;
+  } else if (max > 0) {
+    max += Math.max(max * 0.15, 1);
+  } else if (min < 0) {
+    min -= Math.max(Math.abs(min) * 0.15, 1);
+  }
+
   if (min === max) {
     const pad = Math.max(Math.abs(max) * 0.2, 1);
     min -= pad;
@@ -109,6 +123,123 @@ const formatAxisValue = (value) => {
   return numeric.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 };
 
+
+const splitCategoryLabel = (
+  value,
+  maxChars = 16
+) => {
+  const labelText =
+    String(value ?? "").trim();
+
+  if (!labelText) return [""];
+  if (labelText.length <= maxChars) {
+    return [labelText];
+  }
+
+  const words =
+    labelText.split(/\s+/);
+
+  const lines = [""];
+
+  for (const word of words) {
+    const current =
+      lines[lines.length - 1];
+
+    const candidate =
+      current
+        ? `${current} ${word}`
+        : word;
+
+    if (
+      candidate.length <=
+        maxChars ||
+      current === ""
+    ) {
+      lines[
+        lines.length - 1
+      ] = candidate;
+      continue;
+    }
+
+    if (lines.length === 1) {
+      lines.push(word);
+      continue;
+    }
+
+    lines[1] =
+      `${lines[1]} ${word}`;
+  }
+
+  if (
+    lines[1] &&
+    lines[1].length >
+      maxChars + 5
+  ) {
+    lines[1] =
+      `${lines[1].slice(
+        0,
+        maxChars + 2
+      )}…`;
+  }
+
+  return lines.slice(0, 2);
+};
+
+const WrappedCategoryTick = ({
+  x = 0,
+  y = 0,
+  payload,
+  tiny = false,
+  compact = false,
+}) => {
+  const maxChars =
+    tiny
+      ? 10
+      : compact
+      ? 15
+      : 20;
+
+  const lines =
+    splitCategoryLabel(
+      payload?.value,
+      maxChars
+    );
+
+  const fontSize =
+    tiny ? 8 : 9;
+
+  return (
+    <g
+      transform={`translate(${x},${y})`}
+    >
+      <text
+        x={0}
+        y={0}
+        dy={12}
+        textAnchor="middle"
+        fill={TECH_AXIS_STROKE}
+        fontSize={fontSize}
+      >
+        {lines.map(
+          (line, index) => (
+            <tspan
+              key={`${line}-${index}`}
+              x={0}
+              dy={
+                index === 0
+                  ? 0
+                  : fontSize + 3
+              }
+            >
+              {line}
+            </tspan>
+          )
+        )}
+      </text>
+    </g>
+  );
+};
+
 export default function BarWidget({
   data = {},
   dataKeys = [],
@@ -118,14 +249,66 @@ export default function BarWidget({
   rangeConfigs = {},
   dataLabels = {},
   chartDisplay = {},
+  gridWidth = null,
+  gridHeight = null,
 }) {
   const rootRef = useRef(null);
-  const {
-    width,
-    height,
-    tiny,
-    compact,
-  } = useWidgetSize(rootRef);
+
+  const measuredSize =
+    useWidgetSize(rootRef);
+
+  const width =
+    measuredSize.width;
+
+  const height =
+    measuredSize.height;
+
+  const parsedGridWidth =
+    Number(gridWidth);
+
+  const parsedGridHeight =
+    Number(gridHeight);
+
+  const hasGridGeometry =
+    Number.isFinite(
+      parsedGridWidth
+    ) &&
+    Number.isFinite(
+      parsedGridHeight
+    ) &&
+    parsedGridWidth > 0 &&
+    parsedGridHeight > 0;
+
+  /*
+   * Use the SAVED grid span first.
+   *
+   * A 5-column Fit dashboard can physically shrink a card depending
+   * on browser/sidebar width. The same saved 2x2 Bar widget should
+   * nevertheless keep the same information density in Builder and
+   * Dashboard.
+   *
+   * 1x1 -> tiny
+   * 1x2 / 2x1 / 2x2 -> compact
+   * 3+ columns -> normal/wide presentation
+   */
+  const tiny =
+    hasGridGeometry
+      ? parsedGridWidth <= 1 &&
+        parsedGridHeight <= 1
+      : measuredSize.tiny;
+
+  const compact =
+    hasGridGeometry
+      ? parsedGridHeight <= 1 ||
+        parsedGridWidth <= 2
+      : measuredSize.compact;
+
+  const wide =
+    hasGridGeometry
+      ? parsedGridWidth >= 3
+      : Boolean(
+          measuredSize.wide
+        );
 
   const display = {
     ...DEFAULT_CHART_DISPLAY,
@@ -205,6 +388,62 @@ export default function BarWidget({
       0
     );
 
+
+  const numericLabelSamples = [
+    ...values,
+    rangeMin,
+    rangeMax,
+    ...(Array.isArray(
+      numericDomain
+    )
+      ? numericDomain.filter(
+          (value) =>
+            Number.isFinite(
+              Number(value)
+            )
+        )
+      : []),
+  ].map(formatAxisValue);
+
+  const longestNumericLabel =
+    numericLabelSamples.reduce(
+      (max, value) =>
+        Math.max(
+          max,
+          String(value ?? "").length
+        ),
+      1
+    );
+
+  // Reserve actual space for Y-axis numbers.
+  // The old implementation relied on negative
+  // left margins, which pushed the labels outside
+  // an overflow-hidden widget card.
+  const verticalYAxisWidth =
+    Math.round(
+      Math.min(
+        tiny ? 50 : 68,
+        Math.max(
+          tiny ? 40 : 48,
+          longestNumericLabel *
+            (tiny ? 5.4 : 6.2) +
+            18
+        )
+      )
+    );
+
+  const xAxisHeight =
+    !display.showXAxis
+      ? 0
+      : longestLabelLength >
+        (tiny ? 10 : 18)
+      ? tiny
+        ? 42
+        : 52
+      : tiny
+      ? 30
+      : 36;
+
   // Horizontal charts need enough room for category names.
   // Avoid negative left margins that can clip labels.
   const horizontalLabelWidth = Math.round(
@@ -236,11 +475,28 @@ export default function BarWidget({
   const verticalBarSize = Math.max(
     16,
     Math.min(
-      tiny ? 28 : 46,
+      tiny
+        ? 28
+        : wide
+        ? 56
+        : compact
+        ? 46
+        : 52,
       Math.floor(
-        (safeWidth - 36) /
-          Math.max(1, chartData.length) *
-          0.42
+        (
+          safeWidth -
+          verticalYAxisWidth -
+          24
+        ) /
+          Math.max(
+            1,
+            chartData.length
+          ) *
+          (
+            compact
+              ? 0.48
+              : 0.44
+          )
       )
     )
   );
@@ -254,23 +510,24 @@ export default function BarWidget({
     isHorizontal
       ? {
           top:
-            tiny ? 8 : 12,
+            tiny ? 10 : 14,
           right:
-            tiny ? 28 : 48,
-          left:
-            tiny ? 2 : 8,
+            tiny ? 34 : 54,
+          left: 4,
           bottom:
-            tiny ? 2 : 6,
+            tiny ? 4 : 8,
         }
       : {
+          // Leave enough room for the value label
+          // rendered above the tallest column.
           top:
-            tiny ? 18 : 26,
+            tiny ? 20 : 30,
           right:
-            tiny ? 8 : 12,
-          left:
-            tiny ? 0 : 4,
+            tiny ? 10 : 16,
+          // Critical: keep this non-negative.
+          left: 4,
           bottom:
-            tiny ? 2 : 8,
+            tiny ? 4 : 8,
         };
 
   const categoryGap =
@@ -283,7 +540,10 @@ export default function BarWidget({
   const showValueLabels =
     !tiny &&
     (
-      isHorizontal
+      hasGridGeometry
+        ? parsedGridHeight >= 2 ||
+          parsedGridWidth >= 2
+        : isHorizontal
         ? safeWidth >= 320
         : safeHeight >= 180
     );
@@ -296,21 +556,33 @@ export default function BarWidget({
     }));
 
   return (
-    <div ref={rootRef} className={`${TECH_SURFACE_CLASS} ${tiny ? "p-2.5" : "p-3.5"}`}>
+    <div
+      ref={rootRef}
+      className={`${TECH_SURFACE_CLASS} min-h-0 min-w-0 ${
+        tiny ? "p-2.5" : "p-3.5"
+      }`}
+    >
       <TechBackdrop />
       <div className="relative z-10 flex h-full min-h-0 flex-col">
         <div className="mb-2 flex items-center px-1 pr-14">
           <div className={`${TECH_HEADER_CLASS} truncate`}>{label}</div>
         </div>
 
-        <div className="min-h-0 min-w-0 flex-1">
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            minWidth={0}
-            minHeight={0}
-            debounce={20}
-          >
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          {chartData.length === 0 ? (
+            <div
+              className={`flex h-full min-h-[90px] items-center justify-center text-xs ${TECH_MUTED_CLASS}`}
+            >
+              No bar data available.
+            </div>
+          ) : (
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              minWidth={0}
+              minHeight={0}
+              debounce={20}
+            >
             <BarChart
               data={chartData}
               layout={isHorizontal ? "vertical" : "horizontal"}
@@ -344,7 +616,7 @@ export default function BarWidget({
                           display.yAxisTickCount
                         ) || 5
                       )}
-                      allowDecimals={false}
+                      allowDecimals
                       tickMargin={8}
                       axisLine={false}
                       tickLine={false}
@@ -374,24 +646,25 @@ export default function BarWidget({
                   {display.showXAxis && (
                     <XAxis
                       dataKey="name"
-                      tick={{
-                        fontSize:
-                          tiny ? 8 : 9,
-                        fill:
-                          TECH_AXIS_STROKE,
-                      }}
-                      tickMargin={8}
-                      height={tiny ? 28 : 36}
+                      tick={
+                        <WrappedCategoryTick
+                          tiny={tiny}
+                          compact={compact}
+                        />
+                      }
+                      tickMargin={6}
+                      height={xAxisHeight}
                       axisLine={false}
                       tickLine={false}
                       interval={0}
+                      minTickGap={4}
                     />
                   )}
                   {display.showYAxis && (
                     <YAxis
                       domain={numericDomain}
                       width={
-                        tiny ? 34 : 48
+                        verticalYAxisWidth
                       }
                       tick={{
                         fontSize:
@@ -406,7 +679,7 @@ export default function BarWidget({
                       axisLine={false}
                       tickLine={false}
                       tickCount={Math.max(3, Number(display.yAxisTickCount) || 5)}
-                      allowDecimals={false}
+                      allowDecimals
                     />
                   )}
                 </>
@@ -441,6 +714,7 @@ export default function BarWidget({
 
               <Bar
                 dataKey="value"
+                isAnimationActive={false}
                 radius={
                   isHorizontal
                     ? [0, 7, 7, 0]
@@ -457,14 +731,17 @@ export default function BarWidget({
                   <LabelList
                     dataKey="value"
                     position={isHorizontal ? "right" : "top"}
-                    formatter={(value) => Number(value).toFixed(0)}
+                    formatter={(value) =>
+                      formatAxisValue(value)
+                    }
                     fill={TECH_AXIS_STROKE}
                     fontSize={9}
                   />
                 )}
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {display.showLegend &&

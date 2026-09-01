@@ -39,12 +39,11 @@ const DEFAULT_CHART_DISPLAY = {
   showDots: false,
   xAxisFormat: "auto",
   xAxisTickGap: 56,
-  // Smart Auto is the default. Fixed Scale lets the user control the exact
-  // minimum, maximum, and major tick interval (for example 0-400 by 100).
-  yAxisMode: "auto", // "auto" | "fixed"
+  // Automatic mode always includes zero. Positive-only data starts at 0,
+  // negative-only data ends at 0, and mixed data spans both sides of zero.
+  yAxisMode: "auto",
   yAxisMin: "",
   yAxisMax: "",
-  yAxisInterval: "",
   yAxisTickCount: 5,
   strokeWidth: 2.5,
   lineWeight: "normal", // "thin" | "normal" | "bold"
@@ -187,26 +186,13 @@ const formatYAxisTick = (value) => {
     return value;
   }
 
-  const isInteger =
-    Number.isInteger(numeric);
-  const absoluteValue =
-    Math.abs(numeric);
-
-  // Smart scaling can legitimately produce fractional ticks for small ranges.
-  // Keep large engineering values clean, but do not turn 2.5 into a misleading 3.
-  const maximumFractionDigits =
-    isInteger
-      ? 0
-      : absoluteValue < 1
-      ? 2
-      : 1;
-
-  return numeric.toLocaleString(undefined, {
-    maximumFractionDigits,
+  // Y-axis labels are intentionally shown as whole numbers.
+  return Math.round(numeric).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
   });
 };
 
-const getNiceStepCandidates = (rawStep) => {
+const getNiceStep = (rawStep) => {
   const numeric = Math.abs(
     Number(rawStep)
   );
@@ -215,7 +201,7 @@ const getNiceStepCandidates = (rawStep) => {
     !Number.isFinite(numeric) ||
     numeric <= 0
   ) {
-    return [1];
+    return 1;
   }
 
   const magnitude = Math.pow(
@@ -225,39 +211,30 @@ const getNiceStepCandidates = (rawStep) => {
     )
   );
 
-  // Try neighboring engineering-friendly steps and choose the one that
-  // produces a tick count closest to the requested count. This avoids
-  // overly large jumps such as 0-60 for data whose natural ceiling is 50.
-  const bases = [
+  const normalized =
+    numeric / magnitude;
+
+  // Includes 7 so values such as 2448 can produce
+  // 0, 700, 1400, 2100, 2800 instead of 2688.
+  const niceSteps = [
     1,
     2,
     2.5,
     5,
+    7,
     10,
   ];
 
-  return Array.from(
-    new Set(
-      [-1, 0, 1].flatMap(
-        (powerOffset) =>
-          bases.map(
-            (base) =>
-              base *
-              magnitude *
-              Math.pow(
-                10,
-                powerOffset
-              )
-          )
-      )
-    )
-  )
-    .filter(
+  const niceNormalized =
+    niceSteps.find(
       (step) =>
-        Number.isFinite(step) &&
-        step > 0
-    )
-    .sort((a, b) => a - b);
+        normalized <= step
+    ) || 10;
+
+  return (
+    niceNormalized *
+    magnitude
+  );
 };
 
 const buildNiceAxis = (
@@ -305,71 +282,24 @@ const buildNiceAxis = (
       tickCount - 1
     );
 
-  const candidates =
-    getNiceStepCandidates(rawStep);
-
-  const scoredCandidates =
-    candidates.map((candidateStep) => {
-      const candidateMin =
-        Math.floor(
-          rawMin / candidateStep
-        ) * candidateStep;
-      const candidateMax =
-        Math.ceil(
-          rawMax / candidateStep
-        ) * candidateStep;
-      const candidateTickCount = Math.max(
-        2,
-        Math.round(
-          (candidateMax - candidateMin) /
-            candidateStep
-        ) + 1
-      );
-
-      return {
-        step: candidateStep,
-        min: candidateMin,
-        max: candidateMax,
-        count: candidateTickCount,
-        score: Math.abs(
-          candidateTickCount - tickCount
-        ),
-      };
-    });
-
-  scoredCandidates.sort((a, b) => {
-    if (a.score !== b.score) {
-      return a.score - b.score;
-    }
-
-    // On a tie, prefer a slightly denser axis over an overly sparse one.
-    const aHasEnough =
-      a.count >= tickCount;
-    const bHasEnough =
-      b.count >= tickCount;
-
-    if (aHasEnough !== bHasEnough) {
-      return aHasEnough ? -1 : 1;
-    }
-
-    return (
-      Math.abs(a.step - rawStep) -
-      Math.abs(b.step - rawStep)
-    );
-  });
-
-  const selected =
-    scoredCandidates[0];
   const step =
-    selected?.step || 1;
+    getNiceStep(rawStep);
 
   let niceMin =
-    selected?.min ?? rawMin;
-  let niceMax =
-    selected?.max ?? rawMax;
+    Math.floor(
+      rawMin / step
+    ) * step;
 
-  // Do not force any baseline here. The selected Y-axis mode decides the
-  // raw domain first; this function only rounds it to stable, readable ticks.
+  let niceMax =
+    Math.ceil(
+      rawMax / step
+    ) * step;
+
+  // Do not force Automatic mode to zero here.
+  // The caller decides the input domain:
+  // - Auto = observed data
+  // - Range = configured widget range
+  // - Custom = explicit user limits
 
   if (niceMax <= niceMin) {
     niceMax =
@@ -401,83 +331,6 @@ const buildNiceAxis = (
       niceMin,
       niceMax,
     ],
-    ticks,
-  };
-};
-
-const buildFixedAxis = (
-  domain,
-  configuredInterval = "",
-  fallbackTickCount = 5
-) => {
-  if (!Array.isArray(domain) || domain.length < 2) {
-    return {
-      domain,
-      ticks: undefined,
-    };
-  }
-
-  const min = Number(domain[0]);
-  const max = Number(domain[1]);
-
-  if (
-    !Number.isFinite(min) ||
-    !Number.isFinite(max) ||
-    max <= min
-  ) {
-    return buildNiceAxis(
-      domain,
-      fallbackTickCount
-    );
-  }
-
-  const configured = Number(configuredInterval);
-  const fallbackCount = Math.max(
-    2,
-    Math.round(Number(fallbackTickCount) || 5)
-  );
-
-  // If the user leaves Interval blank, keep the requested min/max exact and
-  // divide that fixed span into the normal number of major sections.
-  const interval =
-    Number.isFinite(configured) && configured > 0
-      ? configured
-      : (max - min) / Math.max(1, fallbackCount - 1);
-
-  if (!Number.isFinite(interval) || interval <= 0) {
-    return {
-      domain: [min, max],
-      ticks: [min, max],
-    };
-  }
-
-  const ticks = [];
-  const epsilon = Math.abs(interval) * 0.000001;
-
-  for (
-    let value = min;
-    value <= max + epsilon;
-    value += interval
-  ) {
-    ticks.push(Number(value.toFixed(10)));
-
-    if (ticks.length > 100) {
-      break;
-    }
-  }
-
-  // Always label the configured maximum. When the interval divides the span
-  // exactly (0,100,200,300,400), this does not add a duplicate.
-  const lastTick = ticks[ticks.length - 1];
-  if (
-    !Number.isFinite(lastTick) ||
-    Math.abs(lastTick - max) > epsilon
-  ) {
-    ticks.push(max);
-  }
-
-  return {
-    domain: [min, max],
     ticks,
   };
 };
@@ -574,80 +427,31 @@ const buildMinorGridTicks = (
   return minorTicks;
 };
 
-const getFallbackDomain = (
-  fallbackRange = { min: 0, max: 100 }
+const buildAutoIncludeZeroDomain = (
+  values = [],
+  fallbackRange = { min: 0, max: 100 },
+  paddingRatio = 0.18
 ) => {
-  const fallbackMin = toFiniteNumber(
-    fallbackRange?.min,
-    0
-  );
-  const fallbackMax = toFiniteNumber(
-    fallbackRange?.max,
-    100
-  );
-
-  if (fallbackMax > fallbackMin) {
-    return [fallbackMin, fallbackMax];
-  }
-
-  return [fallbackMin, fallbackMin + 1];
-};
-
-const getFiniteValues = (values = []) =>
-  values
+  const finiteValues = values
     .map(Number)
     .filter(Number.isFinite);
 
-const buildFitDataDomain = (
-  values = [],
-  fallbackRange = { min: 0, max: 100 },
-  paddingRatio = 0.08
-) => {
-  const finiteValues = getFiniteValues(values);
-
   if (!finiteValues.length) {
-    return getFallbackDomain(fallbackRange);
-  }
-
-  const observedMin = Math.min(...finiteValues);
-  const observedMax = Math.max(...finiteValues);
-
-  if (observedMin === observedMax) {
-    // A completely flat signal still needs visible breathing room.
-    // One percent of the signal magnitude keeps values such as 44 psi
-    // near 44 instead of expanding all the way to zero.
-    const pad = Math.max(
-      Math.abs(observedMin) * 0.01,
-      0.5
+    const fallbackMin = toFiniteNumber(
+      fallbackRange?.min,
+      0
+    );
+    const fallbackMax = toFiniteNumber(
+      fallbackRange?.max,
+      100
     );
 
-    return [
-      observedMin - pad,
-      observedMax + pad,
-    ];
-  }
-
-  const span = observedMax - observedMin;
-  const pad = Math.max(
-    span * paddingRatio,
-    Number.EPSILON
-  );
-
-  return [
-    observedMin - pad,
-    observedMax + pad,
-  ];
-};
-
-const buildIncludeZeroDomain = (
-  values = [],
-  fallbackRange = { min: 0, max: 100 }
-) => {
-  const finiteValues = getFiniteValues(values);
-
-  if (!finiteValues.length) {
-    const [fallbackMin, fallbackMax] =
-      getFallbackDomain(fallbackRange);
+    if (fallbackMax <= fallbackMin) {
+      return [
+        Math.min(0, fallbackMin),
+        Math.max(0, fallbackMin + 1),
+      ];
+    }
 
     return [
       Math.min(0, fallbackMin),
@@ -658,144 +462,68 @@ const buildIncludeZeroDomain = (
   const observedMin = Math.min(...finiteValues);
   const observedMax = Math.max(...finiteValues);
 
+  // All values are exactly zero. Keep a small positive domain so Recharts
+  // still has a usable scale while preserving zero as the lower baseline.
   if (observedMin === 0 && observedMax === 0) {
-    return [0, 1];
+    const fallbackMax = toFiniteNumber(
+      fallbackRange?.max,
+      1
+    );
+
+    // Avoid an excessively tiny 0..1 chart when the widget already has
+    // a meaningful expected Data Range. Automatic mode still remains
+    // independent from Data Range once non-zero data is visible.
+    return [0, Math.max(1, fallbackMax * 0.25)];
   }
 
+  // Positive-only data: always start at zero and keep generous headroom
+  // above the visible maximum so the trace does not hug the chart edge.
   if (observedMin >= 0) {
-    return [0, observedMax];
+    const headroom = Math.max(
+      Math.abs(observedMax) * paddingRatio,
+      observedMax === 0 ? 1 : 0
+    );
+
+    return [0, observedMax + headroom];
   }
 
+  // Negative-only data: always end at zero and keep generous headroom
+  // below the visible minimum.
   if (observedMax <= 0) {
-    return [observedMin, 0];
+    const headroom = Math.max(
+      Math.abs(observedMin) * paddingRatio,
+      observedMin === 0 ? 1 : 0
+    );
+
+    return [observedMin - headroom, 0];
   }
+
+  // Mixed positive/negative data: zero is already inside the data range.
+  // Pad both ends so neither extreme touches the chart boundary.
+  const span = observedMax - observedMin;
+  const pad = Math.max(span * paddingRatio, 0);
 
   return [
-    observedMin,
-    observedMax,
+    observedMin - pad,
+    observedMax + pad,
   ];
-};
-
-const buildSmartAutoDomain = (
-  values = [],
-  fallbackRange = { min: 0, max: 100 },
-  paddingRatio = 0.08
-) => {
-  const finiteValues = getFiniteValues(values);
-
-  if (!finiteValues.length) {
-    // With no live/history values there is nothing to auto-scale, so the
-    // configured engineering range is the most useful fallback.
-    return getFallbackDomain(fallbackRange);
-  }
-
-  const observedMin = Math.min(...finiteValues);
-  const observedMax = Math.max(...finiteValues);
-
-  if (observedMin === 0 && observedMax === 0) {
-    return [0, 1];
-  }
-
-  // If the signal crosses zero, zero is inherently meaningful and must stay
-  // visible. This also handles one side landing exactly on zero.
-  if (observedMin <= 0 && observedMax >= 0) {
-    return buildIncludeZeroDomain(
-      finiteValues,
-      fallbackRange,
-      paddingRatio
-    );
-  }
-
-  const [fallbackMin, fallbackMax] =
-    getFallbackDomain(fallbackRange);
-  const configuredSpan = Math.max(
-    0,
-    fallbackMax - fallbackMin
-  );
-
-  // "Near zero" is relative to both what is currently visible and the
-  // configured engineering range. This lets a 0.5 psi reading count as close
-  // to zero on a 0-50 psi sensor, while 43-47 psi remains tightly zoomed.
-  const observedMagnitude = Math.max(
-    Math.abs(observedMin),
-    Math.abs(observedMax),
-    Number.EPSILON
-  );
-  const nearZeroThreshold = Math.max(
-    observedMagnitude * 0.2,
-    configuredSpan * 0.05
-  );
-
-  const isNearZero =
-    observedMin > 0
-      ? observedMin <= nearZeroThreshold
-      : Math.abs(observedMax) <= nearZeroThreshold;
-
-  if (isNearZero) {
-    return buildIncludeZeroDomain(
-      finiteValues,
-      fallbackRange,
-      paddingRatio
-    );
-  }
-
-  // Normal steady operation far from zero is easier to inspect with a fitted
-  // data domain. Nice-number rounding below keeps the axis calm rather than
-  // changing for every tiny live-data movement.
-  return buildFitDataDomain(
-    finiteValues,
-    fallbackRange,
-    paddingRatio
-  );
-};
-
-const buildObservedDomain = (
-  values = [],
-  fallbackRange = { min: 0, max: 100 },
-  mode = "auto",
-  paddingRatio = 0.08
-) => {
-  if (mode === "zero") {
-    return buildIncludeZeroDomain(
-      values,
-      fallbackRange,
-      paddingRatio
-    );
-  }
-
-  if (mode === "fit") {
-    return buildFitDataDomain(
-      values,
-      fallbackRange,
-      paddingRatio
-    );
-  }
-
-  return buildSmartAutoDomain(
-    values,
-    fallbackRange,
-    paddingRatio
-  );
 };
 
 const getSeriesDomain = (
   chartData,
   key,
-  fallbackRange,
-  mode = "auto"
+  fallbackRange
 ) =>
-  buildObservedDomain(
+  buildAutoIncludeZeroDomain(
     chartData.map((row) => row?.[key]),
     fallbackRange,
-    mode,
-    0.08
+    0.18
   );
 
 const getCombinedSeriesDomain = (
   chartData,
   keys = [],
-  fallbackRange = { min: 0, max: 100 },
-  mode = "auto"
+  fallbackRange = { min: 0, max: 100 }
 ) => {
   const values = [];
 
@@ -805,11 +533,13 @@ const getCombinedSeriesDomain = (
     });
   });
 
-  return buildObservedDomain(
+  // Auto mode uses the configured Data Range only as a no-data fallback.
+  // As soon as real data exists, the observed values determine the axis,
+  // while zero is always kept in the visible domain.
+  return buildAutoIncludeZeroDomain(
     values,
     fallbackRange,
-    mode,
-    0.1
+    0.12
   );
 };
 
@@ -893,19 +623,6 @@ export default function LineWidget({
     ...DEFAULT_CHART_DISPLAY,
     ...(chartDisplay || {}),
   };
-
-  // Older templates may contain custom/range/fit/zero. The editor now exposes
-  // only two meaningful choices: Smart Auto and Fixed Scale. Preserve old
-  // custom/range templates as Fixed; older data-fit modes migrate to Smart Auto.
-  const resolvedYAxisMode =
-    ["fixed", "custom", "range"].includes(
-      display.yAxisMode
-    )
-      ? "fixed"
-      : "auto";
-
-  const isObservedYAxisMode =
-    resolvedYAxisMode === "auto";
 
   const chartStyle =
     display.chartStyle === "area"
@@ -1136,14 +853,14 @@ export default function LineWidget({
       visibleLines.map(
         (line) => line.key
       ),
-      combinedRange,
-      resolvedYAxisMode
+      combinedRange
     );
 
   const defaultDomain =
-    isObservedYAxisMode
+    display.yAxisMode === "auto"
       ? observedCombinedDomain
-      : [
+      : display.yAxisMode === "custom"
+      ? [
           display.yAxisMin === ""
             ? combinedRange.min
             : toFiniteNumber(
@@ -1156,6 +873,10 @@ export default function LineWidget({
                 display.yAxisMax,
                 combinedRange.max
               ),
+        ]
+      : [
+          combinedRange.min,
+          combinedRange.max,
         ];
 
   const yAxisTickCount = Math.max(
@@ -1182,12 +903,11 @@ export default function LineWidget({
       : 46;
 
   const defaultNiceAxis =
-    resolvedYAxisMode === "fixed"
-      ? buildFixedAxis(
-          defaultDomain,
-          display.yAxisInterval,
-          gridYAxisTickCount
-        )
+    display.yAxisMode === "custom"
+      ? {
+          domain: defaultDomain,
+          ticks: undefined,
+        }
       : buildNiceAxis(
           defaultDomain,
           gridYAxisTickCount
@@ -1227,14 +947,14 @@ export default function LineWidget({
       visibleLines.map(
         (line) => line.key
       ),
-      areaConfiguredRange,
-      resolvedYAxisMode
+      areaConfiguredRange
     );
 
   const areaDomain =
-    isObservedYAxisMode
+    display.yAxisMode === "auto"
       ? areaObservedDomain
-      : [
+      : display.yAxisMode === "custom"
+      ? [
           display.yAxisMin === ""
             ? areaGlobalMin
             : toFiniteNumber(
@@ -1247,15 +967,18 @@ export default function LineWidget({
                 display.yAxisMax,
                 areaGlobalMax
               ),
+        ]
+      : [
+          areaGlobalMin,
+          areaGlobalMax,
         ];
 
   const areaNiceAxis =
-    resolvedYAxisMode === "fixed"
-      ? buildFixedAxis(
-          areaDomain,
-          display.yAxisInterval,
-          gridYAxisTickCount
-        )
+    display.yAxisMode === "custom"
+      ? {
+          domain: areaDomain,
+          ticks: undefined,
+        }
       : buildNiceAxis(
           areaDomain,
           gridYAxisTickCount
@@ -1280,8 +1003,8 @@ export default function LineWidget({
               getRangeForKey(line.key);
 
             const rawDomain =
-              resolvedYAxisMode ===
-              "fixed"
+              display.yAxisMode ===
+              "custom"
                 ? [
                     display.yAxisMin === ""
                       ? range.min
@@ -1296,21 +1019,27 @@ export default function LineWidget({
                           range.max
                         ),
                   ]
+                : display.yAxisMode ===
+                  "range"
+                ? [
+                    range.min,
+                    range.max,
+                  ]
                 : getSeriesDomain(
                     chartData,
                     line.key,
-                    range,
-                    resolvedYAxisMode
+                    range
                   );
 
             const niceAxis =
-              resolvedYAxisMode ===
-              "fixed"
-                ? buildFixedAxis(
-                    rawDomain,
-                    display.yAxisInterval,
-                    gridYAxisTickCount
-                  )
+              display.yAxisMode ===
+              "custom"
+                ? {
+                    domain:
+                      rawDomain,
+                    ticks:
+                      undefined,
+                  }
                 : buildNiceAxis(
                     rawDomain,
                     gridYAxisTickCount
@@ -1504,8 +1233,8 @@ export default function LineWidget({
                   margin={{
                     top: tiny ? 0 : 2,
                     right: tiny ? 2 : 5,
-                    left: tiny ? -26 : -12,
-                    bottom: tiny ? -8 : -4,
+                    left: tiny ? 2 : 6,
+                    bottom: tiny ? 0 : 2,
                   }}
                 >
                   <defs>
@@ -1655,7 +1384,8 @@ export default function LineWidget({
                         yAxisTickCount
                       }
                       allowDataOverflow={
-                        !isObservedYAxisMode
+                        display.yAxisMode !==
+                        "auto"
                       }
                     />
                   )}
@@ -1988,17 +1718,17 @@ export default function LineWidget({
                       : 5,
                   left:
                     useMultipleAxes
-                      ? 6
+                      ? 8
                       : tiny
-                      ? -26
-                      : -12,
+                      ? 2
+                      : 6,
                   bottom:
                     showLegend &&
                     !display.compactLegend
-                      ? 4
+                      ? 6
                       : tiny
-                      ? -8
-                      : -4,
+                      ? 0
+                      : 2,
                 }}
               >
 {/* Background grid is rendered before the series so it stays behind the data. */}
@@ -2138,7 +1868,8 @@ export default function LineWidget({
                           yAxisTickCount
                         }
                         allowDataOverflow={
-                          !isObservedYAxisMode
+                          display.yAxisMode !==
+                          "auto"
                         }
                         hide={
                           useMultipleAxes &&

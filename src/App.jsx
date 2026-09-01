@@ -1,22 +1,22 @@
 import { useState, useEffect } from "react";
 
 import Layout from "./components/Layout";
-import Dashboard from "./pages/Dashboard";
+import DashboardWorkspace from "./pages/DashboardWorkspace";
 import TemplateBuilder from "./pages/TemplateBuilder";
 import TemplateEditor from "./pages/TemplateEditor";
 import TemplateList from "./pages/TemplateList";
 import ImageWidgetEditor from "./pages/ImageWidgetEditor";
 import SankeyFlowEditor from "./pages/SankeyFlowEditor";
-import ProcessSimulator from "./pages/ProcessSimulator";
+import ProcessFlowWorkspace from "./pages/ProcessFlowWorkspace";
 import OrganizationManagement from "./pages/ManageOrganization";
 import DeviceManagement from "./pages/DeviceManagement";
 import Login from "./pages/Login";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppFeedback from "./components/AppFeedback";
-import { installLegacyAlertBridge } from "./utils/feedback";
+import { installLegacyDialogGuards } from "./utils/feedback";
 
-installLegacyAlertBridge();
+installLegacyDialogGuards();
 
 export default function App() {
   // PAGE
@@ -28,6 +28,68 @@ export default function App() {
     selectedTemplate,
     setSelectedTemplate,
   ] = useState(null);
+
+  // OPEN DASHBOARD TABS
+  const [
+    dashboardTabs,
+    setDashboardTabs,
+  ] = useState([]);
+
+  const openDashboardTemplate = (template) => {
+    if (!template?.id) return;
+
+    setDashboardTabs((current) =>
+      current.some(
+        (item) =>
+          Number(item.id) ===
+          Number(template.id)
+      )
+        ? current.map((item) =>
+            Number(item.id) ===
+            Number(template.id)
+              ? template
+              : item
+          )
+        : [...current, template]
+    );
+
+    setSelectedTemplate(template);
+    setPage("dashboard");
+  };
+
+  const closeDashboardTab = (templateId) => {
+    const id = Number(templateId);
+
+    setDashboardTabs((current) => {
+      const index = current.findIndex(
+        (item) => Number(item.id) === id
+      );
+
+      const next = current.filter(
+        (item) => Number(item.id) !== id
+      );
+
+      if (
+        Number(selectedTemplate?.id) === id
+      ) {
+        const fallback =
+          next[
+            Math.min(
+              Math.max(index - 1, 0),
+              next.length - 1
+            )
+          ] || null;
+
+        setSelectedTemplate(fallback);
+
+        if (!fallback) {
+          setPage("templates");
+        }
+      }
+
+      return next;
+    });
+  };
 
   // FULLSCREEN
   const [
@@ -124,6 +186,20 @@ export default function App() {
 
       if (data) {
         setSelectedTemplate(data);
+        setDashboardTabs((current) =>
+          current.some(
+            (item) =>
+              Number(item.id) ===
+              Number(data.id)
+          )
+            ? current.map((item) =>
+                Number(item.id) ===
+                Number(data.id)
+                  ? data
+                  : item
+              )
+            : [...current, data]
+        );
 
         console.log(
           "✅ DEFAULT TEMPLATE LOADED:",
@@ -158,10 +234,11 @@ export default function App() {
   // =====================================
   const handleNavigate = async (nextPage) => {
     if (nextPage === "dashboard") {
-      await fetchDefaultTemplate();
+      if (!selectedTemplate) {
+        await fetchDefaultTemplate();
+      }
 
       setPage("dashboard");
-
       return;
     }
 
@@ -277,7 +354,7 @@ export default function App() {
               dark={dark}
               toggleTheme={toggleTheme}
             >
-              <ProcessSimulator
+              <ProcessFlowWorkspace
                 template={selectedTemplate}
                 dark={dark}
               />
@@ -379,6 +456,9 @@ export default function App() {
                 setSelectedTemplate={
                   setSelectedTemplate
                 }
+                openDashboardTemplate={
+                  openDashboardTemplate
+                }
                 fetchDefaultTemplate={
                   fetchDefaultTemplate
                 }
@@ -475,9 +555,20 @@ export default function App() {
               dark={dark}
               toggleTheme={toggleTheme}
             >
-              <Dashboard
+              <DashboardWorkspace
                 template={
                   selectedTemplate
+                }
+                tabs={dashboardTabs}
+                onSelectTab={(template) => {
+                  setSelectedTemplate(template);
+                  setPage("dashboard");
+                }}
+                onCloseTab={
+                  closeDashboardTab
+                }
+                onOpenLibrary={() =>
+                  setPage("templates")
                 }
                 setFullscreen={
                   setFullscreen

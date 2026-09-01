@@ -381,7 +381,7 @@ export default function ImageWidgetConfigurator({
                       bg-white dark:bg-gray-900
                       px-2 py-2 text-xs
                       dark:text-white outline-none
-                      focus:ring-2 focus:ring-emerald-500
+                      focus:ring-2 focus:ring-cyan-500
                     "
                   >
                     <option value="">Select Data</option>
@@ -408,7 +408,7 @@ export default function ImageWidgetConfigurator({
                       mt-3 w-full rounded-lg py-2 text-xs transition
                       ${
                         isLocked
-                          ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                          ? "bg-cyan-600 text-white hover:bg-cyan-700"
                           : "bg-gray-100 dark:bg-gray-700 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600"
                       }
                     `}

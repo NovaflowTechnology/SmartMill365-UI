@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   ArrowLeft,
   Save,
+  Copy,
   Trash2,
   Lock,
   Unlock,
@@ -16,10 +17,66 @@ import {
   Sun,
 } from "lucide-react";
 
-import boilerImg from "../assets/Boiler.png";
+import ImageOverlayCanvas from "../widgets/ImageOverlayCanvas";
 
 const clamp = (value, min, max) =>
   Math.min(Math.max(value, min), max);
+
+const IMAGE_OVERLAY_TYPES = [
+  {
+    value: "pin",
+    label: "Sensor Pin",
+    description: "Marker + value + status",
+  },
+  {
+    value: "value",
+    label: "Live Value",
+    description: "Compact numeric card",
+  },
+  {
+    value: "status",
+    label: "Status Badge",
+    description: "Normal / Warning / Critical",
+  },
+  {
+    value: "gauge",
+    label: "Mini Gauge",
+    description: "Circular percentage gauge",
+  },
+  {
+    value: "level",
+    label: "Level Indicator",
+    description: "Vertical tank-style level",
+  },
+  {
+    value: "bar",
+    label: "Linear Bar",
+    description: "Horizontal range bar",
+  },
+  {
+    value: "sparkline",
+    label: "Sparkline",
+    description: "Compact historical trend",
+  },
+];
+
+const defaultOverlayDisplay = {
+  label: "",
+  decimals: 1,
+  scale: "medium",
+  showLabel: true,
+  showStatus: true,
+};
+
+const defaultOverlayRange = {
+  min: 0,
+  max: 100,
+  unit: "",
+  warning: 80,
+  danger: 90,
+};
+
+
 
 const readDarkMode = () => {
   if (typeof window === "undefined") {
@@ -36,6 +93,120 @@ const readDarkMode = () => {
     body.dataset.theme === "dark" ||
     localStorage.getItem("theme") === "dark"
   );
+};
+
+const normalizeSource = (source = {}) => ({
+  bucket: String(source.bucket || source.bucket_name || "").trim(),
+  measurement: String(source.measurement || source.measurement_name || "").trim(),
+  tagKey: String(source.tagKey || source.tag_key || "id").trim() || "id",
+  tagValue: String(
+    source.tagValue ||
+      source.tag_value ||
+      source.id ||
+      ""
+  ).trim(),
+});
+
+const getSourceIdentity = (source = {}) => {
+  const normalized = normalizeSource(source);
+
+  return [
+    normalized.bucket,
+    normalized.measurement,
+    normalized.tagKey,
+    normalized.tagValue,
+  ].join("::");
+};
+
+const getMeasurementIdentity = (source = {}) => {
+  const normalized = normalizeSource(source);
+
+  return [
+    normalized.bucket,
+    normalized.measurement,
+  ].join("::");
+};
+
+const createSafeDataKey = (value = "") => {
+  const cleaned = String(value)
+    .trim()
+    .replace(
+      /[^a-zA-Z0-9_$]+(.)?/g,
+      (_, next) => (next ? next.toUpperCase() : "")
+    )
+    .replace(/^[^a-zA-Z_$]+/, "");
+
+  return cleaned || `imageSource${Date.now()}`;
+};
+
+const createImagePinDataKey = (source, field) => {
+  const normalized = normalizeSource(source);
+
+  return createSafeDataKey(
+    [
+      "img",
+      normalized.measurement,
+      normalized.tagValue,
+      field,
+    ]
+      .filter(Boolean)
+      .join("_")
+  );
+};
+
+const deduplicateDataOptions = (options = []) => {
+  const map = new Map();
+
+  (Array.isArray(options) ? options : []).forEach(
+    (option) => {
+      if (!option?.key) return;
+
+      map.set(String(option.key), {
+        ...option,
+        key: String(option.key),
+      });
+    }
+  );
+
+  return [...map.values()];
+};
+
+const deduplicateMappings = (mappings = []) => {
+  const map = new Map();
+
+  (Array.isArray(mappings) ? mappings : []).forEach(
+    (mapping) => {
+      const normalized = normalizeSource(mapping);
+
+      if (
+        !normalized.bucket ||
+        !normalized.measurement ||
+        !normalized.tagValue
+      ) {
+        return;
+      }
+
+      const identity = getSourceIdentity(normalized);
+
+      if (!map.has(identity)) {
+        map.set(identity, {
+          ...normalized,
+          deviceName: String(
+            mapping.deviceName ||
+              mapping.device_name ||
+              ""
+          ).trim(),
+          orgName: String(
+            mapping.orgName ||
+              mapping.org_name ||
+              ""
+          ).trim(),
+        });
+      }
+    }
+  );
+
+  return [...map.values()];
 };
 
 export default function ImageWidgetEditor({
@@ -83,49 +254,171 @@ export default function ImageWidgetEditor({
       window.removeEventListener("storage", updateTheme);
     };
   }, [darkMode]);
-  const canvasRef = useRef(null);
-  const imageRef = useRef(null);
-
   const [dragIndex, setDragIndex] = useState(null);
-  const [imageBox, setImageBox] = useState({
-    left: 0,
-    top: 0,
-    width: 0,
-    height: 0,
-  });
+  const [selectedOverlayIndex, setSelectedOverlayIndex] = useState(null);
 
   const pins = Array.isArray(widget?.pins)
     ? widget.pins
     : [];
 
   /*
-   * Data Mapping is completed at Template Designer level first.
-   * Image pins inherit that mapped device and only select from the
-   * fields available for that device.
+   * Image Editor data mapping
+   * -------------------------
+   * Template Designer mapping is only the initial/default mapping.
+   * Users may select another Measurement + Device in this editor.
+   *
+   * Each pin stores its own full source, so a single process image can
+   * contain pins from different measurements and devices.
    */
   const templateMapping =
     widget?.designerSnapshot?.influxConfig || {};
 
-  const mappedSource = {
-    bucket: String(templateMapping.bucket || ""),
-    measurement: String(templateMapping.measurement || ""),
-    tagKey: String(templateMapping.tagKey || "id"),
-    tagValue: String(
-      templateMapping.tagValue ||
-        templateMapping.id ||
-        ""
-    ),
-  };
-
-  const mappingReady = Boolean(
-    mappedSource.bucket &&
-      mappedSource.measurement &&
-      mappedSource.tagValue
+  const inheritedMapping = normalizeSource(
+    widget?.imageDataMapping || templateMapping
   );
 
-  const [availableFields, setAvailableFields] = useState([]);
-  const [fieldsLoading, setFieldsLoading] = useState(false);
-  const [fieldsError, setFieldsError] = useState("");
+  const [selectedMapping, setSelectedMapping] =
+    useState(inheritedMapping);
+
+  const [
+    allowedDeviceMappings,
+    setAllowedDeviceMappings,
+  ] = useState([]);
+
+  const [mappingsLoading, setMappingsLoading] =
+    useState(false);
+
+  const [mappingsError, setMappingsError] =
+    useState("");
+
+  const [imageDataOptions, setImageDataOptions] =
+    useState(() =>
+      deduplicateDataOptions([
+        ...(Array.isArray(
+          widget?.designerSnapshot?.customDataOptions
+        )
+          ? widget.designerSnapshot.customDataOptions
+          : []),
+        ...(Array.isArray(widget?.customDataOptions)
+          ? widget.customDataOptions
+          : []),
+      ])
+    );
+
+  const knownSourceMappings = useMemo(() => {
+    const fromOptions = imageDataOptions.map(
+      (option) => {
+        const source =
+          normalizeSource(
+            option?.source || {}
+          );
+
+        return {
+          ...source,
+          deviceName:
+            option?.source?.deviceName ||
+            option?.source?.device_name ||
+            source.tagValue ||
+            option?.label ||
+            "",
+        };
+      }
+    );
+
+    const inherited =
+      inheritedMapping.bucket &&
+      inheritedMapping.measurement &&
+      inheritedMapping.tagValue
+        ? [
+            {
+              ...inheritedMapping,
+              deviceName: "Template mapping",
+            },
+          ]
+        : [];
+
+    return deduplicateMappings([
+      ...allowedDeviceMappings,
+      ...fromOptions,
+      ...inherited,
+    ]);
+  }, [
+    allowedDeviceMappings,
+    imageDataOptions,
+    inheritedMapping.bucket,
+    inheritedMapping.measurement,
+    inheritedMapping.tagKey,
+    inheritedMapping.tagValue,
+  ]);
+
+  const measurementOptions = useMemo(() => {
+    const map = new Map();
+
+    knownSourceMappings.forEach((mapping) => {
+      const key = getMeasurementIdentity(mapping);
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          bucket: mapping.bucket,
+          measurement: mapping.measurement,
+        });
+      }
+    });
+
+    return [...map.values()].sort((a, b) =>
+      `${a.bucket}/${a.measurement}`.localeCompare(
+        `${b.bucket}/${b.measurement}`,
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base",
+        }
+      )
+    );
+  }, [knownSourceMappings]);
+
+  const selectedMeasurementKey =
+    getMeasurementIdentity(selectedMapping);
+
+  const deviceOptions = useMemo(
+    () =>
+      knownSourceMappings
+        .filter(
+          (mapping) =>
+            getMeasurementIdentity(mapping) ===
+            selectedMeasurementKey
+        )
+        .sort((a, b) =>
+          String(a.deviceName || a.tagValue).localeCompare(
+            String(b.deviceName || b.tagValue),
+            undefined,
+            {
+              numeric: true,
+              sensitivity: "base",
+            }
+          )
+        ),
+    [knownSourceMappings, selectedMeasurementKey]
+  );
+
+  const selectedDeviceKey =
+    getSourceIdentity(selectedMapping);
+
+  const mappingReady = Boolean(
+    selectedMapping.bucket &&
+      selectedMapping.measurement &&
+      selectedMapping.tagValue
+  );
+
+  const [availableFields, setAvailableFields] =
+    useState([]);
+
+  const [fieldsLoading, setFieldsLoading] =
+    useState(false);
+
+  const [fieldsError, setFieldsError] =
+    useState("");
 
   const formatFieldLabel = (field = "") =>
     String(field)
@@ -137,21 +430,138 @@ export default function ImageWidgetEditor({
         character.toUpperCase()
       );
 
-  const allDataOptions = availableFields.map((field) => ({
-    key: field,
-    label: formatFieldLabel(field),
-    channel: field,
-    source: {
-      ...mappedSource,
-      field,
-    },
-  }));
+  const allDataOptions = useMemo(
+    () =>
+      availableFields.map((field) => {
+        const key = createImagePinDataKey(
+          selectedMapping,
+          field
+        );
 
-  const fetchMappedFields = async () => {
-    if (!mappingReady) {
+        return {
+          key,
+          label: formatFieldLabel(field),
+          channel: field,
+          source: {
+            ...normalizeSource(selectedMapping),
+            id: selectedMapping.tagValue,
+            field,
+            channel: field,
+          },
+        };
+      }),
+    [
+      availableFields,
+      selectedMapping.bucket,
+      selectedMapping.measurement,
+      selectedMapping.tagKey,
+      selectedMapping.tagValue,
+    ]
+  );
+
+  const getAllKnownDataOptions = () =>
+    deduplicateDataOptions([
+      ...imageDataOptions,
+      ...allDataOptions,
+    ]);
+
+  const updateSelectedMapping = (nextMapping) => {
+    const normalized = normalizeSource(nextMapping);
+
+    setSelectedMapping(normalized);
+    setAvailableFields([]);
+    setFieldsError("");
+
+    setWidget((currentWidget) => ({
+      ...currentWidget,
+      imageDataMapping: normalized,
+    }));
+  };
+
+  const fetchAllowedMappings = async () => {
+    const token = localStorage.getItem("token");
+
+    if (!token) return;
+
+    setMappingsLoading(true);
+    setMappingsError("");
+
+    try {
+      const response = await fetch(
+        "http://localhost:5000/influx/allowed-devices",
+        {
+          headers: {
+            Authorization: token,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Editor/Viewer may not have discovery permission.
+        // Existing template sources remain selectable.
+        if (
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          setAllowedDeviceMappings([]);
+          return;
+        }
+
+        throw new Error(
+          result?.error ||
+            "Failed to load assigned devices."
+        );
+      }
+
+      const rows = Array.isArray(result)
+        ? result
+        : [];
+
+      setAllowedDeviceMappings(
+        deduplicateMappings(
+          rows.map((device) => ({
+            bucket: device.bucket_name,
+            measurement: device.measurement_name,
+            tagKey: device.tag_key || "id",
+            tagValue: device.tag_value,
+            deviceName:
+              device.device_name ||
+              device.tag_value,
+            orgName: device.org_name || "",
+          }))
+        )
+      );
+    } catch (error) {
+      console.error(
+        "❌ Image editor device discovery error:",
+        error
+      );
+
+      setAllowedDeviceMappings([]);
+      setMappingsError(
+        error.message ||
+          "Failed to load assigned devices."
+      );
+    } finally {
+      setMappingsLoading(false);
+    }
+  };
+
+  const fetchMappedFields = async (
+    mapping = selectedMapping
+  ) => {
+    const source = normalizeSource(mapping);
+
+    if (
+      !source.bucket ||
+      !source.measurement ||
+      !source.tagValue
+    ) {
       setAvailableFields([]);
       setFieldsError(
-        "Template Data Mapping is incomplete. Return to Template Designer and complete Data Mapping first."
+        "Select a measurement and device before loading fields."
       );
       return;
     }
@@ -159,10 +569,10 @@ export default function ImageWidgetEditor({
     const token = localStorage.getItem("token");
 
     const query = new URLSearchParams({
-      bucket: mappedSource.bucket,
-      measurement: mappedSource.measurement,
-      tagKey: mappedSource.tagKey || "id",
-      tagValue: mappedSource.tagValue,
+      bucket: source.bucket,
+      measurement: source.measurement,
+      tagKey: source.tagKey || "id",
+      tagValue: source.tagValue,
     });
 
     setFieldsLoading(true);
@@ -183,7 +593,7 @@ export default function ImageWidgetEditor({
       if (!response.ok) {
         throw new Error(
           result?.error ||
-            "Failed to load fields for the mapped device."
+            "Failed to load fields for the selected device."
         );
       }
 
@@ -205,14 +615,14 @@ export default function ImageWidgetEditor({
       setAvailableFields(fields);
     } catch (error) {
       console.error(
-        "❌ Image editor mapped field error:",
+        "❌ Image editor field error:",
         error
       );
 
       setAvailableFields([]);
       setFieldsError(
         error.message ||
-          "Failed to load fields for the mapped device."
+          "Failed to load fields for the selected device."
       );
     } finally {
       setFieldsLoading(false);
@@ -220,82 +630,34 @@ export default function ImageWidgetEditor({
   };
 
   useEffect(() => {
-    fetchMappedFields();
-    // Load fields once when the editor opens with the inherited mapping.
+    fetchAllowedMappings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const imageSrc =
-    widget?.image?.croppedSrc ||
-    widget?.image?.originalSrc ||
-    boilerImg;
-
-  const updateImageBox = () => {
-    const canvas = canvasRef.current;
-    const imageElement = imageRef.current;
-
-    if (!canvas || !imageElement) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const naturalWidth = imageElement.naturalWidth || 1;
-    const naturalHeight = imageElement.naturalHeight || 1;
-
-    const scale = Math.min(
-      rect.width / naturalWidth,
-      rect.height / naturalHeight
-    );
-
-    const width = naturalWidth * scale;
-    const height = naturalHeight * scale;
-
-    setImageBox({
-      left: (rect.width - width) / 2,
-      top: (rect.height - height) / 2,
-      width,
-      height,
-    });
-  };
-
   useEffect(() => {
-    updateImageBox();
-
-    window.addEventListener("resize", updateImageBox);
-
-    return () => {
-      window.removeEventListener("resize", updateImageBox);
-    };
-  }, [imageSrc]);
-
-  const getPositionFromPointer = (event) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-
-    if (
-      !rect?.width ||
-      !rect?.height ||
-      !imageBox.width ||
-      !imageBox.height
-    ) {
-      return { x: 0, y: 0 };
+    if (!mappingReady) {
+      setAvailableFields([]);
+      return;
     }
 
-    const pointerX = event.clientX - rect.left;
-    const pointerY = event.clientY - rect.top;
+    fetchMappedFields(selectedMapping);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedMapping.bucket,
+    selectedMapping.measurement,
+    selectedMapping.tagKey,
+    selectedMapping.tagValue,
+  ]);
 
-    return {
-      x: clamp(
-        ((pointerX - imageBox.left) / imageBox.width) * 100,
-        0,
-        100
-      ),
-      y: clamp(
-        ((pointerY - imageBox.top) / imageBox.height) * 100,
-        0,
-        100
-      ),
-    };
-  };
 
-  const updateWidgetPins = (updatedPins) => {
+
+  const updateWidgetPins = (
+    updatedPins,
+    nextDataOptions = imageDataOptions
+  ) => {
+    const dedupedOptions =
+      deduplicateDataOptions(nextDataOptions);
+
     setWidget((currentWidget) => ({
       ...currentWidget,
       image:
@@ -305,33 +667,42 @@ export default function ImageWidgetEditor({
       designerSnapshot:
         currentWidget?.designerSnapshot ||
         widget?.designerSnapshot,
+      imageDataMapping: {
+        ...normalizeSource(selectedMapping),
+      },
+      customDataOptions: dedupedOptions,
       pins: updatedPins,
     }));
   };
 
-  const updatePin = (index, changes) => {
-    const updatedPins = pins.map((pin, currentIndex) =>
-      currentIndex === index
-        ? { ...pin, ...changes }
-        : pin
+  const updatePin = (
+    index,
+    changes,
+    nextDataOptions = imageDataOptions
+  ) => {
+    const updatedPins = pins.map(
+      (pin, currentIndex) =>
+        currentIndex === index
+          ? {
+              ...pin,
+              ...changes,
+            }
+          : pin
     );
 
-    updateWidgetPins(updatedPins);
+    updateWidgetPins(
+      updatedPins,
+      nextDataOptions
+    );
   };
 
-  const handleClick = (event) => {
-    if (event.target.closest("[data-pin-control='true']")) {
-      return;
-    }
-
+  const handleCanvasClick = ({ x, y }) => {
     if (!mappingReady) {
       setFieldsError(
-        "Complete Template Data Mapping before adding sensor pins."
+        "Select a measurement and device before adding live data overlays."
       );
       return;
     }
-
-    const { x, y } = getPositionFromPointer(event);
 
     const updatedPins = [
       ...pins,
@@ -342,6 +713,13 @@ export default function ImageWidgetEditor({
         dataKey: "",
         source: null,
         locked: false,
+        visualType: "pin",
+        display: {
+          ...defaultOverlayDisplay,
+        },
+        rangeConfig: {
+          ...defaultOverlayRange,
+        },
       },
     ];
 
@@ -355,15 +733,14 @@ export default function ImageWidgetEditor({
     if (pins[index]?.locked) return;
 
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    setSelectedOverlayIndex(index);
     setDragIndex(index);
   };
 
-  const handlePointerMove = (event) => {
+  const handleCanvasPointerMove = ({ x, y }) => {
     if (dragIndex === null || pins[dragIndex]?.locked) {
       return;
     }
-
-    const { x, y } = getPositionFromPointer(event);
 
     updatePin(dragIndex, { x, y });
   };
@@ -380,13 +757,126 @@ export default function ImageWidgetEditor({
     updateWidgetPins(updatedPins);
   };
 
+  const duplicatePin = (index) => {
+    const sourcePin = pins[index];
+    if (!sourcePin) return;
+
+    const duplicate = {
+      ...sourcePin,
+      id: `pin-${Date.now()}-${pins.length}`,
+      x: clamp(
+        Number(sourcePin.x || 0) + 4,
+        0,
+        100
+      ),
+      y: clamp(
+        Number(sourcePin.y || 0) + 4,
+        0,
+        100
+      ),
+      locked: false,
+      display: {
+        ...defaultOverlayDisplay,
+        ...(sourcePin.display || {}),
+      },
+      rangeConfig: {
+        ...defaultOverlayRange,
+        ...(sourcePin.rangeConfig || {}),
+      },
+    };
+
+    updateWidgetPins([
+      ...pins,
+      duplicate,
+    ]);
+  };
+
   const getPinLabel = (pin, index) =>
-    allDataOptions.find(
-      (item) => item.key === pin?.dataKey
+    getAllKnownDataOptions().find(
+      (item) =>
+        item.key === pin?.dataKey
     )?.label ||
-    (pin?.dataKey
+    (pin?.source?.field ||
+    pin?.source?.channel
+      ? formatFieldLabel(
+          pin.source.field ||
+            pin.source.channel
+        )
+      : pin?.dataKey
       ? formatFieldLabel(pin.dataKey)
-      : `Pin #${index + 1}`);
+      : `Overlay #${index + 1}`);
+
+
+  // The editor uses the SAME overlay renderer as the dashboard.
+  // When live dashboard values are not available in this full-screen editor,
+  // generate deterministic preview values only for the number itself; the
+  // overlay shape, scale, status styling, position and image sizing are shared.
+  const editorPreviewValues = useMemo(() => {
+    const values = {
+      ...(widget?.previewValues || {}),
+    };
+
+    const knownOptions =
+      getAllKnownDataOptions();
+
+    pins.forEach((pin, index) => {
+      if (!pin?.dataKey || values[pin.dataKey] !== undefined) {
+        return;
+      }
+
+      const option = knownOptions.find(
+        (item) => item.key === pin.dataKey
+      );
+
+      const range = {
+        min: 0,
+        max: 100,
+        ...(option?.rangeConfig || {}),
+        ...(pin?.rangeConfig || {}),
+      };
+
+      const min = Number(range.min);
+      const max = Number(range.max);
+      const safeMin = Number.isFinite(min) ? min : 0;
+      const safeMax =
+        Number.isFinite(max) && max > safeMin
+          ? max
+          : safeMin + 100;
+
+      const ratio = 0.62 + (index % 4) * 0.055;
+      values[pin.dataKey] =
+        safeMin + (safeMax - safeMin) * ratio;
+    });
+
+    return values;
+  }, [
+    pins,
+    imageDataOptions,
+    allDataOptions,
+    widget?.previewValues,
+  ]);
+
+  const editorPreviewHistory = useMemo(() => {
+    if (Array.isArray(widget?.previewHistory) && widget.previewHistory.length) {
+      return widget.previewHistory;
+    }
+
+    return Array.from({ length: 24 }, (_, pointIndex) => {
+      const row = { timestamp: pointIndex };
+
+      pins.forEach((pin, pinIndex) => {
+        if (!pin?.dataKey) return;
+
+        const base = Number(editorPreviewValues[pin.dataKey]);
+        if (!Number.isFinite(base)) return;
+
+        row[pin.dataKey] =
+          base + Math.sin((pointIndex + pinIndex) / 2.6) * Math.max(1, Math.abs(base) * 0.045);
+      });
+
+      return row;
+    });
+  }, [pins, editorPreviewValues, widget?.previewHistory]);
 
   // RETURN TO THE WIDGET SETTINGS WIZARD
   // Preserve the Template Designer snapshot so its grid and mappings survive.
@@ -400,6 +890,13 @@ export default function ImageWidgetEditor({
       designerSnapshot:
         currentWidget?.designerSnapshot ||
         widget?.designerSnapshot,
+      imageDataMapping: {
+        ...normalizeSource(selectedMapping),
+      },
+      customDataOptions:
+        deduplicateDataOptions(
+          imageDataOptions
+        ),
       pins: Array.isArray(currentWidget?.pins)
         ? currentWidget.pins
         : [],
@@ -424,45 +921,45 @@ export default function ImageWidgetEditor({
     >
       <style>{`
         .image-widget-editor-theme[data-theme="dark"] {
-          background: #081022;
-          color: #c8d1ea;
+          background: #020617;
+          color: #e2e8f0;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-shell {
-          background-color: #081022 !important;
+          background-color: #020617 !important;
           color: #e2e8f0 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-workspace {
-          background-color: #081022 !important;
+          background-color: #07101f !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-canvas {
-          background-color: #081022 !important;
-          border-color: #2C3C61 !important;
+          background-color: #020617 !important;
+          border-color: #334155 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-sidebar {
-          background-color: #0B1328 !important;
-          border-color: #2C3C61 !important;
+          background-color: #0b1220 !important;
+          border-color: #334155 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-card {
-          background-color: #111B34 !important;
-          border-color: #2C3C61 !important;
-          color: #e8edff !important;
+          background-color: #111827 !important;
+          border-color: #334155 !important;
+          color: #f8fafc !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-empty {
-          background-color: #111B34 !important;
-          border-color: #2C3C61 !important;
+          background-color: #0f172a !important;
+          border-color: #475569 !important;
           color: #e2e8f0 !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-help {
           background-color: rgba(15, 23, 42, 0.94) !important;
-          border-color: #2C3C61 !important;
-          color: #e8edff !important;
+          border-color: #475569 !important;
+          color: #f8fafc !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-muted {
@@ -470,15 +967,15 @@ export default function ImageWidgetEditor({
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-primary {
-          color: #e8edff !important;
+          color: #f8fafc !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] input,
         .image-widget-editor-theme[data-theme="dark"] select,
         .image-widget-editor-theme[data-theme="dark"] textarea {
-          background-color: #081022 !important;
-          border-color: #2C3C61 !important;
-          color: #e8edff !important;
+          background-color: #020617 !important;
+          border-color: #475569 !important;
+          color: #f8fafc !important;
         }
 
         .image-widget-editor-theme[data-theme="dark"] input::placeholder,
@@ -487,13 +984,13 @@ export default function ImageWidgetEditor({
         }
 
         .image-widget-editor-theme[data-theme="dark"] option {
-          background-color: #081022;
-          color: #e8edff;
+          background-color: #020617;
+          color: #f8fafc;
         }
 
         .image-widget-editor-theme[data-theme="dark"] .image-editor-unlocked {
-          background-color: #1B2948 !important;
-          border-color: #2C3C61 !important;
+          background-color: #1e293b !important;
+          border-color: #475569 !important;
           color: #e2e8f0 !important;
         }
 
@@ -504,16 +1001,16 @@ export default function ImageWidgetEditor({
         }
       `}</style>
 
-      <div className="image-editor-shell flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#081022] dark:text-slate-100">
+      <div className="image-editor-shell flex h-full w-full bg-slate-50 text-slate-900 dark:bg-[#020617] dark:text-slate-100">
         {/* IMAGE WORKSPACE */}
-        <div className="image-editor-workspace relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-3 dark:bg-[#081022]">
+        <div className="image-editor-workspace relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white p-5 dark:bg-[#07101f]">
           {/* TOOLBAR */}
           <div
             className="
               z-30 flex shrink-0
               items-center justify-between
-              gap-3 rounded-xl
-              border px-3 py-2.5
+              gap-4 rounded-2xl
+              border px-4 py-3
               shadow-lg backdrop-blur-xl
             "
             style={{
@@ -530,21 +1027,21 @@ export default function ImageWidgetEditor({
                 type="button"
                 onClick={returnToWidgetSettings}
                 className="
-                  inline-flex h-8 w-8
+                  inline-flex h-10 w-10
                   shrink-0 items-center justify-center
                   rounded-xl border
                   transition
                 "
                 style={{
                   backgroundColor: isDarkMode
-                    ? "#1B2948"
+                    ? "#1e293b"
                     : "#f1f5f9",
                   borderColor: isDarkMode
-                    ? "#2C3C61"
+                    ? "#475569"
                     : "#cbd5e1",
                   color: isDarkMode
-                    ? "#e8edff"
-                    : "#2C3C61",
+                    ? "#f8fafc"
+                    : "#334155",
                 }}
                 aria-label="Back to widget settings"
                 title="Back to widget settings"
@@ -559,7 +1056,7 @@ export default function ImageWidgetEditor({
                     className="shrink-0"
                     style={{
                       color: isDarkMode
-                        ? "#58d7ff"
+                        ? "#34d399"
                         : "#059669",
                     }}
                   />
@@ -568,11 +1065,11 @@ export default function ImageWidgetEditor({
                     className="truncate text-base font-black"
                     style={{
                       color: isDarkMode
-                        ? "#e8edff"
-                        : "#111B34",
+                        ? "#f8fafc"
+                        : "#0f172a",
                     }}
                   >
-                    Image Widget Editor
+                    Interactive Process Image Editor
                   </h1>
                 </div>
 
@@ -580,11 +1077,11 @@ export default function ImageWidgetEditor({
                   className="mt-0.5 truncate text-xs"
                   style={{
                     color: isDarkMode
-                      ? "#c8d1ea"
+                      ? "#cbd5e1"
                       : "#64748b",
                   }}
                 >
-                  Place sensor pins and map them to fields from the template's configured device.
+                  Choose a measurement and device, then place live data overlays and map each overlay to a field.
                 </p>
               </div>
             </div>
@@ -594,10 +1091,10 @@ export default function ImageWidgetEditor({
                 className="hidden rounded-xl border px-3 py-2 text-right sm:block"
                 style={{
                   backgroundColor: isDarkMode
-                    ? "rgba(17, 27, 52, 0.94)"
+                    ? "rgba(15, 23, 42, 0.9)"
                     : "#f8fafc",
                   borderColor: isDarkMode
-                    ? "#2C3C61"
+                    ? "#475569"
                     : "#cbd5e1",
                 }}
               >
@@ -605,22 +1102,22 @@ export default function ImageWidgetEditor({
                   className="text-[9px] font-black uppercase tracking-wider"
                   style={{
                     color: isDarkMode
-                      ? "#70e1c2"
+                      ? "#6ee7b7"
                       : "#059669",
                   }}
                 >
-                  Sensor pins
+                  Data overlays
                 </p>
 
                 <p
                   className="mt-0.5 text-xs font-extrabold"
                   style={{
                     color: isDarkMode
-                      ? "#e8edff"
-                      : "#111B34",
+                      ? "#f8fafc"
+                      : "#0f172a",
                   }}
                 >
-                  {pins.length} pin{pins.length === 1 ? "" : "s"}
+                  {pins.length} overlay{pins.length === 1 ? "" : "s"}
                 </p>
               </div>
 
@@ -629,7 +1126,7 @@ export default function ImageWidgetEditor({
                   type="button"
                   onClick={toggleTheme}
                   className="
-                    inline-flex h-8 w-8
+                    inline-flex h-10 w-10
                     items-center justify-center
                     rounded-xl border border-slate-200
                     bg-slate-100 text-slate-700
@@ -661,11 +1158,21 @@ export default function ImageWidgetEditor({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!mappingReady}
+                disabled={
+                  !mappingReady &&
+                  !pins.some(
+                    (pin) =>
+                      pin?.source?.measurement &&
+                      (
+                        pin?.source?.tagValue ||
+                        pin?.source?.id
+                      )
+                  )
+                }
                 className="
-                  inline-flex h-8
+                  inline-flex h-10
                   items-center gap-2 rounded-xl
-                  bg-emerald-600 px-3
+                  bg-emerald-600 px-4
                   text-sm font-black text-white
                   shadow-lg shadow-emerald-600/20
                   transition hover:bg-emerald-700
@@ -678,40 +1185,40 @@ export default function ImageWidgetEditor({
             </div>
           </div>
 
-          {/* CANVAS */}
+          {/* CANVAS / TRUE RUNTIME PREVIEW */}
           <div
-            ref={canvasRef}
             className="
               image-editor-canvas
-              relative mt-3 min-h-0 flex-1
-              overflow-hidden rounded-xl
+              relative mt-4 min-h-0 flex-1
+              overflow-hidden rounded-2xl
               border border-slate-200
-              bg-slate-100
+              bg-white
               shadow-inner
               dark:border-slate-700
               dark:bg-slate-950
             "
-            onClick={handleClick}
-            onPointerMove={handlePointerMove}
-            onPointerUp={stopDragging}
-            onPointerCancel={stopDragging}
-            onPointerLeave={stopDragging}
           >
-            <img
-              ref={imageRef}
-              src={imageSrc}
-              alt={widget?.label || "System process diagram"}
-              draggable={false}
-              onLoad={updateImageBox}
-              className="
-                absolute inset-0
-                h-full w-full
-                select-none object-contain
-                pointer-events-none
-              "
+            <ImageOverlayCanvas
+              image={widget?.image}
+              pins={pins}
+              valueMap={editorPreviewValues}
+              history={editorPreviewHistory}
+              customDataOptions={getAllKnownDataOptions()}
+              renderUnmapped
+              editorMode
+              draggingIndex={dragIndex}
+              selectedIndex={selectedOverlayIndex}
+              onCanvasClick={handleCanvasClick}
+              onCanvasPointerMove={handleCanvasPointerMove}
+              onOverlayPointerDown={handlePointerDown}
+              onOverlayClick={(_, index) =>
+                setSelectedOverlayIndex(index)
+              }
+              onPointerUp={stopDragging}
+              onPointerCancel={stopDragging}
+              onPointerLeave={stopDragging}
+              imageAlt={widget?.label || "System process diagram"}
             />
-
-            <div className="pointer-events-none absolute inset-0 bg-slate-950/[0.03] dark:bg-black/10" />
 
             {!widget?.image?.originalSrc &&
               !widget?.image?.croppedSrc && (
@@ -720,7 +1227,7 @@ export default function ImageWidgetEditor({
                     absolute bottom-4 left-4 z-30
                     rounded-xl border
                     border-amber-300
-                    bg-amber-50 px-3 py-2
+                    bg-amber-50 px-4 py-2
                     text-xs font-semibold
                     text-amber-800 shadow-lg
                     dark:border-amber-900/60
@@ -732,116 +1239,14 @@ export default function ImageWidgetEditor({
                 </div>
               )}
 
-            <div
-              className="absolute z-20"
-              style={{
-                left: imageBox.left,
-                top: imageBox.top,
-                width: imageBox.width,
-                height: imageBox.height,
-              }}
-            >
-              {pins.map((pin, index) => {
-                const x = clamp(Number(pin?.x) || 0, 0, 100);
-                const y = clamp(Number(pin?.y) || 0, 0, 100);
-                const pinLabel = getPinLabel(pin, index);
-
-                return (
-                  <div
-                    key={pin.id || `${pin.dataKey || "pin"}-${index}`}
-                    className="absolute z-20"
-                    style={{
-                      left: `${x}%`,
-                      top: `${y}%`,
-                      transform: "translate(-50%, -50%)",
-                    }}
-                  >
-                    {!pin.locked && (
-                      <div
-                        className="
-                          pointer-events-none
-                          absolute -inset-1
-                          h-9 w-9 animate-ping
-                          rounded-full
-                          bg-emerald-500 opacity-20
-                        "
-                      />
-                    )}
-
-                    <button
-                      type="button"
-                      data-pin-control="true"
-                      onPointerDown={(event) =>
-                        handlePointerDown(event, index)
-                      }
-                      onClick={(event) => event.stopPropagation()}
-                      title={
-                        pin.locked
-                          ? `Pin #${index + 1} is locked`
-                          : `Drag Pin #${index + 1} to reposition`
-                      }
-                      className={`
-                        relative z-10
-                        flex h-7 w-7
-                        items-center justify-center
-                        rounded-full border-2
-                        border-white text-[11px]
-                        font-black text-white shadow-xl
-                        transition-transform
-                        ${
-                          pin.locked
-                            ? "cursor-not-allowed bg-slate-500"
-                            : "cursor-move bg-emerald-500 hover:scale-110"
-                        }
-                        ${
-                          dragIndex === index
-                            ? "scale-125 ring-4 ring-emerald-300/40"
-                            : ""
-                        }
-                      `}
-                    >
-                      {index + 1}
-                    </button>
-
-                    <div
-                      data-pin-control="true"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => event.stopPropagation()}
-                      className="
-                        absolute left-9 top-1/2
-                        min-w-[116px] max-w-[165px]
-                        -translate-y-1/2 cursor-default
-                        rounded-xl border
-                        border-slate-700
-                        bg-slate-950/90
-                        px-2.5 py-2 shadow-xl
-                        backdrop-blur-md
-                      "
-                    >
-                      <p className="text-[8px] font-black uppercase leading-none tracking-wider text-emerald-300">
-                        Pin #{index + 1}
-                      </p>
-
-                      <p
-                        title={pinLabel}
-                        className="mt-1 truncate text-[10px] font-semibold leading-none text-white"
-                      >
-                        {pinLabel}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
             {pins.length === 0 && (
-              <div className="pointer-events-none absolute inset-0 flex items-end justify-center pb-6">
+              <div className="pointer-events-none absolute inset-0 z-30 flex items-end justify-center pb-6">
                 <div
                   className="
                     image-editor-help
-                    rounded-xl border
+                    rounded-2xl border
                     border-slate-200
-                    bg-white/90 px-3 py-2.5
+                    bg-white/90 px-4 py-3
                     text-center shadow-lg
                     backdrop-blur
                     dark:border-slate-700
@@ -849,7 +1254,7 @@ export default function ImageWidgetEditor({
                   "
                 >
                   <p className="image-editor-primary text-xs font-bold text-slate-700 dark:text-slate-200">
-                    Click anywhere on the diagram to add a sensor pin.
+                    Click anywhere on the diagram to add a live data overlay.
                   </p>
                 </div>
               </div>
@@ -858,15 +1263,15 @@ export default function ImageWidgetEditor({
         </div>
 
         {/* PIN SETTINGS */}
-        <div className="image-editor-sidebar w-[380px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0B1328]">
+        <div className="image-editor-sidebar w-[380px] overflow-y-auto border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#0b1220]">
           <div
-            className="sticky top-0 z-10 border-b p-3 backdrop-blur-xl"
+            className="sticky top-0 z-10 border-b p-5 backdrop-blur-xl"
             style={{
               backgroundColor: isDarkMode
                 ? "rgba(15, 23, 42, 0.98)"
                 : "rgba(255, 255, 255, 0.98)",
               borderColor: isDarkMode
-                ? "#2C3C61"
+                ? "#334155"
                 : "#e2e8f0",
               boxShadow: isDarkMode
                 ? "0 10px 24px rgba(0,0,0,0.18)"
@@ -876,7 +1281,7 @@ export default function ImageWidgetEditor({
             <div className="flex items-start gap-3">
               <div
                 className="
-                  flex h-8 w-8 shrink-0
+                  flex h-10 w-10 shrink-0
                   items-center justify-center
                   rounded-xl border
                   border-emerald-200
@@ -895,35 +1300,35 @@ export default function ImageWidgetEditor({
                   className="text-base font-black"
                   style={{
                     color: isDarkMode
-                      ? "#e8edff"
-                      : "#111B34",
+                      ? "#f8fafc"
+                      : "#0f172a",
                   }}
                 >
-                  Pin Settings
+                  Overlay Settings
                 </h2>
 
                 <p
                   className="mt-1 text-xs leading-5"
                   style={{
                     color: isDarkMode
-                      ? "#c8d1ea"
+                      ? "#cbd5e1"
                       : "#64748b",
                   }}
                 >
-                  Map each pin to a field from the template's selected device and lock its position.
+                  Choose the active measurement/device, map overlays to its fields, and switch devices whenever needed.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="space-y-3 p-3">
+          <div className="space-y-4 p-5">
             <div
               className={`
-                rounded-xl border p-3
+                rounded-2xl border p-4
                 ${
                   mappingReady
-                    ? "ui-success-surface border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
-                    : "ui-warning-surface border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10"
+                    ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10"
+                    : "border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10"
                 }
               `}
             >
@@ -939,12 +1344,12 @@ export default function ImageWidgetEditor({
                       }
                     />
                     <h3 className="text-sm font-black">
-                      Template Data Mapping
+                      Image Data Mapping
                     </h3>
                   </div>
 
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Image pins use fields from this mapped device.
+                    Choose which measurement and device supplies fields for the overlays you are configuring.
                   </p>
                 </div>
 
@@ -961,31 +1366,208 @@ export default function ImageWidgetEditor({
                 )}
               </div>
 
-              {mappingReady ? (
-                <div className="mt-3 space-y-2 text-[11px]">
-                  <div className="rounded-xl bg-white/80 px-3 py-2 dark:bg-slate-950/60">
-                    <span className="font-black uppercase tracking-wider text-slate-400">
-                      Source
-                    </span>
-                    <p className="mt-1 truncate font-mono font-semibold text-slate-700 dark:text-slate-200">
-                      {mappedSource.bucket} / {mappedSource.measurement}
-                    </p>
-                  </div>
+              <div className="mt-3 space-y-3">
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Measurement
+                  </span>
 
-                  <div className="rounded-xl bg-white/80 px-3 py-2 dark:bg-slate-950/60">
-                    <span className="font-black uppercase tracking-wider text-slate-400">
-                      Device
-                    </span>
-                    <p className="mt-1 truncate font-mono font-semibold text-slate-700 dark:text-slate-200">
-                      {mappedSource.tagKey}={mappedSource.tagValue}
-                    </p>
+                  <select
+                    value={
+                      measurementOptions.some(
+                        (option) =>
+                          option.key ===
+                          selectedMeasurementKey
+                      )
+                        ? selectedMeasurementKey
+                        : ""
+                    }
+                    onChange={(event) => {
+                      const key =
+                        event.target.value;
+
+                      const measurement =
+                        measurementOptions.find(
+                          (option) =>
+                            option.key === key
+                        );
+
+                      updateSelectedMapping(
+                        measurement
+                          ? {
+                              bucket:
+                                measurement.bucket,
+                              measurement:
+                                measurement.measurement,
+                              tagKey: "id",
+                              tagValue: "",
+                            }
+                          : {
+                              bucket: "",
+                              measurement: "",
+                              tagKey: "id",
+                              tagValue: "",
+                            }
+                      );
+                    }}
+                    disabled={
+                      mappingsLoading &&
+                      !measurementOptions.length
+                    }
+                    className="
+                      mt-2 w-full rounded-xl
+                      border border-slate-300
+                      bg-white px-3 py-2.5
+                      text-sm text-slate-900
+                      outline-none transition
+                      focus:border-emerald-500
+                      focus:ring-2
+                      focus:ring-emerald-500/20
+                      dark:border-slate-600
+                      dark:bg-slate-950
+                      dark:text-white
+                    "
+                  >
+                    <option value="">
+                      {mappingsLoading
+                        ? "Loading measurements..."
+                        : "Select measurement"}
+                    </option>
+
+                    {measurementOptions.map(
+                      (option) => (
+                        <option
+                          key={option.key}
+                          value={option.key}
+                        >
+                          {option.bucket} / {option.measurement}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Device
+                  </span>
+
+                  <select
+                    value={
+                      deviceOptions.some(
+                        (option) =>
+                          getSourceIdentity(
+                            option
+                          ) ===
+                          selectedDeviceKey
+                      )
+                        ? selectedDeviceKey
+                        : ""
+                    }
+                    onChange={(event) => {
+                      const identity =
+                        event.target.value;
+
+                      const next =
+                        deviceOptions.find(
+                          (option) =>
+                            getSourceIdentity(
+                              option
+                            ) === identity
+                        );
+
+                      if (next) {
+                        updateSelectedMapping(next);
+                      }
+                    }}
+                    disabled={
+                      !selectedMeasurementKey ||
+                      !deviceOptions.length
+                    }
+                    className="
+                      mt-2 w-full rounded-xl
+                      border border-slate-300
+                      bg-white px-3 py-2.5
+                      text-sm text-slate-900
+                      outline-none transition
+                      focus:border-emerald-500
+                      focus:ring-2
+                      focus:ring-emerald-500/20
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                      dark:border-slate-600
+                      dark:bg-slate-950
+                      dark:text-white
+                    "
+                  >
+                    <option value="">
+                      {selectedMeasurementKey
+                        ? deviceOptions.length
+                          ? "Select device"
+                          : "No device available"
+                        : "Select measurement first"}
+                    </option>
+
+                    {deviceOptions.map(
+                      (option) => (
+                        <option
+                          key={
+                            getSourceIdentity(
+                              option
+                            )
+                          }
+                          value={
+                            getSourceIdentity(
+                              option
+                            )
+                          }
+                        >
+                          {option.deviceName ||
+                            option.tagValue}
+                          {" · "}
+                          {option.tagKey}={option.tagValue}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+
+                {mappingReady && (
+                  <div className="grid grid-cols-1 gap-2 text-[11px]">
+                    <div className="rounded-xl bg-white/80 px-3 py-2 dark:bg-slate-950/60">
+                      <span className="font-black uppercase tracking-wider text-slate-400">
+                        Active Source
+                      </span>
+                      <p className="mt-1 truncate font-mono font-semibold text-slate-700 dark:text-slate-200">
+                        {selectedMapping.bucket} / {selectedMapping.measurement}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white/80 px-3 py-2 dark:bg-slate-950/60">
+                      <span className="font-black uppercase tracking-wider text-slate-400">
+                        Active Device
+                      </span>
+                      <p className="mt-1 truncate font-mono font-semibold text-slate-700 dark:text-slate-200">
+                        {selectedMapping.tagKey}={selectedMapping.tagValue}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ) : (
+                )}
+              </div>
+
+              {mappingsError && (
                 <p className="mt-3 rounded-xl bg-white/70 p-3 text-xs font-semibold text-amber-700 dark:bg-slate-950/50 dark:text-amber-300">
-                  Mapping is incomplete. Return to Template Designer and complete Data Mapping first.
+                  {mappingsError}
                 </p>
               )}
+
+              {!mappingReady &&
+                !mappingsLoading &&
+                !mappingsError && (
+                  <p className="mt-3 rounded-xl bg-white/70 p-3 text-xs font-semibold text-amber-700 dark:bg-slate-950/50 dark:text-amber-300">
+                    Select a measurement and device. Existing Template Designer mappings remain available as a starting option.
+                  </p>
+                )}
 
               <div className="mt-3 flex items-center justify-between gap-3">
                 <span className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -996,8 +1578,15 @@ export default function ImageWidgetEditor({
 
                 <button
                   type="button"
-                  onClick={fetchMappedFields}
-                  disabled={fieldsLoading || !mappingReady}
+                  onClick={() =>
+                    fetchMappedFields(
+                      selectedMapping
+                    )
+                  }
+                  disabled={
+                    fieldsLoading ||
+                    !mappingReady
+                  }
                   className="
                     inline-flex items-center gap-1.5 rounded-lg
                     bg-slate-800 px-3 py-2
@@ -1030,9 +1619,9 @@ export default function ImageWidgetEditor({
               <div
                 className="
                   image-editor-empty
-                  rounded-xl border
+                  rounded-2xl border
                   border-dashed border-slate-300
-                  bg-white px-4 py-10
+                  bg-white px-5 py-10
                   text-center
                   dark:border-slate-700
                   dark:bg-slate-900
@@ -1044,11 +1633,11 @@ export default function ImageWidgetEditor({
                 />
 
                 <p className="image-editor-primary mt-3 text-sm font-bold text-slate-700 dark:text-slate-200">
-                  No pins added
+                  No overlays added
                 </p>
 
                 <p className="image-editor-muted mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Click the process image to create the first sensor pin.
+                  Click the process image to create the first live data overlay.
                 </p>
               </div>
             )}
@@ -1058,14 +1647,14 @@ export default function ImageWidgetEditor({
                 key={pin.id || index}
                 className="
                   image-editor-card
-                  rounded-xl border
+                  rounded-2xl border
                   border-slate-200 bg-white
-                  p-3 shadow-sm
+                  p-4 shadow-sm
                   dark:border-slate-700
-                  dark:bg-[#111B34]
+                  dark:bg-[#111827]
                 "
               >
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span
                       className="
@@ -1080,7 +1669,7 @@ export default function ImageWidgetEditor({
 
                     <div>
                       <p className="image-editor-primary text-sm font-black text-slate-900 dark:text-white">
-                        Pin {index + 1}
+                        Overlay {index + 1}
                       </p>
 
                       <p className="image-editor-muted text-[10px] text-slate-400">
@@ -1090,21 +1679,27 @@ export default function ImageWidgetEditor({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => removePin(index)}
-                    className="
-                      inline-flex h-9 w-9
-                      items-center justify-center
-                      rounded-xl text-red-500
-                      transition hover:bg-red-50
-                      dark:hover:bg-red-500/10
-                    "
-                    aria-label={`Delete pin ${index + 1}`}
-                    title={`Delete pin ${index + 1}`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => duplicatePin(index)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-sky-500 transition hover:bg-sky-50 dark:hover:bg-sky-500/10"
+                      aria-label={`Duplicate overlay ${index + 1}`}
+                      title={`Duplicate overlay ${index + 1}`}
+                    >
+                      <Copy size={15} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => removePin(index)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-red-500 transition hover:bg-red-50 dark:hover:bg-red-500/10"
+                      aria-label={`Delete overlay ${index + 1}`}
+                      title={`Delete overlay ${index + 1}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
 
                 <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1114,20 +1709,63 @@ export default function ImageWidgetEditor({
                 <select
                   value={pin.dataKey || ""}
                   onChange={(event) => {
-                    const selectedField =
+                    const selectedKey =
                       event.target.value;
 
                     const selectedOption =
                       allDataOptions.find(
                         (item) =>
-                          item.key === selectedField
+                          item.key ===
+                          selectedKey
                       );
 
-                    updatePin(index, {
-                      dataKey: selectedField,
-                      source:
-                        selectedOption?.source || null,
-                    });
+                    if (!selectedKey) {
+                      updatePin(index, {
+                        dataKey: "",
+                        source: null,
+                      });
+                      return;
+                    }
+
+                    if (!selectedOption) {
+                      return;
+                    }
+
+                    const nextOptions =
+                      deduplicateDataOptions([
+                        ...imageDataOptions,
+                        selectedOption,
+                      ]);
+
+                    setImageDataOptions(
+                      nextOptions
+                    );
+
+                    updatePin(
+                      index,
+                      {
+                        dataKey:
+                          selectedOption.key,
+                        source: {
+                          ...selectedOption.source,
+                        },
+                        display: {
+                          ...defaultOverlayDisplay,
+                          ...(pin.display || {}),
+                        },
+                        rangeConfig: {
+                          ...defaultOverlayRange,
+                          ...(selectedOption.rangeConfig || {}),
+                          ...(pin.rangeConfig || {}),
+                          unit:
+                            pin.rangeConfig?.unit ||
+                            selectedOption.rangeConfig?.unit ||
+                            selectedOption.unit ||
+                            "",
+                        },
+                      },
+                      nextOptions
+                    );
                   }}
                   disabled={!mappingReady || fieldsLoading}
                   className="
@@ -1158,7 +1796,11 @@ export default function ImageWidgetEditor({
                         option.key === pin.dataKey
                     ) && (
                       <option value={pin.dataKey}>
-                        {formatFieldLabel(pin.dataKey)}
+                        {getPinLabel(
+                          pin,
+                          index
+                        )}
+                        {" · saved mapping"}
                       </option>
                     )}
 
@@ -1172,6 +1814,201 @@ export default function ImageWidgetEditor({
                   ))}
                 </select>
 
+                {pin?.source && (
+                  <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[9px] dark:border-slate-700 dark:bg-slate-950/60">
+                    <p className="font-black uppercase tracking-wider text-slate-400">
+                      Saved Overlay Source
+                    </p>
+                    <p className="mt-1 truncate font-mono text-slate-600 dark:text-slate-300">
+                      {pin.source.bucket || "—"} / {pin.source.measurement || "—"}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-slate-500 dark:text-slate-400">
+                      {pin.source.tagKey || "id"}={pin.source.tagValue || pin.source.id || "—"}
+                      {" · "}
+                      {pin.source.field || pin.source.channel || "—"}
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-4 grid grid-cols-1 gap-3">
+                  <label>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Visualization
+                    </span>
+                    <select
+                      value={pin.visualType || "pin"}
+                      onChange={(event) =>
+                        updatePin(index, {
+                          visualType: event.target.value,
+                        })
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                    >
+                      {IMAGE_OVERLAY_TYPES.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label} · {type.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Display Label
+                    </span>
+                    <input
+                      type="text"
+                      value={pin.display?.label || ""}
+                      onChange={(event) =>
+                        updatePin(index, {
+                          display: {
+                            ...defaultOverlayDisplay,
+                            ...(pin.display || {}),
+                            label: event.target.value,
+                          },
+                        })
+                      }
+                      placeholder={getPinLabel(pin, index)}
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Size
+                      </span>
+                      <select
+                        value={pin.display?.scale || "medium"}
+                        onChange={(event) =>
+                          updatePin(index, {
+                            display: {
+                              ...defaultOverlayDisplay,
+                              ...(pin.display || {}),
+                              scale: event.target.value,
+                            },
+                          })
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                      >
+                        <option value="small">Small</option>
+                        <option value="medium">Medium</option>
+                        <option value="large">Large</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Decimals
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="4"
+                        value={pin.display?.decimals ?? 1}
+                        onChange={(event) =>
+                          updatePin(index, {
+                            display: {
+                              ...defaultOverlayDisplay,
+                              ...(pin.display || {}),
+                              decimals: Math.min(
+                                4,
+                                Math.max(0, Number(event.target.value) || 0)
+                              ),
+                            },
+                          })
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/60">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Value Range & Status
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {[
+                        ["min", "Minimum"],
+                        ["max", "Maximum"],
+                        ["warning", "Warning"],
+                        ["danger", "Critical"],
+                      ].map(([key, label]) => (
+                        <label key={key}>
+                          <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                            {label}
+                          </span>
+                          <input
+                            type="number"
+                            value={pin.rangeConfig?.[key] ?? defaultOverlayRange[key]}
+                            onChange={(event) =>
+                              updatePin(index, {
+                                rangeConfig: {
+                                  ...defaultOverlayRange,
+                                  ...(pin.rangeConfig || {}),
+                                  [key]: Number(event.target.value),
+                                },
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <label className="mt-2 block">
+                      <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                        Unit
+                      </span>
+                      <input
+                        type="text"
+                        value={pin.rangeConfig?.unit || ""}
+                        onChange={(event) =>
+                          updatePin(index, {
+                            rangeConfig: {
+                              ...defaultOverlayRange,
+                              ...(pin.rangeConfig || {}),
+                              unit: event.target.value,
+                            },
+                          })
+                        }
+                        placeholder="bar, °C, %, t/h"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      ["showLabel", "Show Label"],
+                      ["showStatus", "Show Status"],
+                    ].map(([key, label]) => (
+                      <label
+                        key={key}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300"
+                      >
+                        {label}
+                        <input
+                          type="checkbox"
+                          checked={
+                            pin.display?.[key] !== false
+                          }
+                          onChange={(event) =>
+                            updatePin(index, {
+                              display: {
+                                ...defaultOverlayDisplay,
+                                ...(pin.display || {}),
+                                [key]: event.target.checked,
+                              },
+                            })
+                          }
+                          className="h-4 w-4 accent-emerald-600"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   onClick={() =>
@@ -1180,7 +2017,7 @@ export default function ImageWidgetEditor({
                     })
                   }
                   className={`
-                    mt-3 flex w-full
+                    mt-4 flex w-full
                     items-center justify-center
                     gap-2 rounded-xl
                     border px-3 py-2.5
