@@ -14,9 +14,12 @@ import Login from "./pages/Login";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppFeedback from "./components/AppFeedback";
+import SessionExpiryModal from "./components/SessionExpiryModal";
 import { installLegacyDialogGuards } from "./utils/feedback";
+import { installAuthFetchInterceptor } from "./utils/sessionAuth";
 
 installLegacyDialogGuards();
+installAuthFetchInterceptor();
 
 export default function App() {
   // PAGE
@@ -28,6 +31,11 @@ export default function App() {
     selectedTemplate,
     setSelectedTemplate,
   ] = useState(null);
+
+  const [
+    templateEditReturnPage,
+    setTemplateEditReturnPage,
+  ] = useState("templates");
 
   // OPEN DASHBOARD TABS
   const [
@@ -55,6 +63,24 @@ export default function App() {
 
     setSelectedTemplate(template);
     setPage("dashboard");
+  };
+
+  const handleTemplateUpdated = (updatedTemplate) => {
+    if (!updatedTemplate?.id) return;
+
+    setSelectedTemplate((current) =>
+      Number(current?.id) === Number(updatedTemplate.id)
+        ? updatedTemplate
+        : current
+    );
+
+    setDashboardTabs((current) =>
+      current.map((item) =>
+        Number(item.id) === Number(updatedTemplate.id)
+          ? updatedTemplate
+          : item
+      )
+    );
   };
 
   const closeDashboardTab = (templateId) => {
@@ -260,11 +286,29 @@ export default function App() {
       async () => {
         await fetchDefaultTemplate();
 
-        setPage("dashboard");
+        // If the session-expiry dialog was exited while the request was
+        // waiting, do not reopen the protected dashboard.
+        if (localStorage.getItem("token")) {
+          setPage("dashboard");
+        } else {
+          setPage("login");
+        }
       };
 
     loadDefaultDashboard();
   }, []);
+
+  // =====================================
+  // SESSION EXPIRED -> EXIT TO LOGIN
+  // =====================================
+  const handleSessionExitToLogin = () => {
+    setFullscreen(false);
+    setSelectedTemplate(null);
+    setDashboardTabs([]);
+    setEditingImageWidget(null);
+    setEditingSankeyWidget(null);
+    setPage("login");
+  };
 
   // =====================================
   // APPLY DARK MODE
@@ -434,6 +478,12 @@ export default function App() {
                 setEditingSankeyWidget={
                   setEditingSankeyWidget
                 }
+                editReturnPage={
+                  templateEditReturnPage
+                }
+                onTemplateUpdated={
+                  handleTemplateUpdated
+                }
               />
             </Layout>
           </ProtectedRoute>
@@ -452,7 +502,12 @@ export default function App() {
               toggleTheme={toggleTheme}
             >
               <TemplateList
-                setPage={setPage}
+                setPage={(nextPage) => {
+                  if (nextPage === "editor") {
+                    setTemplateEditReturnPage("templates");
+                  }
+                  setPage(nextPage);
+                }}
                 setSelectedTemplate={
                   setSelectedTemplate
                 }
@@ -470,7 +525,13 @@ export default function App() {
       // DEVICE MANAGEMENT
       case "device-management":
         return (
-          <ProtectedRoute roles={["superadmin"]}>
+          <ProtectedRoute
+            roles={[
+              "superadmin",
+              "admin",
+              "editor",
+            ]}
+          >
             <Layout
               setPage={handleNavigate}
               currentPage={page}
@@ -573,7 +634,12 @@ export default function App() {
                 setFullscreen={
                   setFullscreen
                 }
-                setPage={setPage}
+                setPage={(nextPage) => {
+                  if (nextPage === "editor") {
+                    setTemplateEditReturnPage("dashboard");
+                  }
+                  setPage(nextPage);
+                }}
               />
             </Layout>
           </ProtectedRoute>
@@ -586,6 +652,10 @@ export default function App() {
       <div key={page} className="app-route-frame">
         {renderPage()}
       </div>
+
+      <SessionExpiryModal
+        onExitToLogin={handleSessionExitToLogin}
+      />
 
       <AppFeedback />
     </>

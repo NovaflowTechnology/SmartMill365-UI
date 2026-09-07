@@ -28,6 +28,7 @@ const DEFAULT_DISPLAY = {
   alignment: "left",
   valueSize: "xlarge",
   valueColor: "default",
+  customValueColor: "#0F172A",
   trendThreshold: null,
 
   // Combined Stat + Machine Status
@@ -38,7 +39,7 @@ const DEFAULT_DISPLAY = {
   mappings: [
     { value: 0, text: "OFF", color: "red" },
     { value: 1, text: "MANUAL", color: "amber" },
-    { value: 2, text: "AUTO", color: "cyan" },
+    { value: 2, text: "AUTO", color: "green" },
     { value: 3, text: "MANUAL INLET", color: "purple" },
   ],
 
@@ -85,12 +86,10 @@ const statusTone = {
     dot: "bg-[#58D7FF]",
   },
   green: {
-    // Backward-compatible alias: old saved "green" mappings now use cyan
-    // so legacy templates also follow the unified widget palette.
-    text: "text-cyan-700 dark:text-[#58D7FF]",
+    text: "text-emerald-600 dark:text-emerald-400",
     badge:
-      "border-cyan-300/50 bg-cyan-100/60 dark:border-[#58D7FF]/30 dark:bg-[#58D7FF]/10",
-    dot: "bg-[#58D7FF]",
+      "border-emerald-300/50 bg-emerald-50 dark:border-emerald-400/30 dark:bg-emerald-400/10",
+    dot: "bg-emerald-500",
   },
   blue: {
     text: "text-blue-700 dark:text-[#7D75E7]",
@@ -649,10 +648,26 @@ export default function NumStatWidget({
       : "self-start";
 
   const valueColorClass =
-    valueColorClasses[
-      settings.valueColor
-    ] ||
-    valueColorClasses.default;
+    settings.valueColor === "custom"
+      ? ""
+      : valueColorClasses[
+          settings.valueColor
+        ] ||
+        valueColorClasses.default;
+
+  const customValueStyle =
+    settings.valueColor === "custom" &&
+    /^#[0-9a-fA-F]{6}$/.test(
+      String(
+        settings.customValueColor ||
+          ""
+      )
+    )
+      ? {
+          color:
+            settings.customValueColor,
+        }
+      : undefined;
 
   const TrendIcon =
     trend === "up"
@@ -672,7 +687,7 @@ export default function NumStatWidget({
     return (
       <div
         ref={rootRef}
-        className={`${TECH_SURFACE_CLASS} ${
+        className={`${TECH_SURFACE_CLASS} border border-slate-200/80 dark:border-slate-700/70 ${
           tiny
             ? "p-2.5"
             : compact
@@ -680,8 +695,6 @@ export default function NumStatWidget({
             : "p-3.5"
         }`}
       >
-        <TechBackdrop />
-
         <div
           className={`
             relative z-10
@@ -693,79 +706,41 @@ export default function NumStatWidget({
           {renderWidgetLabel()}
 
           {/*
-            Keep the mapped status visually compact and intentional.
-            Instead of leaving one bare word floating in a very large empty
-            1×1 card, it sits in a subtle status panel centred in the usable
-            content area.
+            Value Mapping intentionally follows a simple status-card layout:
+            widget label at the top and the mapped operating state centered
+            in the remaining space. No nested badge/card is used, so the
+            widget stays clean in both light and dark themes.
           */}
-          <div
-            className="
-              flex min-h-0
-              flex-1 items-center
-              w-full py-1
-            "
-          >
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center px-2 py-2">
             <div
               className={`
-                ${mappingSelfAlignClass}
-                inline-flex
-                max-w-[88%]
-                flex-col
-                ${
-                  horizontalAlignment ===
-                  "center"
-                    ? "items-center text-center"
-                    : horizontalAlignment ===
-                      "right"
-                    ? "items-end text-right"
-                    : "items-start text-left"
-                }
-                rounded-xl border
-                ${
-                  tiny
-                    ? "px-3 py-2"
-                    : compact
-                    ? "px-4 py-2.5"
-                    : "px-5 py-3"
-                }
-                ${statusClass.badge}
+                max-w-full
+                whitespace-normal
+                break-words
+                text-center
+                font-medium
+                leading-[1.08]
+                tracking-[0.01em]
+                ${mappingValueSizeClass}
+                ${statusClass.text}
               `}
+              title={currentStatus.text}
             >
-              <div
-                className={`
-                  max-w-full
-                  whitespace-normal
-                  break-words
-                  font-bold
-                  leading-[1.05]
-                  tracking-[-0.025em]
-                  ${mappingValueSizeClass}
-                  ${statusClass.text}
-                `}
-                title={
-                  currentStatus.text
-                }
-              >
-                {currentStatus.text}
-              </div>
-
-              {settings.showRawValue && (
-                <div
-                  className={`
-                    mt-1.5
-                    text-[10px]
-                    font-medium
-                    ${TECH_MUTED_CLASS}
-                  `}
-                >
-                  Raw value:{" "}
-                  {String(
-                    value ?? "—"
-                  )}
-                </div>
-              )}
+              {currentStatus.text}
             </div>
           </div>
+
+          {settings.showRawValue && (
+            <div
+              className={`
+                w-full pb-0.5 text-center
+                text-[10px] font-medium
+                ${TECH_MUTED_CLASS}
+              `}
+            >
+              Raw value: {String(value ?? "—")}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -832,6 +807,7 @@ export default function NumStatWidget({
     compactLayout = false,
   } = {}) => (
     <div
+      style={customValueStyle}
       className={`
         flex w-full min-w-0
         max-w-full flex-wrap

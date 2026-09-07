@@ -42,6 +42,7 @@ export default function LinearGaugeWidget({
   label = "Value",
   dataKey = "",
   rangeConfig,
+  display = {},
 }) {
   const rootRef = useRef(null);
   const { tiny, compact, wide } = useWidgetSize(rootRef);
@@ -95,21 +96,18 @@ export default function LinearGaugeWidget({
 
   const statusMeta = {
     normal: {
-      label: "Normal",
       marker: "#3B82F6",
       fillStart: "#2563EB",
       fillEnd: "#4F46E5",
       text: "text-blue-600 dark:text-blue-300",
     },
     warning: {
-      label: "Warning",
       marker: "#F59E0B",
       fillStart: "#D97706",
       fillEnd: "#F59E0B",
       text: "text-amber-600 dark:text-amber-300",
     },
     danger: {
-      label: "Critical",
       marker: "#F43F5E",
       fillStart: "#E11D48",
       fillEnd: "#F43F5E",
@@ -117,18 +115,67 @@ export default function LinearGaugeWidget({
     },
   }[status];
 
+  const resolveColor = (
+    value,
+    fallback
+  ) =>
+    /^#[0-9a-fA-F]{6}$/.test(
+      String(value || "")
+    )
+      ? value
+      : fallback;
+
+  const customStatusColors = {
+    normal: resolveColor(
+      display?.normalColor ||
+        display?.customColor,
+      "#3B82F6"
+    ),
+    warning: resolveColor(
+      display?.warningColor,
+      "#F59E0B"
+    ),
+    danger: resolveColor(
+      display?.dangerColor,
+      "#F43F5E"
+    ),
+  };
+
+  const selectedStatusColor =
+    customStatusColors[status];
+
+  const visualMeta =
+    display?.colorMode === "custom"
+      ? {
+          ...statusMeta,
+          marker:
+            selectedStatusColor,
+          fillStart:
+            selectedStatusColor,
+          fillEnd:
+            selectedStatusColor,
+        }
+      : statusMeta;
+
   const markerVisualPercent = clamp(percentage, 2, 98);
   const currentLabelPercent = clamp(percentage, 10, 90);
 
   return (
     <div
       ref={rootRef}
-      className={`${TECH_SURFACE_CLASS} ${tiny ? "p-3" : compact ? "p-4" : "p-5"}`}
+      className={`${TECH_SURFACE_CLASS} ${
+        tiny
+          ? "p-3 pb-2"
+          : compact
+          ? "p-4 pb-2.5"
+          : "p-5 pb-3"
+      }`}
     >
       <TechBackdrop />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col">
-        <div className="flex items-start justify-between gap-3">
+        {/* Header */}
+        <div className="shrink-0">
           <div className="min-w-0">
             <div
               className={`${TECH_HEADER_CLASS} truncate ${
@@ -139,7 +186,7 @@ export default function LinearGaugeWidget({
               {label}
             </div>
 
-            {!tiny && dataKey && (
+            {!tiny && dataKey && !String(label || "").trim() && (
               <div
                 className={`mt-0.5 truncate text-[10px] ${TECH_MUTED_CLASS}`}
                 title={dataKey}
@@ -148,28 +195,21 @@ export default function LinearGaugeWidget({
               </div>
             )}
           </div>
-
-          {!tiny && (
-            <div
-              className={`shrink-0 text-[9px] font-bold uppercase tracking-[0.14em] ${statusMeta.text}`}
-            >
-              {statusMeta.label}
-            </div>
-          )}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col justify-center">
-          <div className={tiny ? "mt-3" : "mt-5"}>
+        {/* Gauge area */}
+        <div className="flex min-h-0 flex-1 items-center">
+          <div className="w-full">
             <div className="relative px-1 pb-9 pt-4">
               {/* Main neutral range track */}
               <div className="relative h-3 rounded-full bg-slate-100 shadow-inner dark:bg-slate-700/80">
-                {/* Tapered active range. This intentionally looks more like a range indicator than a progress bar. */}
+                {/* Active range */}
                 <div
                   className="absolute inset-y-0 left-0 rounded-l-full transition-[width] duration-500 ease-out"
                   style={{
                     width: `${percentage}%`,
                     minWidth: percentage > 0 ? "6px" : "0px",
-                    background: `linear-gradient(90deg, ${statusMeta.fillStart}, ${statusMeta.fillEnd})`,
+                    background: `linear-gradient(90deg, ${visualMeta.fillStart}, ${visualMeta.fillEnd})`,
                     clipPath:
                       percentage > 3
                         ? "polygon(0 28%, 100% 0, 100% 100%, 0 72%)"
@@ -180,12 +220,14 @@ export default function LinearGaugeWidget({
                 {/* Minimum reference dot */}
                 <div className="absolute left-0 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-600 shadow-sm dark:border-slate-900" />
 
-                {/* Optional threshold markers */}
+                {/* Threshold markers */}
                 {warningPercent !== null && (
                   <div
                     className="absolute -top-2 h-2.5 w-[2px] -translate-x-1/2 rounded-full bg-amber-400"
                     style={{ left: `${warningPercent}%` }}
-                    title={`Warning ${formatValue(warning)}${unit ? ` ${unit}` : ""}`}
+                    title={`Warning ${formatValue(warning)}${
+                      unit ? ` ${unit}` : ""
+                    }`}
                   />
                 )}
 
@@ -193,7 +235,9 @@ export default function LinearGaugeWidget({
                   <div
                     className="absolute -top-2 h-2.5 w-[2px] -translate-x-1/2 rounded-full bg-rose-500"
                     style={{ left: `${dangerPercent}%` }}
-                    title={`Danger ${formatValue(danger)}${unit ? ` ${unit}` : ""}`}
+                    title={`Danger ${formatValue(danger)}${
+                      unit ? ` ${unit}` : ""
+                    }`}
                   />
                 )}
 
@@ -206,12 +250,12 @@ export default function LinearGaugeWidget({
                     className={`rounded-full border-[4px] border-white shadow-[0_2px_8px_rgba(15,23,42,0.22)] dark:border-slate-900 ${
                       tiny ? "h-5 w-5" : compact ? "h-6 w-6" : "h-7 w-7"
                     }`}
-                    style={{ backgroundColor: statusMeta.marker }}
+                    style={{ backgroundColor: visualMeta.marker }}
                   />
                 </div>
               </div>
 
-              {/* Scale labels */}
+              {/* Scale labels directly under the gauge */}
               <div className="absolute inset-x-1 bottom-0 h-7 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
                 <span className="absolute left-0 top-1 whitespace-nowrap">
                   {formatValue(min)}
@@ -235,9 +279,12 @@ export default function LinearGaugeWidget({
               </div>
             </div>
           </div>
+        </div>
 
-          {!tiny && (warning !== null || danger !== null) && (
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[9px] text-slate-400 dark:text-slate-500">
+        {/* Threshold legend pinned to the bottom */}
+        {!tiny && (warning !== null || danger !== null) && (
+          <div className="relative top-1 shrink-0 pt-2">
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[9px] text-slate-400 dark:text-slate-500">
               {warning !== null && (
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
@@ -254,8 +301,8 @@ export default function LinearGaugeWidget({
                 </span>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

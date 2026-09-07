@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -10,22 +10,19 @@ import {
   EQUIPMENT_LIBRARY,
 } from "../process/equipmentLibrary";
 import "../process/processVisualization.css";
+import { TECH_SURFACE_CLASS } from "./widgetTech";
 
 export const DEFAULT_PROCESS_EQUIPMENT_CONFIG = {
   equipmentType: "sterilizer",
   displayMode: "detailed", // detailed (focused) | compact | visual
   metricBindings: {},
 
-  // Primary measurement is intentionally independent from the equipment
-  // library. Users can name any process value and unit they actually have.
   primaryMeasurement: {
     label: "",
     unit: "",
     dataKey: "",
   },
 
-  // Legacy/internal semantic ids are retained for old templates and for
-  // optionally feeding a known equipment animation. They are not required.
   primaryMetricId: "",
   statusMetricId: "",
   showStatus: true,
@@ -33,9 +30,9 @@ export const DEFAULT_PROCESS_EQUIPMENT_CONFIG = {
   showRangeIndicator: true,
   showTrend: true,
   trendPoints: 28,
+  customImageSrc: "",
+  customImageName: "",
 
-  // Legacy fields are retained so older saved templates remain compatible.
-  // The focused design no longer renders a secondary-metric list.
   showMetrics: false,
   maxMetrics: 3,
 };
@@ -157,6 +154,8 @@ export const normalizeProcessEquipmentConfig = (config = {}) => {
     showRangeIndicator:
       config?.showRangeIndicator !== false,
     showTrend: config?.showTrend !== false,
+    customImageSrc: String(config?.customImageSrc || ""),
+    customImageName: String(config?.customImageName || ""),
     trendPoints: clamp(
       Number(config?.trendPoints) || 28,
       8,
@@ -199,6 +198,36 @@ const useDarkMode = () => {
   }, []);
 
   return dark;
+};
+
+const EquipmentVisualContent = ({
+  config,
+  values = {},
+  alarmState = "normal",
+  dark = false,
+}) => {
+  if (config?.customImageSrc) {
+    return (
+      <img
+        src={config.customImageSrc}
+        alt={config.customImageName || "Custom equipment"}
+        className="h-full w-full object-contain"
+        draggable={false}
+      />
+    );
+  }
+
+  return (
+    <ProcessEquipmentVisual
+      type={config?.equipmentType}
+      values={values}
+      alarmState={alarmState}
+      monitoring
+      motionEnabled
+      forceMotion
+      dark={dark}
+    />
+  );
 };
 
 const formatNumber = (value) => {
@@ -529,7 +558,12 @@ const RangeIndicator = ({
   );
 };
 
-const MiniTrend = ({ series, state, grow = false }) => {
+const MiniTrend = ({
+  series,
+  state,
+  grow = false,
+  dense = false,
+}) => {
   const points = buildSparklinePoints(series);
   const meta = statusMeta(state);
 
@@ -537,7 +571,9 @@ const MiniTrend = ({ series, state, grow = false }) => {
     return (
       <div
         className={`${
-          grow ? "mt-3 flex min-h-[72px] flex-1" : "mt-3 h-11"
+          grow
+            ? `${dense ? "mt-2 min-h-[48px]" : "mt-3 min-h-[72px]"} flex flex-1`
+            : "mt-3 h-11"
         } items-center justify-center rounded-xl border border-dashed border-slate-200 text-[8px] font-semibold text-slate-400 dark:border-slate-700`}
       >
         Waiting for history
@@ -555,8 +591,10 @@ const MiniTrend = ({ series, state, grow = false }) => {
   return (
     <div
       className={`${
-        grow ? "mt-3 flex min-h-[78px] flex-1 flex-col" : "mt-3"
-      } rounded-xl bg-slate-50/80 px-2.5 py-2 dark:bg-[#0B1328]`}
+        grow
+          ? `${dense ? "mt-2 min-h-[52px]" : "mt-3 min-h-[78px]"} flex flex-1 flex-col`
+          : "mt-3"
+      } rounded-lg bg-slate-50/80 px-2.5 ${dense ? "py-1.5" : "py-2"} dark:bg-[#0B1328]`}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[8px] font-black uppercase tracking-[0.08em] text-slate-400">
@@ -575,7 +613,7 @@ const MiniTrend = ({ series, state, grow = false }) => {
         preserveAspectRatio="none"
         className={
           grow
-            ? "min-h-[48px] w-full flex-1 overflow-visible"
+            ? `${dense ? "min-h-[28px]" : "min-h-[48px]"} w-full flex-1 overflow-visible`
             : "h-8 w-full overflow-visible"
         }
         aria-label="Recent measurement trend"
@@ -608,6 +646,11 @@ export default function ProcessEquipmentWidget({
   history = [],
   item = {},
 }) {
+  const rootRef = useRef(null);
+  const [widgetSize, setWidgetSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const dark = useDarkMode();
   const config = useMemo(
     () =>
@@ -712,10 +755,36 @@ export default function ProcessEquipmentWidget({
     "Process Equipment";
   const displayUnit =
     range.unit || primaryForDisplay?.metric?.unit || "";
+  const denseDetailed =
+    widgetSize.height > 0 && widgetSize.height < 310;
+
+  useEffect(() => {
+    const element = rootRef.current;
+    if (!element) return undefined;
+
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      setWidgetSize({
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+
+    update();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [config.displayMode]);
 
   if (config.displayMode === "visual") {
     return (
-      <div className="relative flex h-full w-full min-h-0 flex-col overflow-hidden p-3">
+      <div ref={rootRef} className={`${TECH_SURFACE_CLASS} flex min-h-0 flex-col p-3`}>
         {(config.showEquipmentLabel || config.showStatus) && (
           <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
             {config.showEquipmentLabel ? (
@@ -733,11 +802,10 @@ export default function ProcessEquipmentWidget({
         )}
 
         <div className="min-h-0 flex-1">
-          <ProcessEquipmentVisual
-            type={config.equipmentType}
+          <EquipmentVisualContent
+            config={config}
             values={visualValues}
             alarmState={overallState}
-            monitoring
             dark={dark}
           />
         </div>
@@ -747,13 +815,12 @@ export default function ProcessEquipmentWidget({
 
   if (config.displayMode === "compact") {
     return (
-      <div className="grid h-full min-h-0 w-full grid-cols-[minmax(72px,0.4fr)_minmax(0,0.6fr)] gap-2 overflow-hidden p-3">
+      <div ref={rootRef} className={`${TECH_SURFACE_CLASS} grid min-h-0 grid-cols-[minmax(72px,0.4fr)_minmax(0,0.6fr)] gap-2 p-3`}>
         <div className="min-h-0 overflow-hidden rounded-xl bg-slate-50/70 dark:bg-[#0B1328]">
-          <ProcessEquipmentVisual
-            type={config.equipmentType}
+          <EquipmentVisualContent
+            config={config}
             values={visualValues}
             alarmState={overallState}
-            monitoring
             dark={dark}
           />
         </div>
@@ -808,57 +875,52 @@ export default function ProcessEquipmentWidget({
     );
   }
 
-  // Focused / Detailed mode: one equipment visual + one important process
-  // measurement. This intentionally avoids empty secondary-metric panels when
-  // an installation only exposes pressure (or another single channel).
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden p-3">
-      {(config.showEquipmentLabel || config.showStatus) && (
-        <div className="flex shrink-0 items-start justify-between gap-2">
-          <div className="min-w-0">
-            {config.showEquipmentLabel && (
-              <div className="truncate text-[12px] font-black text-slate-900 dark:text-slate-100">
-                {label}
-              </div>
-            )}
-            <div className="mt-0.5 truncate text-[8px] font-bold uppercase tracking-[0.12em] text-slate-400">
-              {definition.category || "Process Equipment"}
-            </div>
+    <div
+      ref={rootRef}
+      className={`${TECH_SURFACE_CLASS} flex min-h-0 flex-col ${
+        denseDetailed ? "p-2.5" : "p-3"
+      }`}
+    >
+      {config.showEquipmentLabel && (
+        <div className="shrink-0 min-w-0">
+          <div className="truncate text-[12px] font-black text-slate-900 dark:text-slate-100">
+            {label}
           </div>
-
-          {config.showStatus && (
-            <StatusBadge state={overallState} />
-          )}
         </div>
       )}
 
-      <div className="mt-2 grid min-h-0 flex-1 grid-cols-[minmax(0,0.46fr)_minmax(0,0.54fr)] gap-3">
-        <div className="flex min-h-0 min-w-0 items-stretch justify-stretch overflow-hidden rounded-2xl bg-slate-50/80 p-2 dark:bg-[#0B1328]">
-          <div className="h-full min-h-0 w-full">
-            <ProcessEquipmentVisual
-              type={config.equipmentType}
+      <div className={`${denseDetailed ? "mt-1.5 gap-2" : "mt-2 gap-3"} grid min-h-0 flex-1 grid-cols-[minmax(0,0.44fr)_minmax(0,0.56fr)]`}>
+        <div className="flex min-h-0 min-w-0 items-stretch justify-stretch overflow-hidden rounded-lg bg-slate-50/80 p-0.5 dark:bg-[#0B1328]">
+          <div className="h-full min-h-0 w-full scale-[1.18]">
+            <EquipmentVisualContent
+              config={config}
               values={visualValues}
               alarmState={overallState}
-              monitoring
               dark={dark}
             />
           </div>
         </div>
 
         <div
-          className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white/75 p-3 dark:border-slate-700/80 dark:bg-slate-900/45 ${
+          className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white/75 ${denseDetailed ? "p-2.5" : "p-3"} dark:border-slate-700/80 dark:bg-slate-900/45 ${
             config.showTrend ? "" : "justify-center"
           }`}
         >
           {primaryForDisplay?.dataKey ? (
             <>
               <div className="min-w-0 shrink-0">
-                <div className="break-words text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">
-                  {metricLabel(primaryForDisplay.metric)}
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="min-w-0 break-words text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">
+                    {metricLabel(primaryForDisplay.metric)}
+                  </div>
+                  {config.showStatus && (
+                    <StatusBadge state={overallState} />
+                  )}
                 </div>
 
-                <div className="mt-1.5 flex min-w-0 items-baseline gap-1.5">
-                  <span className="truncate text-[clamp(2rem,4vw,3rem)] font-black leading-none tracking-tight text-slate-900 dark:text-white">
+                <div className={`${denseDetailed ? "mt-1" : "mt-1.5"} flex min-w-0 items-baseline gap-1.5`}>
+                  <span className={`truncate ${denseDetailed ? "text-3xl" : "text-4xl"} font-black leading-none text-slate-900 dark:text-white`}>
                     {formatValue(
                       primaryForDisplay.value,
                       primaryForDisplay.metric
@@ -877,6 +939,7 @@ export default function ProcessEquipmentWidget({
                   value={primaryForDisplay.value}
                   range={range}
                   state={overallState}
+                  compact={denseDetailed}
                 />
               )}
 
@@ -885,6 +948,7 @@ export default function ProcessEquipmentWidget({
                   series={trendSeries}
                   state={overallState}
                   grow
+                  dense={denseDetailed}
                 />
               )}
             </>

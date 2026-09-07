@@ -698,18 +698,21 @@ export default function OrganizationManagement({ dark = false }) {
 
   return (
     <div
-      className="
+      className={`
         organization-management-page
-        min-h-full
         w-full
-        overflow-auto
         bg-transparent
         p-3
         text-[13px]
         text-gray-900
-        dark:bg-[#081022]
+        dark:bg-transparent
         dark:text-slate-100
-      "
+        ${
+          isAdmin
+            ? "flex h-[calc(100vh-1.25rem)] min-h-0 flex-col overflow-hidden"
+            : "min-h-full overflow-auto"
+        }
+      `}
     >
       <style>{`
           .dark .organization-management-page {
@@ -942,15 +945,15 @@ export default function OrganizationManagement({ dark = false }) {
 
           /* Dark badges should stay dark; color belongs to the text/accent, not a pale fill. */
           .dark .organization-management-page .access-control-badge {
-            background-color: #13233d !important;
-            color: #d8c4ff !important;
-            border: 1px solid #34476f !important;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+            background-color: rgba(168, 85, 247, 0.15) !important;
+            color: #c084fc !important;
+            border: 0 !important;
+            box-shadow: none !important;
           }
 
           .dark .organization-management-page .access-control-badge:hover {
-            background-color: #182a49 !important;
-            color: #eadfff !important;
+            background-color: rgba(168, 85, 247, 0.2) !important;
+            color: #d8b4fe !important;
           }
 
           /* Three administration action panels only */
@@ -1124,7 +1127,7 @@ export default function OrganizationManagement({ dark = false }) {
             ? "Manage organizations, template assignments, and users."
             : `Manage users within ${currentOrgName || "your organization"}.`
         }
-        className="mb-3"
+        className="mb-3 shrink-0"
         actions={
           <button
             type="button"
@@ -1177,7 +1180,7 @@ export default function OrganizationManagement({ dark = false }) {
 
       {/* ADMINISTRATION ACTIONS */}
       <div
-        className="
+        className={`
           administration-card org-surface
           bg-white
           border
@@ -1185,7 +1188,8 @@ export default function OrganizationManagement({ dark = false }) {
           shadow-sm
           mb-3
           overflow-hidden
-        "
+          ${isAdmin ? "shrink-0" : ""}
+        `}
       >
         {/* SECTION HEADER */}
         <div
@@ -2235,7 +2239,13 @@ export default function OrganizationManagement({ dark = false }) {
             No organizations found.
           </div>
         ) : (
-          <div className="max-h-[360px] overflow-auto overscroll-contain">
+          <div
+            className={
+              isAdmin
+                ? "min-h-0 flex-1 overflow-auto overscroll-contain"
+                : "max-h-[360px] overflow-auto overscroll-contain"
+            }
+          >
             <table className="w-full text-xs">
               <thead
                 className="
@@ -2692,17 +2702,23 @@ export default function OrganizationManagement({ dark = false }) {
 
       {/* SELECTED ORGANIZATION USER LIST */}
       <div
-        className="
+        className={`
           user-list-card org-surface
           bg-white
           border
           rounded-xl
           shadow-sm
           overflow-hidden
-        "
+          ${
+            isAdmin
+              ? "flex min-h-0 flex-1 flex-col"
+              : ""
+          }
+        `}
       >
         <div
           className="
+            shrink-0
             px-3 py-2.5
             border-b
             border-gray-200
@@ -2784,11 +2800,23 @@ export default function OrganizationManagement({ dark = false }) {
         </div>
 
         {!selectedOrg ? (
-          <div className="p-4 text-xs text-gray-500 dark:text-gray-400">
+          <div
+            className={`p-4 text-xs text-gray-500 dark:text-gray-400 ${
+              isAdmin
+                ? "flex min-h-0 flex-1 items-center justify-center text-center"
+                : ""
+            }`}
+          >
             Please select an organization from the list above.
           </div>
         ) : selectedOrgUsers.length === 0 ? (
-          <div className="p-4 text-xs text-gray-500 dark:text-gray-400">
+          <div
+            className={`p-4 text-xs text-gray-500 dark:text-gray-400 ${
+              isAdmin
+                ? "flex min-h-0 flex-1 items-center justify-center text-center"
+                : ""
+            }`}
+          >
             No users found in this organization.
           </div>
         ) : (

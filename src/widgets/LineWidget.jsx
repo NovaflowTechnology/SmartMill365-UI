@@ -61,6 +61,8 @@ const DEFAULT_CHART_DISPLAY = {
   showLatestValues: true,
   showZeroLine: false,
   autoScalePerSeries: false,
+  yAxisLayout: "shared",
+  yAxisAssignments: {},
 };
 
 const normaliseTimestamp = (value) => {
@@ -619,9 +621,19 @@ export default function LineWidget({
   const widgetId =
     useId().replace(/:/g, "");
 
+  const requestedYAxisLayout =
+    chartDisplay?.yAxisLayout === "dual" ||
+    chartDisplay?.autoScalePerSeries === true
+      ? "dual"
+      : "shared";
+
   const display = {
     ...DEFAULT_CHART_DISPLAY,
     ...(chartDisplay || {}),
+    yAxisLayout: requestedYAxisLayout,
+    yAxisAssignments: {
+      ...(chartDisplay?.yAxisAssignments || {}),
+    },
   };
 
   const chartStyle =
@@ -811,6 +823,9 @@ export default function LineWidget({
     }
   );
 
+  const moveLatestValuesToBottom =
+    visibleLines.length > 2;
+
   const isSingleSeries =
     visibleLines.length === 1;
 
@@ -984,10 +999,8 @@ export default function LineWidget({
           gridYAxisTickCount
         );
 
-  const useMultipleAxes =
-    Boolean(
-      display.autoScalePerSeries
-    ) &&
+  const useDualAxes =
+    display.yAxisLayout === "dual" &&
     visibleLines.length > 1 &&
     !tiny;
 
@@ -995,74 +1008,141 @@ export default function LineWidget({
     width / 12
   )}-${Math.round(height / 12)}`;
 
-  const axisDefinitions =
-    useMultipleAxes
-      ? visibleLines.map(
-          (line, index) => {
-            const range =
-              getRangeForKey(line.key);
+  const getSeriesAxisSide = (
+    line,
+    index
+  ) => {
+    const saved =
+      display.yAxisAssignments?.[
+        line.key
+      ];
 
-            const rawDomain =
-              display.yAxisMode ===
-              "custom"
-                ? [
-                    display.yAxisMin === ""
-                      ? range.min
-                      : toFiniteNumber(
-                          display.yAxisMin,
-                          range.min
-                        ),
-                    display.yAxisMax === ""
-                      ? range.max
-                      : toFiniteNumber(
-                          display.yAxisMax,
-                          range.max
-                        ),
-                  ]
-                : display.yAxisMode ===
-                  "range"
-                ? [
-                    range.min,
-                    range.max,
-                  ]
-                : getSeriesDomain(
-                    chartData,
-                    line.key,
-                    range
-                  );
+    if (
+      saved === "left" ||
+      saved === "right"
+    ) {
+      return saved;
+    }
 
-            const niceAxis =
-              display.yAxisMode ===
-              "custom"
-                ? {
-                    domain:
-                      rawDomain,
-                    ticks:
-                      undefined,
-                  }
-                : buildNiceAxis(
-                    rawDomain,
-                    gridYAxisTickCount
-                  );
+    return index % 2 === 0
+      ? "left"
+      : "right";
+  };
 
-            return {
-              id: `series-${index}`,
-              key: line.key,
-              orientation:
-                index % 2 === 0
-                  ? "left"
-                  : "right",
-              domain:
-                niceAxis.domain,
-              ticks:
-                niceAxis.ticks,
-              color:
-                line.color ||
-                "#2563eb",
-              unit: range.unit,
-            };
+  const buildAxisForSide = (
+    side,
+    sideLines
+  ) => {
+    const keys = sideLines.map(
+      (line) => line.key
+    );
+
+    const ranges = keys.map(
+      (key) => getRangeForKey(key)
+    );
+
+    const configuredMin =
+      ranges.length > 0
+        ? Math.min(
+            ...ranges.map(
+              (range) => range.min
+            )
+          )
+        : 0;
+
+    const configuredMax =
+      ranges.length > 0
+        ? Math.max(
+            ...ranges.map(
+              (range) => range.max
+            )
+          )
+        : 100;
+
+    const sharedUnit =
+      ranges.length > 0 &&
+      ranges.every(
+        (range) =>
+          range.unit ===
+          ranges[0].unit
+      )
+        ? ranges[0].unit
+        : "";
+
+    const rawDomain =
+      display.yAxisMode === "custom"
+        ? [
+            display.yAxisMin === ""
+              ? configuredMin
+              : toFiniteNumber(
+                  display.yAxisMin,
+                  configuredMin
+                ),
+            display.yAxisMax === ""
+              ? configuredMax
+              : toFiniteNumber(
+                  display.yAxisMax,
+                  configuredMax
+                ),
+          ]
+        : display.yAxisMode === "range"
+        ? [
+            configuredMin,
+            configuredMax,
+          ]
+        : getCombinedSeriesDomain(
+            chartData,
+            keys,
+            {
+              min: configuredMin,
+              max: configuredMax,
+            }
+          );
+
+    const niceAxis =
+      display.yAxisMode === "custom"
+        ? {
+            domain: rawDomain,
+            ticks: undefined,
           }
-        )
+        : buildNiceAxis(
+            rawDomain,
+            gridYAxisTickCount
+          );
+
+    return {
+      id: side,
+      orientation: side,
+      domain: niceAxis.domain,
+      ticks: niceAxis.ticks,
+      color:
+        sideLines[0]?.color ||
+        "#2563eb",
+      unit: sharedUnit,
+    };
+  };
+
+  const axisDefinitions =
+    useDualAxes
+      ? ["left", "right"]
+          .map((side) => {
+            const sideLines =
+              visibleLines.filter(
+                (line, index) =>
+                  getSeriesAxisSide(
+                    line,
+                    index
+                  ) === side
+              );
+
+            return sideLines.length > 0
+              ? buildAxisForSide(
+                  side,
+                  sideLines
+                )
+              : null;
+          })
+          .filter(Boolean)
       : [
           {
             id: "primary",
@@ -1078,6 +1158,7 @@ export default function LineWidget({
             unit: leftRange.unit,
           },
         ];
+
 
   /*
    * Minor grid lines are separate from axis labels.
@@ -1231,10 +1312,10 @@ export default function LineWidget({
                 <AreaChart
                   data={chartData}
                   margin={{
-                    top: tiny ? 0 : 2,
-                    right: tiny ? 2 : 5,
-                    left: tiny ? 2 : 6,
-                    bottom: tiny ? 0 : 2,
+                    top: tiny ? 4 : 10,
+                    right: tiny ? 8 : 34,
+                    left: tiny ? 4 : 8,
+                    bottom: tiny ? 4 : 10,
                   }}
                 >
                   <defs>
@@ -1345,6 +1426,7 @@ export default function LineWidget({
                       }
                       axisLine={false}
                       tickLine={false}
+                      tickMargin={6}
                       minTickGap={Math.max(
                         8,
                         Math.min(
@@ -1372,6 +1454,8 @@ export default function LineWidget({
                       tickFormatter={
                         formatYAxisTick
                       }
+                      tickMargin={4}
+                      interval={0}
                       axisLine={false}
                       tickLine={false}
                       domain={
@@ -1552,123 +1636,74 @@ export default function LineWidget({
         {/* HEADER */}
         <div
           className={`
-            mb-1 min-w-0 pr-14
-            ${tiny ? "px-0.5" : "px-1"}
+            min-w-0 pr-14
+            ${tiny ? "mb-1.5 px-0.5" : compact ? "mb-3 px-1" : "mb-5 px-1"}
           `}
         >
-          <div
-            className="
-              flex min-w-0
-              items-center gap-2
-            "
-          >
-            <div
-              className={`${TECH_HEADER_CLASS} min-w-0 truncate`}
-              title={label}
-            >
-              {label}
-            </div>
-
-            {!tiny && (
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
               <div
-                className="
-                  shrink-0 rounded-full
-                  border border-slate-200
-                  bg-slate-50 px-2 py-0.5
-                  text-[9px] font-medium
-                  text-slate-500
-                  dark:border-slate-700
-                  dark:bg-slate-800
-                  dark:text-slate-300
-                "
+                className={`${TECH_HEADER_CLASS} min-w-0 truncate`}
+                title={label}
               >
-                {historyWindow}
+                {label}
               </div>
-            )}
 
-            {!tiny &&
-              isSingleSeries &&
-              display.showLatestValues &&
-              singleLatestItem && (
+              {!tiny && (
                 <div
                   className="
-                    ml-auto flex
-                    shrink-0 items-center
-                    gap-1.5 text-[9px]
+                    shrink-0 rounded-full
+                    border border-slate-200
+                    bg-slate-50 px-2 py-0.5
+                    text-[9px] font-medium
+                    text-slate-500
+                    dark:border-slate-700
+                    dark:bg-slate-800
+                    dark:text-slate-300
                   "
-                  title={
-                    singleLatestItem.name
-                  }
                 >
-                  <span
-                    className="
-                      h-1.5 w-1.5
-                      rounded-full
-                    "
-                    style={{
-                      backgroundColor:
-                        singleLatestItem.color,
-                    }}
-                  />
-
-                  <span
-                    className="
-                      font-semibold
-                      text-slate-700
-                      dark:text-slate-200
-                    "
-                  >
-                    {
-                      singleLatestItem.formattedValue
-                    }
-                    {singleLatestItem.range.unit
-                      ? ` ${singleLatestItem.range.unit}`
-                      : ""}
-                  </span>
+                  {historyWindow}
                 </div>
               )}
-          </div>
+            </div>
 
-          {!tiny &&
-            !isSingleSeries &&
-            display.showLatestValues &&
-            latestItems.length > 0 && (
-              <div
-                className="
-                  mt-1 flex flex-wrap
-                  gap-x-3.5 gap-y-1
-                "
-              >
-                {latestItems.map(
-                  (item) => (
+            {!tiny &&
+              display.showLatestValues &&
+              !moveLatestValuesToBottom &&
+              latestItems.length > 0 && (
+                <div
+                  className="
+                    relative top-[1px]
+                    ml-auto flex min-w-0
+                    flex-wrap items-center
+                    justify-end gap-x-3 gap-y-1
+                    text-[9px]
+                  "
+                >
+                  {latestItems.map((item) => (
                     <div
                       key={item.key}
-                      className="
-                        flex items-center gap-1.5
-                        text-[9px]
-                      "
+                      className="flex shrink-0 items-center gap-1.5"
+                      title={item.name}
                     >
                       <span
-                        className="
-                          h-1.5 w-1.5
-                          rounded-full
-                        "
+                        className="h-1.5 w-1.5 rounded-full"
                         style={{
-                          backgroundColor:
-                            item.color,
+                          backgroundColor: item.color,
                         }}
                       />
 
-                      <span
-                        className="
-                          max-w-[110px]
-                          truncate
-                          text-slate-600
-                          dark:text-slate-300
-                        "
-                      >
-                        {item.name}
-                      </span>
+                      {!isSingleSeries && (
+                        <span
+                          className="
+                            max-w-[80px] truncate
+                            text-slate-600
+                            dark:text-slate-300
+                          "
+                        >
+                          {item.name}
+                        </span>
+                      )}
 
                       <span
                         className="
@@ -1683,10 +1718,10 @@ export default function LineWidget({
                           : ""}
                       </span>
                     </div>
-                  )
-                )}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+          </div>
         </div>
 
         {/* CHART */}
@@ -1709,26 +1744,26 @@ export default function LineWidget({
               <ComposedChart
                 data={chartData}
                 margin={{
-                  top: tiny ? 0 : 2,
+                  top: tiny ? 4 : 10,
                   right:
-                    useMultipleAxes
-                      ? 18
+                    useDualAxes
+                      ? 54
                       : tiny
-                      ? 2
-                      : 5,
-                  left:
-                    useMultipleAxes
                       ? 8
+                      : 34,
+                  left:
+                    useDualAxes
+                      ? 10
                       : tiny
-                      ? 2
-                      : 6,
+                      ? 4
+                      : 8,
                   bottom:
                     showLegend &&
                     !display.compactLegend
-                      ? 6
+                      ? 12
                       : tiny
-                      ? 0
-                      : 2,
+                      ? 4
+                      : 10,
                 }}
               >
 {/* Background grid is rendered before the series so it stays behind the data. */}
@@ -1807,6 +1842,7 @@ export default function LineWidget({
                     }
                     axisLine={false}
                     tickLine={false}
+                    tickMargin={6}
                     minTickGap={Math.max(
                       8,
                       Math.min(
@@ -1851,13 +1887,15 @@ export default function LineWidget({
                               ? 8
                               : 9,
                           fill:
-                            useMultipleAxes
+                            useDualAxes
                               ? axis.color
                               : TECH_AXIS_STROKE,
                         }}
                         tickFormatter={
                           formatYAxisTick
                         }
+                        tickMargin={4}
+                        interval={0}
                         axisLine={
                           false
                         }
@@ -1871,17 +1909,16 @@ export default function LineWidget({
                           display.yAxisMode !==
                           "auto"
                         }
-                        hide={
-                          useMultipleAxes &&
-                          index > 1 &&
-                          !wide
-                        }
+                        hide={false}
                       />
                     )
                   )}
 
                 {display.showZeroLine && (
                   <ReferenceLine
+                    yAxisId={
+                      primaryAxis?.id
+                    }
                     y={0}
                     stroke="#94a3b8"
                     strokeWidth={0.75}
@@ -1990,8 +2027,11 @@ export default function LineWidget({
                       line.key;
 
                     const axisId =
-                      useMultipleAxes
-                        ? `series-${index}`
+                      useDualAxes
+                        ? getSeriesAxisSide(
+                            line,
+                            index
+                          )
                         : "primary";
 
                     const commonProps = {
@@ -2043,6 +2083,59 @@ export default function LineWidget({
             </ResponsiveContainer>
           )}
         </div>
+
+        {!tiny &&
+          display.showLatestValues &&
+          moveLatestValuesToBottom &&
+          latestItems.length > 0 && (
+            <div
+              className={`
+                mt-1 flex flex-wrap
+                items-center justify-center
+                gap-x-3.5 gap-y-1
+                text-[9px]
+                ${compact ? "px-0" : "px-1"}
+              `}
+            >
+              {latestItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="flex min-w-0 items-center gap-1.5"
+                  title={item.name}
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{
+                      backgroundColor: item.color,
+                    }}
+                  />
+
+                  <span
+                    className="
+                      max-w-[90px] truncate
+                      text-slate-600
+                      dark:text-slate-300
+                    "
+                  >
+                    {item.name}
+                  </span>
+
+                  <span
+                    className="
+                      font-semibold
+                      text-slate-800
+                      dark:text-slate-200
+                    "
+                  >
+                    {item.formattedValue}
+                    {item.range.unit
+                      ? ` ${item.range.unit}`
+                      : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
         {/* COMPACT LEGEND */}
         {showLegend &&

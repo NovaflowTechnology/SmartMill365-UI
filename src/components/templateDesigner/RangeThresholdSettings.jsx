@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export default function RangeThresholdSettings({
   enabled,
   newType,
@@ -7,6 +9,12 @@ export default function RangeThresholdSettings({
   isThresholdEnabled,
   getDefaultThresholdValue,
 }) {
+  const [thresholdEditingState, setThresholdEditingState] =
+    useState({
+      warning: isThresholdEnabled(newRangeConfig.warning),
+      danger: isThresholdEnabled(newRangeConfig.danger),
+    });
+
   if (!enabled) return null;
 
   const updateField = (key, value) => {
@@ -17,6 +25,11 @@ export default function RangeThresholdSettings({
   };
 
   const toggleThreshold = (key, nextEnabled) => {
+    setThresholdEditingState((previous) => ({
+      ...previous,
+      [key]: nextEnabled,
+    }));
+
     setNewRangeConfig((previous) => ({
       ...previous,
       [key]: nextEnabled
@@ -88,7 +101,7 @@ export default function RangeThresholdSettings({
               step="any"
               value={newRangeConfig[field.key] ?? ""}
               onChange={(event) => updateField(field.key, event.target.value)}
-              className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3.5 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+              className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3.5 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-400/10 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
             />
           </div>
         ))}
@@ -103,7 +116,7 @@ export default function RangeThresholdSettings({
           placeholder="Example: bar, psi, °C"
           value={newRangeConfig.unit}
           onChange={(event) => updateField("unit", event.target.value)}
-          className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3.5 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+          className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3.5 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-400/10 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
         />
       </div>
 
@@ -125,9 +138,11 @@ export default function RangeThresholdSettings({
         }}
       >
         {thresholdDefinitions.map((threshold) => {
-          const thresholdEnabled = isThresholdEnabled(
-            newRangeConfig[threshold.key]
-          );
+          const thresholdEnabled =
+            thresholdEditingState[threshold.key] ||
+            isThresholdEnabled(
+              newRangeConfig[threshold.key]
+            );
 
           return (
             <div
@@ -165,7 +180,7 @@ export default function RangeThresholdSettings({
                   onClick={() =>
                     toggleThreshold(threshold.key, !thresholdEnabled)
                   }
-                  className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400/30 ${
+                  className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400/30 ${
                     thresholdEnabled
                       ? threshold.toggleClass
                       : "bg-slate-300 dark:bg-slate-600"

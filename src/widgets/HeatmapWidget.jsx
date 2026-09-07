@@ -20,6 +20,7 @@ const DEFAULT_DISPLAY = {
   heatmapShowValues: false,
   heatmapShowLegend: true,
   heatmapShowTimeLabels: true,
+  heatmapColor: "#0EA5E9",
 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -74,7 +75,49 @@ const average = (values) => {
   return valid.reduce((sum, value) => sum + value, 0) / valid.length;
 };
 
-const getCellPalette = (value, min, max, warning, danger) => {
+const hexToRgb = (
+  value,
+  fallback = {
+    r: 14,
+    g: 165,
+    b: 233,
+  }
+) => {
+  const match =
+    /^#([0-9a-fA-F]{6})$/.exec(
+      String(value || "").trim()
+    );
+
+  if (!match) {
+    return fallback;
+  }
+
+  const hex = match[1];
+
+  return {
+    r: parseInt(
+      hex.slice(0, 2),
+      16
+    ),
+    g: parseInt(
+      hex.slice(2, 4),
+      16
+    ),
+    b: parseInt(
+      hex.slice(4, 6),
+      16
+    ),
+  };
+};
+
+const getCellPalette = (
+  value,
+  min,
+  max,
+  warning,
+  danger,
+  normalColor
+) => {
   if (!Number.isFinite(value)) {
     return {
       backgroundColor: "rgba(148, 163, 184, 0.12)",
@@ -103,8 +146,11 @@ const getCellPalette = (value, min, max, warning, danger) => {
   const ratio = clamp((value - min) / span, 0, 1);
   const alpha = 0.12 + ratio * 0.78;
 
+  const rgb =
+    hexToRgb(normalColor);
+
   return {
-    backgroundColor: `rgba(14, 165, 233, ${alpha.toFixed(3)})`,
+    backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha.toFixed(3)})`,
     color: ratio >= 0.52 ? "#ffffff" : "#0f172a",
     severity: "Normal",
   };
@@ -139,7 +185,19 @@ export default function HeatmapWidget({
     return () => observer.disconnect();
   }, []);
 
-  const display = { ...DEFAULT_DISPLAY, ...(chartDisplay || {}) };
+  const display = {
+    ...DEFAULT_DISPLAY,
+    ...(chartDisplay || {}),
+  };
+
+  const heatmapColor =
+    /^#[0-9a-fA-F]{6}$/.test(
+      String(
+        display.heatmapColor || ""
+      )
+    )
+      ? display.heatmapColor
+      : "#0EA5E9";
   const requestedColumns = clamp(Number(display.heatmapColumns) || 16, 6, 32);
   const responsiveColumns = width < 420
     ? Math.min(requestedColumns, 8)
@@ -289,7 +347,15 @@ export default function HeatmapWidget({
               const labelText = dataLabels?.[key] || key;
               const cells = buckets.map((bucket, bucketIndex) => {
                 const value = average(bucket.rows.map((row) => row?.[key]));
-                const palette = getCellPalette(value, min, max, warning, danger);
+                const palette =
+                  getCellPalette(
+                    value,
+                    min,
+                    max,
+                    warning,
+                    danger,
+                    heatmapColor
+                  );
 
                 return (
                   <div

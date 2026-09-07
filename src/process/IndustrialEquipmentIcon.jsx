@@ -34,6 +34,20 @@ export default function IndustrialEquipmentIcon({
         </Svg>
       );
 
+    case "palm-fruit-bunch":
+      return (
+        <Svg className={className}>
+          <path d="M31 10c4 4 7 8 8 13" {...common} />
+          <path d="M30 11c-5 2-9 5-11 9" {...common} />
+          <ellipse cx="22" cy="29" rx="7" ry="9" {...common} />
+          <ellipse cx="32" cy="25" rx="7" ry="9" {...common} />
+          <ellipse cx="42" cy="30" rx="7" ry="9" {...common} />
+          <ellipse cx="27" cy="40" rx="7" ry="9" {...common} />
+          <ellipse cx="38" cy="41" rx="7" ry="9" {...common} />
+          <path d="M31 8v6M27 9l4 5 5-5" {...common} />
+        </Svg>
+      );
+
     case "sterilizer":
       return (
         <Svg className={className}>
@@ -44,6 +58,7 @@ export default function IndustrialEquipmentIcon({
         </Svg>
       );
 
+    case "process-tank":
     case "tank":
     case "oil-tank":
       return (
@@ -82,6 +97,17 @@ export default function IndustrialEquipmentIcon({
           <circle cx="47" cy="17" r="3" {...common} />
           <circle cx="17" cy="47" r="3" {...common} />
           <circle cx="47" cy="47" r="3" {...common} />
+        </Svg>
+      );
+
+    case "thresher":
+      return (
+        <Svg className={className}>
+          <rect x="7" y="21" width="50" height="24" rx="12" {...common} />
+          <circle cx="19" cy="33" r="8" {...common} />
+          <circle cx="45" cy="33" r="8" {...common} />
+          <path d="M19 25v16M11 33h16M45 25v16M37 33h16" {...common} />
+          <path d="M14 45v8M50 45v8M7 29H3M61 37h-4" {...common} />
         </Svg>
       );
 
@@ -130,6 +156,18 @@ export default function IndustrialEquipmentIcon({
         </Svg>
       );
 
+    case "filter-press":
+      return (
+        <Svg className={className}>
+          <path d="M9 18h46M13 18v32M51 18v32M9 50h46" {...common} />
+          <rect x="17" y="23" width="5" height="22" rx="1" {...common} />
+          <rect x="25" y="23" width="5" height="22" rx="1" {...common} />
+          <rect x="33" y="23" width="5" height="22" rx="1" {...common} />
+          <rect x="41" y="23" width="5" height="22" rx="1" {...common} />
+          <path d="M13 31H5M59 31h-8M18 50v7M46 50v7" {...common} />
+        </Svg>
+      );
+
     case "vacuum-dryer":
       return (
         <Svg className={className}>
@@ -169,6 +207,185 @@ export default function IndustrialEquipmentIcon({
         </Svg>
       );
 
+    case "palm-oil":
+      return (
+        <Svg className={className}>
+          <path d="M32 7c12 16 16 23 16 32 0 10-7 17-16 17s-16-7-16-17c0-9 4-16 16-32z" {...common} />
+          <path d="M24 39c4 6 12 8 18 2" {...common} />
+          <path d="M29 27c2-4 5-7 8-10" {...common} />
+        </Svg>
+      );
+
+    case "fruit-cage":
+      return (
+        <Svg className={className}>
+          <path d="M10 18h42l4 28H14z" {...common} />
+          <path d="M18 22l4 20M28 22l3 20M38 22l2 20M48 22l1 20M15 30h38M16 38h38" {...common} />
+          <circle cx="20" cy="51" r="4" {...common} />
+          <circle cx="48" cy="51" r="4" {...common} />
+        </Svg>
+      );
+
+    case "stripper":
+      return (
+        <Svg className={className}>
+          <rect x="8" y="19" width="48" height="30" rx="5" {...common} />
+          <circle cx="32" cy="34" r="12" {...common} />
+          <path d="M32 22v24M20 34h24M24 26l16 16M40 26L24 42M8 27H3M61 41h-5" {...common} />
+        </Svg>
+      );
+
+    case "vibrating-screen":
+      return (
+        <Svg className={className}>
+          <path d="M9 20h42L44 45H16z" {...common} />
+          <path d="M18 24l-5 17M27 24l-5 17M36 24l-5 17M45 24l-5 17M18 45l-4 9M42 45l4 9" {...common} />
+          <circle cx="54" cy="32" r="6" {...common} />
+        </Svg>
+      );
+
+    case "nut-fibre-separator":
+      return (
+        <Svg className={className}>
+          <path d="M18 11h28l8 12-7 30H17L10 23z" {...common} />
+          <path d="M21 24h24M19 33h28M18 42h29M10 26H4M60 26h-6" {...common} />
+          <circle cx="27" cy="30" r="3" {...common} />
+          <path d="M34 29q8 4 8 11" {...common} />
+        </Svg>
+      );
+
+    case "nut-cracker":
+      return (
+        <Svg className={className}>
+          <rect x="8" y="20" width="48" height="28" rx="4" {...common} />
+          <circle cx="25" cy="34" r="9" {...common} />
+          <circle cx="40" cy="34" r="9" {...common} />
+          <path d="M25 27v14M18 34h14M40 27v14M33 34h14M25 48v8M40 48v8" {...common} />
+        </Svg>
+      );
+
+    case "fibre-cyclone":
+    case "shell-cyclone":
+      return (
+        <Svg className={className}>
+          <path d="M20 10h25l6 8-9 26-10 14-9-14-9-26z" {...common} />
+          <path d="M14 18H5M45 18h14M27 26q13-10 14 2q0 9-12 8q-8-1-5-8" {...common} />
+          <path d="M32 58v4" {...common} />
+        </Svg>
+      );
+
+    case "winnower":
+      return (
+        <Svg className={className}>
+          <rect x="8" y="14" width="48" height="38" rx="4" {...common} />
+          <circle cx="24" cy="33" r="10" {...common} />
+          <path d="M24 23l3 8-3 2-3-2zM34 33l-8 3-2-3 2-3zM24 43l-3-8 3-2 3 2zM14 33l8-3 2 3-2 3zM38 24h11M38 33h14M38 42h9" {...common} />
+        </Svg>
+      );
+
+    case "claybath-separator":
+      return (
+        <Svg className={className}>
+          <rect x="8" y="16" width="48" height="34" rx="4" {...common} />
+          <path d="M12 30h40M12 39h40M18 50v8M46 50v8" {...common} />
+          <circle cx="23" cy="33" r="3" {...common} />
+          <circle cx="41" cy="42" r="3" {...common} />
+        </Svg>
+      );
+
+    case "oil-purifier":
+      return (
+        <Svg className={className}>
+          <path d="M20 9h24l7 10-6 34H19l-6-34z" {...common} />
+          <path d="M22 24h20M24 31h16M27 38h10" {...common} />
+          <circle cx="32" cy="45" r="6" {...common} />
+          <path d="M13 27H5M51 27h8" {...common} />
+        </Svg>
+      );
+
+    case "tray-dryer":
+      return (
+        <Svg className={className}>
+          <rect x="10" y="8" width="44" height="48" rx="4" {...common} />
+          <path d="M16 18h32M16 27h32M16 36h32M16 45h32M16 56v5M48 56v5" {...common} />
+          <circle cx="22" cy="15" r="2" {...common} />
+          <circle cx="32" cy="24" r="2" {...common} />
+          <circle cx="42" cy="33" r="2" {...common} />
+        </Svg>
+      );
+
+    case "kernel-silo":
+    case "crude-oil-tank":
+    case "sludge-tank":
+      return (
+        <Svg className={className}>
+          <ellipse cx="32" cy="12" rx="16" ry="6" {...common} />
+          <path d="M16 12v35c0 5 32 5 32 0V12" {...common} />
+          <ellipse cx="32" cy="47" rx="16" ry="6" {...common} />
+          <path d="M23 53v7M41 53v7M32 6V2" {...common} />
+        </Svg>
+      );
+
+    case "empty-bunch-hopper":
+      return (
+        <Svg className={className}>
+          <path d="M12 13h40L45 43H19z" {...common} />
+          <path d="M19 43l5 15M45 43l-5 15M24 58h16M22 23h20M20 32h24" {...common} />
+        </Svg>
+      );
+
+    case "kernel":
+      return (
+        <Svg className={className}>
+          <ellipse cx="22" cy="26" rx="7" ry="5" {...common} />
+          <ellipse cx="35" cy="23" rx="7" ry="5" {...common} />
+          <ellipse cx="45" cy="31" rx="7" ry="5" {...common} />
+          <ellipse cx="28" cy="39" rx="7" ry="5" {...common} />
+          <ellipse cx="41" cy="43" rx="7" ry="5" {...common} />
+        </Svg>
+      );
+
+    case "shell":
+      return (
+        <Svg className={className}>
+          <path d="M12 29q8-14 16 0q-3 12-16 0zM31 23q8-14 16 0q-3 12-16 0zM23 44q8-14 16 0q-3 12-16 0zM42 41q7-12 14 0q-3 10-14 0z" {...common} />
+        </Svg>
+      );
+
+    case "fibre":
+      return (
+        <Svg className={className}>
+          <path d="M15 52q14-22 4-42M24 54q-9-25 6-42M33 54q13-22 4-42M42 54q-8-23 7-39M51 53q-4-20 4-34" {...common} />
+          <path d="M12 55h46" {...common} />
+        </Svg>
+      );
+
+    case "press-liquor":
+      return (
+        <Svg className={className}>
+          <path d="M18 10h28l5 8v34l-5 7H18l-5-7V18z" {...common} />
+          <path d="M16 34h32M16 44h32M13 25H5M51 25h8" {...common} />
+        </Svg>
+      );
+
+    case "condensate":
+      return (
+        <Svg className={className}>
+          <path d="M32 7c12 16 16 23 16 32 0 10-7 17-16 17s-16-7-16-17c0-9 4-16 16-32z" {...common} />
+          <path d="M24 39q8 9 17 1" {...common} />
+        </Svg>
+      );
+
+    case "custom-equipment":
+      return (
+        <Svg className={className}>
+          <rect x="10" y="17" width="44" height="32" rx="5" {...common} />
+          <circle cx="24" cy="33" r="8" {...common} />
+          <path d="M24 25v16M16 33h16M39 25h9M39 33h9M39 41h6" {...common} />
+          <path d="M16 49v7M48 49v7M10 27H5M59 39h-5" {...common} />
+        </Svg>
+      );
+
     case "junction":
       return (
         <Svg className={className}>
@@ -184,8 +401,10 @@ export default function IndustrialEquipmentIcon({
     default:
       return (
         <Svg className={className}>
-          <rect x="10" y="10" width="44" height="44" rx="8" {...common} />
-          <path d="M20 32h24M32 20v24" {...common} />
+          <rect x="9" y="18" width="46" height="31" rx="5" {...common} />
+          <circle cx="23" cy="33.5" r="8" {...common} />
+          <path d="M23 25.5v16M15 33.5h16M38 26h10M38 34h10M38 42h7" {...common} />
+          <path d="M15 49v7M49 49v7M9 28H4M60 39h-5" {...common} />
         </Svg>
       );
   }

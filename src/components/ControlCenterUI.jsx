@@ -12,7 +12,7 @@ export const cx = (...classes) =>
 
 const metricToneClasses = {
   emerald: {
-    icon: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300",
+    icon: "bg-cyan-50 text-cyan-600 dark:bg-cyan-500/10 dark:text-cyan-300",
     value: "text-slate-950 dark:text-white",
   },
   success: {
@@ -60,8 +60,8 @@ export function PageHeader({
             <div
               className={cx(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                "bg-emerald-50 text-emerald-600",
-                "dark:bg-emerald-500/10 dark:text-emerald-300"
+                "bg-cyan-50 text-cyan-600",
+                "dark:bg-cyan-500/10 dark:text-cyan-300"
               )}
             >
               <Icon size={16} strokeWidth={2} />
@@ -247,13 +247,13 @@ export function Notice({
 
 export const controlClasses = {
   primary:
-    "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60",
+    "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-3 text-xs font-semibold text-white shadow-sm transition-all duration-150 hover:from-blue-700 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-60",
   secondary:
     "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300/40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800",
   danger:
     "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-600 transition-colors duration-150 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-400/20 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20",
   input:
-    "h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-800 outline-none transition-colors duration-150 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+    "h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-800 outline-none transition-colors duration-150 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/15 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
   surface:
     "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900",
 };

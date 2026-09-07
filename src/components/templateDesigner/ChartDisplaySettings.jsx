@@ -4,8 +4,76 @@ export default function ChartDisplaySettings({
   setNewHistoryWindow,
   newChartDisplay,
   setNewChartDisplay,
+  selectedDataKeys = [],
+  dataOptions = [],
 }) {
   if (!["line", "bar"].includes(newType)) return null;
+
+  const selectedSeries = [
+    ...new Set(
+      (selectedDataKeys || []).filter(Boolean)
+    ),
+  ];
+
+  const getSeriesLabel = (key) =>
+    dataOptions.find(
+      (option) => option.key === key
+    )?.label || key;
+
+  const getAxisSide = (key, index) => {
+    const saved =
+      newChartDisplay.yAxisAssignments?.[key];
+
+    if (saved === "left" || saved === "right") {
+      return saved;
+    }
+
+    return index % 2 === 0
+      ? "left"
+      : "right";
+  };
+
+  const setAxisLayout = (layout) => {
+    setNewChartDisplay((previous) => {
+      const assignments = {
+        ...(previous.yAxisAssignments || {}),
+      };
+
+      if (layout === "dual") {
+        selectedSeries.forEach((key, index) => {
+          if (
+            assignments[key] !== "left" &&
+            assignments[key] !== "right"
+          ) {
+            assignments[key] =
+              index % 2 === 0
+                ? "left"
+                : "right";
+          }
+        });
+      }
+
+      return {
+        ...previous,
+        yAxisLayout: layout,
+        autoScalePerSeries:
+          layout === "dual",
+        yAxisAssignments: assignments,
+      };
+    });
+  };
+
+  const setSeriesAxis = (key, side) => {
+    setNewChartDisplay((previous) => ({
+      ...previous,
+      yAxisLayout: "dual",
+      autoScalePerSeries: true,
+      yAxisAssignments: {
+        ...(previous.yAxisAssignments || {}),
+        [key]: side,
+      },
+    }));
+  };
 
   return (
     <div
@@ -579,6 +647,122 @@ export default function ChartDisplaySettings({
           />
         </div>
       </div>
+
+      {newType === "line" && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-800 dark:text-white">
+                Y-axis Layout
+              </div>
+              <p className="mt-0.5 text-[10px] text-slate-400">
+                Use one shared scale or separate left and right scales.
+              </p>
+            </div>
+
+            <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-950">
+              {[
+                {
+                  value: "shared",
+                  label: "Shared",
+                },
+                {
+                  value: "dual",
+                  label: "Dual Axis",
+                },
+              ].map((option) => {
+                const selected =
+                  (newChartDisplay.yAxisLayout ||
+                    (newChartDisplay.autoScalePerSeries
+                      ? "dual"
+                      : "shared")) ===
+                  option.value;
+
+                const disabled =
+                  option.value === "dual" &&
+                  selectedSeries.length < 2;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      setAxisLayout(option.value)
+                    }
+                    className={`h-7 rounded-md px-3 text-[10px] font-semibold transition ${
+                      selected
+                        ? "bg-white text-cyan-700 shadow-sm dark:bg-slate-800 dark:text-cyan-300"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    } disabled:cursor-not-allowed disabled:opacity-35`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {(newChartDisplay.yAxisLayout === "dual" ||
+            newChartDisplay.autoScalePerSeries === true) &&
+            selectedSeries.length > 1 && (
+              <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 dark:border-slate-700">
+                {selectedSeries.map((key, index) => {
+                  const side =
+                    getAxisSide(key, index);
+
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-2.5 py-2 dark:bg-slate-950"
+                    >
+                      <div
+                        className="min-w-0 truncate text-[10px] font-semibold text-slate-700 dark:text-slate-200"
+                        title={getSeriesLabel(key)}
+                      >
+                        {getSeriesLabel(key)}
+                      </div>
+
+                      <div className="inline-flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
+                        {["left", "right"].map(
+                          (axisSide) => (
+                            <button
+                              key={axisSide}
+                              type="button"
+                              onClick={() =>
+                                setSeriesAxis(
+                                  key,
+                                  axisSide
+                                )
+                              }
+                              className={`h-6 rounded px-2 text-[9px] font-bold capitalize transition ${
+                                side === axisSide
+                                  ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300"
+                                  : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                              }`}
+                            >
+                              {axisSide}
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <p className="pt-1 text-[9px] leading-4 text-slate-400">
+                  Series assigned to the same side share that axis scale.
+                </p>
+              </div>
+            )}
+
+          {selectedSeries.length < 2 && (
+            <p className="mt-2 text-[9px] text-slate-400">
+              Select at least two data sources to enable Dual Axis.
+            </p>
+          )}
+        </div>
+      )}
 
       {newType === "line" && (
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">

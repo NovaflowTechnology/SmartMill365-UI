@@ -1374,3 +1374,257 @@
   display: none !important;
   animation: none !important;
 }
+
+/* =========================================================
+   REAL PIPE / CONVEYOR / DIRECTION MOTION
+   ========================================================= */
+
+@keyframes processDirectionDash {
+  to {
+    stroke-dashoffset: -42;
+  }
+}
+
+@keyframes processConveyorRollers {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+.process-direction-line {
+  animation-name: processDirectionDash;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.process-conveyor-rollers {
+  animation-name: processConveyorRollers;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* =========================================================
+   RESTORED EQUIPMENT MOTION
+   ========================================================= */
+
+.equipment-sterilizer-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    equipmentSterilizerCore
+    1.7s
+    ease-in-out
+    infinite;
+}
+
+.equipment-sterilizer-bubbles circle:nth-child(1) {
+  animation:
+    equipmentSterilizerBubble
+    1.55s
+    ease-out
+    infinite;
+}
+
+.equipment-sterilizer-bubbles circle:nth-child(2) {
+  animation:
+    equipmentSterilizerBubble
+    1.55s
+    ease-out
+    .34s
+    infinite;
+}
+
+.equipment-sterilizer-bubbles circle:nth-child(3) {
+  animation:
+    equipmentSterilizerBubble
+    1.55s
+    ease-out
+    .68s
+    infinite;
+}
+
+.equipment-thresher-drum,
+.equipment-separator-spin,
+.equipment-turbine-rotor {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    equipmentVariableSpin
+    var(--equipment-spin-duration, 1.2s)
+    linear
+    infinite;
+}
+
+.equipment-press-motor {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    equipmentPressMotor
+    .55s
+    ease-in-out
+    infinite;
+}
+
+.equipment-digester-scroll,
+.equipment-screw-shaft,
+.equipment-decanter-scroll {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes equipmentSterilizerCore {
+  0%,
+  100% {
+    opacity: .42;
+    transform: scale(.94);
+  }
+
+  50% {
+    opacity: .92;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes equipmentSterilizerBubble {
+  0% {
+    opacity: 0;
+    transform: translateY(7px) scale(.65);
+  }
+
+  20% {
+    opacity: .85;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1.12);
+  }
+}
+
+@keyframes equipmentVariableSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes equipmentPressMotor {
+  0%,
+  100% {
+    transform: translateX(0) scale(.99);
+  }
+
+  50% {
+    transform: translateX(.6px) scale(1.035);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-direction-line,
+  .process-conveyor-rollers {
+    animation: none !important;
+  }
+}
+
+@keyframes processRealPipeFlow {
+  to {
+    stroke-dashoffset: -38;
+  }
+}
+
+@keyframes processConveyorTrackMotion {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes processConveyorRollerSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.process-real-pipe-flow {
+  animation-name: processRealPipeFlow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.process-conveyor-track-motion {
+  animation-name: processConveyorTrackMotion;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.process-conveyor-roller {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: processConveyorRollerSpin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-real-pipe-flow,
+  .process-conveyor-track-motion,
+  .process-conveyor-roller {
+    animation: none !important;
+  }
+}
+
+
+/* Manual process-layout assembly components */
+@keyframes assemblyFlowDash {
+  to {
+    stroke-dashoffset: -38;
+  }
+}
+
+@keyframes assemblyConveyorPackages {
+  0% {
+    transform: translateX(-10px);
+  }
+  100% {
+    transform: translateX(16px);
+  }
+}
+
+@keyframes assemblyConveyorCurvePackage {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(7px, 7px);
+  }
+}
+
+@keyframes assemblyConveyorInclinePackage {
+  0%, 100% {
+    transform: translate(-5px, 2px);
+  }
+  50% {
+    transform: translate(8px, -4px);
+  }
+}
+
+.assembly-flow-dash {
+  animation: assemblyFlowDash 1.05s linear infinite;
+}
+
+.assembly-conveyor-packages {
+  animation: assemblyConveyorPackages 1.7s ease-in-out infinite alternate;
+}
+
+.assembly-conveyor-curve-package {
+  animation: assemblyConveyorCurvePackage 1.7s ease-in-out infinite;
+}
+
+.assembly-conveyor-incline-package {
+  animation: assemblyConveyorInclinePackage 1.7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assembly-flow-dash,
+  .assembly-conveyor-packages,
+  .assembly-conveyor-curve-package,
+  .assembly-conveyor-incline-package {
+    animation: none !important;
+  }
+}

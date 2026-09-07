@@ -108,12 +108,24 @@ export default function PieWidget({
   const height = containerSize.height;
 
   const pieDisplay = {
+    style: "donut",
     showLegend: true,
     showTotal: true,
     showTooltip: true,
-    legendPosition: "auto", // "auto" | "bottom" | "side"
+    showSliceLabels: false,
+    legendPosition: "auto",
     ...(item?.pieDisplay || {}),
   };
+
+  const pieStyle =
+    [
+      "donut",
+      "pie",
+      "exploded",
+      "thinRing",
+    ].includes(pieDisplay.style)
+      ? pieDisplay.style
+      : "donut";
 
   const parsedGridWidth = Number(
     gridWidth ?? item?.w
@@ -216,6 +228,8 @@ export default function PieWidget({
           config.unit || ""
         ).trim(),
         color:
+          item?.chartDisplay
+            ?.seriesColors?.[key] ||
           TECH_SERIES[
             index %
               TECH_SERIES.length
@@ -232,11 +246,7 @@ export default function PieWidget({
     0
   );
 
-  const visibleEntries =
-    chartData.slice(
-      0,
-      compactOneByOne ? 3 : 5
-    );
+  const visibleEntries = chartData;
 
   /*
    * Donut sizing deliberately leaves room for the legend in 1×1.
@@ -255,8 +265,8 @@ export default function PieWidget({
 
     if (compactOneByOne) {
       outer = Math.min(
-        width * 0.20,
-        height * 0.34
+        width * 0.17,
+        height * 0.31
       );
     } else if (wideSingleRow) {
       outer = Math.min(
@@ -300,6 +310,83 @@ export default function PieWidget({
     wideSingleRow,
     tallNarrow,
   ]);
+
+  const pieGeometry =
+    useMemo(() => {
+      let outer =
+        donutSize.outer;
+
+      if (
+        pieStyle ===
+        "exploded"
+      ) {
+        outer *= 0.9;
+      }
+
+      const inner =
+        pieStyle === "pie" ||
+        pieStyle ===
+          "exploded"
+          ? 0
+          : pieStyle ===
+            "thinRing"
+          ? outer * 0.74
+          : outer * 0.59;
+
+      const paddingAngle =
+        chartData.length <= 1
+          ? 0
+          : pieStyle ===
+            "exploded"
+          ? 6
+          : pieStyle ===
+            "pie"
+          ? 1.2
+          : 2.2;
+
+      const cornerRadius =
+        chartData.length <= 1
+          ? 0
+          : pieStyle ===
+            "exploded"
+          ? 4
+          : pieStyle ===
+            "pie"
+          ? 2
+          : 7;
+
+      return {
+        outer,
+        inner,
+        paddingAngle,
+        cornerRadius,
+      };
+    }, [
+      donutSize,
+      pieStyle,
+      chartData.length,
+    ]);
+
+  const hasCenterHole =
+    pieGeometry.inner > 0;
+
+  const renderSliceLabel = ({
+    value,
+    percent,
+  }) => {
+    if (
+      pieDisplay.showSliceLabels !==
+        true ||
+      !Number.isFinite(percent) ||
+      percent < 0.055
+    ) {
+      return "";
+    }
+
+    return `${Math.round(
+      percent * 100
+    )}%`;
+  };
 
   const renderLegendEntry = (
     entry,
@@ -452,19 +539,14 @@ export default function PieWidget({
             No positive values to display.
           </div>
         ) : compactOneByOne ? (
-          /*
-           * 1×1:
-           * donut gets its own centered row and the legend becomes one
-           * compact horizontal strip below it. No side legend.
-           */
           <div
             className={`
               mt-0.5 grid min-h-0
-              flex-1 gap-1
+              flex-1 gap-2
               ${
                 pieDisplay.showLegend
-                  ? "grid-rows-[minmax(0,1fr)_auto]"
-                  : "grid-rows-[minmax(0,1fr)]"
+                  ? "grid-cols-[minmax(0,1fr)_minmax(118px,0.72fr)]"
+                  : "grid-cols-1"
               }
             `}
           >
@@ -483,22 +565,35 @@ export default function PieWidget({
                     startAngle={90}
                     endAngle={-270}
                     innerRadius={
-                      donutSize.inner
+                      pieGeometry.inner
                     }
                     outerRadius={
-                      donutSize.outer
+                      pieGeometry.outer
                     }
                     paddingAngle={
-                      chartData.length > 1
-                        ? 2
-                        : 0
+                      pieGeometry.paddingAngle
                     }
                     cornerRadius={
-                      chartData.length > 1
-                        ? 6
+                      pieGeometry.cornerRadius
+                    }
+                    stroke={
+                      pieStyle ===
+                      "exploded"
+                        ? "#FFFFFF"
+                        : "none"
+                    }
+                    strokeWidth={
+                      pieStyle ===
+                      "exploded"
+                        ? 3
                         : 0
                     }
-                    stroke="none"
+                    labelLine={false}
+                    label={
+                      pieDisplay.showSliceLabels
+                        ? renderSliceLabel
+                        : false
+                    }
                     isAnimationActive={false}
                   >
                     {chartData.map(
@@ -506,106 +601,115 @@ export default function PieWidget({
                         <Cell
                           key={entry.key}
                           fill={entry.color}
+                          style={{
+                            filter:
+                              pieStyle ===
+                              "exploded"
+                                ? "drop-shadow(0 3px 4px rgba(15,23,42,.16))"
+                                : undefined,
+                          }}
                         />
                       )
                     )}
                   </Pie>
 
                   {pieDisplay.showTooltip && (
-                  <Tooltip
-                    formatter={(
-                      value,
-                      _name,
-                      props
-                    ) => {
-                      const unit =
-                        props?.payload
-                          ?.unit || "";
+                    <Tooltip
+                      formatter={(
+                        value,
+                        _name,
+                        props
+                      ) => {
+                        const unit =
+                          props?.payload
+                            ?.unit || "";
 
-                      return [
-                        `${formatNumber(
-                          value
-                        )}${
-                          unit
-                            ? ` ${unit}`
-                            : ""
-                        }`,
-                        props?.payload
-                          ?.name,
-                      ];
-                    }}
-                    contentStyle={
-                      botanicalTooltipStyle
-                    }
-                    itemStyle={{
-                      color: "#f8fafc",
-                    }}
-                  />
+                        return [
+                          `${formatNumber(
+                            value
+                          )}${
+                            unit
+                              ? ` ${unit}`
+                              : ""
+                          }`,
+                          props?.payload
+                            ?.name,
+                        ];
+                      }}
+                      contentStyle={
+                        botanicalTooltipStyle
+                      }
+                      itemStyle={{
+                        color: "#f8fafc",
+                      }}
+                    />
                   )}
                 </PieChart>
               </ResponsiveContainer>
 
-              {pieDisplay.showTotal && (
-              <div
-                className="
-                  pointer-events-none
-                  absolute inset-0
-                  flex items-center
-                  justify-center
-                "
-              >
-                <div className="text-center">
-                  <div
-                    className={`
-                      text-[6.5px] font-bold
-                      uppercase
-                      tracking-[0.14em]
-                      ${TECH_MUTED_CLASS}
-                    `}
-                  >
-                    Total
-                  </div>
+              {pieDisplay.showTotal &&
+                hasCenterHole && (
+                <div
+                  className="
+                    pointer-events-none
+                    absolute inset-0
+                    flex items-center
+                    justify-center
+                  "
+                >
+                  <div className="text-center">
+                    <div
+                      className={`
+                        text-[6.5px] font-bold
+                        uppercase
+                        tracking-[0.14em]
+                        ${TECH_MUTED_CLASS}
+                      `}
+                    >
+                      Total
+                    </div>
 
-                  <div
-                    className="
-                      mt-0.5 text-lg
-                      font-black
-                      tracking-[-0.045em]
-                      text-slate-950
-                      dark:text-white
-                    "
-                  >
-                    {formatCompactValue(
-                      total
-                    )}
+                    <div
+                      className="
+                        mt-0.5 text-lg
+                        font-black
+                        tracking-[-0.045em]
+                        text-slate-950
+                        dark:text-white
+                      "
+                    >
+                      {formatCompactValue(
+                        total
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
             </div>
 
             {pieDisplay.showLegend && (
               <div
-                className={`
-                  grid min-w-0
-                  gap-x-2 gap-y-1
-                  px-1 pb-0.5
-                  ${
-                    visibleEntries.length <= 2
-                      ? "grid-cols-2"
-                      : "grid-cols-3"
-                  }
-                `}
+                className="
+                  min-h-0 min-w-0
+                  overflow-y-auto
+                  border-l
+                  border-slate-100
+                  pl-2 pr-1
+                  dark:border-white/10
+                "
               >
-                {visibleEntries.map(
-                  (entry) =>
-                    renderLegendEntry(
-                      entry,
-                      {
-                        compact: true,
-                      }
-                    )
-                )}
+                <div className="flex min-h-full flex-col justify-center gap-1.5">
+                  {visibleEntries.map(
+                    (entry) =>
+                      renderLegendEntry(
+                        entry,
+                        {
+                          compact: false,
+                          showBar: false,
+                        }
+                      )
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -639,22 +743,35 @@ export default function PieWidget({
                     startAngle={90}
                     endAngle={-270}
                     innerRadius={
-                      donutSize.inner
+                      pieGeometry.inner
                     }
                     outerRadius={
-                      donutSize.outer
+                      pieGeometry.outer
                     }
                     paddingAngle={
-                      chartData.length > 1
-                        ? 2.2
-                        : 0
+                      pieGeometry.paddingAngle
                     }
                     cornerRadius={
-                      chartData.length > 1
-                        ? 7
+                      pieGeometry.cornerRadius
+                    }
+                    stroke={
+                      pieStyle ===
+                      "exploded"
+                        ? "#FFFFFF"
+                        : "none"
+                    }
+                    strokeWidth={
+                      pieStyle ===
+                      "exploded"
+                        ? 3
                         : 0
                     }
-                    stroke="none"
+                    labelLine={false}
+                    label={
+                      pieDisplay.showSliceLabels
+                        ? renderSliceLabel
+                        : false
+                    }
                     isAnimationActive={false}
                   >
                     {chartData.map(
@@ -662,6 +779,13 @@ export default function PieWidget({
                         <Cell
                           key={entry.key}
                           fill={entry.color}
+                          style={{
+                            filter:
+                              pieStyle ===
+                              "exploded"
+                                ? "drop-shadow(0 3px 4px rgba(15,23,42,.16))"
+                                : undefined,
+                          }}
                         />
                       )
                     )}
@@ -701,7 +825,8 @@ export default function PieWidget({
                 </PieChart>
               </ResponsiveContainer>
 
-              {pieDisplay.showTotal && (
+              {pieDisplay.showTotal &&
+                hasCenterHole && (
               <div
                 className="
                   pointer-events-none
@@ -746,8 +871,8 @@ export default function PieWidget({
                   min-h-0 min-w-0
                   ${
                     legendAtBottom
-                      ? "grid grid-cols-2 gap-x-2 gap-y-1 px-1"
-                      : "flex flex-col justify-center gap-2 pr-1"
+                      ? "grid grid-cols-2 gap-x-2 gap-y-1 overflow-y-auto px-1"
+                      : "flex flex-col justify-center gap-2 overflow-y-auto pr-1"
                   }
                 `}
               >

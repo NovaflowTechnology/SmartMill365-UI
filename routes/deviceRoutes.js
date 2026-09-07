@@ -22,7 +22,7 @@ const router = express.Router();
 // Superadmins can see all device assignments, optionally filtered by org_id.
 router.get(
   "/influx/allowed-devices",
-  auth(["superadmin", "admin"]),
+  auth(["superadmin", "admin", "editor"]),
   async (req, res) => {
     try {
       const { role, org_id } = req.user;
@@ -46,10 +46,10 @@ router.get(
 
       const params = [];
 
-      if (role === "admin") {
+      if (role === "admin" || role === "editor") {
         if (!org_id) {
           return res.status(403).json({
-            error: "Admin has no organization assigned",
+            error: "User has no organization assigned",
           });
         }
 

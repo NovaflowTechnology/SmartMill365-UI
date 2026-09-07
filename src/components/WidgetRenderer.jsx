@@ -15,7 +15,6 @@ import ProcessEquipmentWidget from "../widgets/ProcessEquipmentWidget";
 import ProcessViewWidget from "../widgets/ProcessViewWidget";
 import CustomLayoutWidget from "../widgets/CustomLayoutWidget";
 
-
 const hasDisplayValue = (value) =>
   value !== null &&
   value !== undefined &&
@@ -610,6 +609,7 @@ export default function WidgetRenderer({
   item = {},
   updateItem = () => {},
   editMode = false,
+  widgetAppearanceOverride = null,
 }) {
   const demoData =
     fillMissingFakeData(
@@ -646,7 +646,8 @@ export default function WidgetRenderer({
           item
         );
 
-  switch (type) {
+  const renderedWidget = (() => {
+    switch (type) {
     case "composite":
       return (
         <CompositeWidget
@@ -716,9 +717,15 @@ export default function WidgetRenderer({
     }
 
     case "gauge": {
+      const requestedGaugeStyle =
+        item?.gaugeDisplay?.style ||
+        "circular";
+
       const gaugeStyle =
-        item?.gaugeDisplay?.style === "linear"
-          ? "linear"
+        ["circular", "segmented", "linear"].includes(
+          requestedGaugeStyle
+        )
+          ? requestedGaugeStyle
           : "circular";
 
       return gaugeStyle === "linear" ? (
@@ -727,6 +734,7 @@ export default function WidgetRenderer({
           label={item?.label || dataKey}
           dataKey={dataKey}
           rangeConfig={item?.rangeConfig}
+          display={item?.gaugeDisplay || {}}
         />
       ) : (
         <GaugeWidget
@@ -734,11 +742,11 @@ export default function WidgetRenderer({
           label={item?.label || dataKey}
           dataKey={dataKey}
           rangeConfig={item?.rangeConfig}
+          display={item?.gaugeDisplay}
         />
       );
     }
 
-    // Backward compatibility for templates saved before V33.
     case "linearGauge":
       return (
         <LinearGaugeWidget
@@ -746,6 +754,7 @@ export default function WidgetRenderer({
           label={item?.label || dataKey}
           dataKey={dataKey}
           rangeConfig={item?.rangeConfig}
+          display={item?.gaugeDisplay || {}}
         />
       );
 
@@ -867,10 +876,6 @@ export default function WidgetRenderer({
       );
     }
 
-    /*
-     * "area" remains as a compatibility alias for old saved templates.
-     * New templates use type="line" + chartDisplay.chartStyle="area".
-     */
     case "area":
     case "line": {
       const colors =
@@ -920,6 +925,10 @@ export default function WidgetRenderer({
             (key, index) => ({
               key,
               color:
+                item?.chartDisplay
+                  ?.seriesColors?.[
+                  key
+                ] ||
                 colors[
                   index %
                     colors.length
@@ -971,5 +980,33 @@ export default function WidgetRenderer({
           Unknown Widget
         </div>
       );
-  }
+    }
+  })();
+
+  const widgetAppearance = {
+    showDots:
+      typeof widgetAppearanceOverride?.showDots === "boolean"
+        ? widgetAppearanceOverride.showDots
+        : item?.widgetAppearance?.showDots !== false,
+    roundedCorners:
+      typeof widgetAppearanceOverride?.roundedCorners === "boolean"
+        ? widgetAppearanceOverride.roundedCorners
+        : item?.widgetAppearance?.roundedCorners !== false,
+  };
+
+  return (
+    <div
+      className={`widget-appearance-shell h-full w-full ${
+        widgetAppearance.showDots
+          ? ""
+          : "widget-appearance-no-dots"
+      } ${
+        widgetAppearance.roundedCorners
+          ? ""
+          : "widget-appearance-square"
+      }`}
+    >
+      {renderedWidget}
+    </div>
+  );
 }

@@ -9,6 +9,7 @@ import StatSettings from "../components/templateDesigner/StatSettings";
 import RangeThresholdSettings from "../components/templateDesigner/RangeThresholdSettings";
 import HeatmapSettings from "../components/templateDesigner/HeatmapSettings";
 import ChartDisplaySettings from "../components/templateDesigner/ChartDisplaySettings";
+import WidgetColorSettings from "../components/templateDesigner/WidgetColorSettings";
 import ProcessViewSettings from "../widgets/ProcessViewSettings";
 import {
   DEFAULT_PROCESS_VIEW_CONFIG,
@@ -22,7 +23,7 @@ import CustomLayoutSettings from "../widgets/CustomLayoutSettings";
 import {
   DEFAULT_CUSTOM_LAYOUT_CONFIG,
   normalizeCustomLayoutConfig,
-} from "../widgets/CustomLayoutWidget";
+} from "../widgets/customLayoutConfig";
 import {
   defaultSankeyConfig,
   getSankeyDataKeys as getWidgetSankeyDataKeys,
@@ -80,7 +81,6 @@ const sizeOptions = [
   { label: "4×2", w: 4, h: 2 },
 ];
 
-// Image diagrams are easier to read in landscape cards.
 const imageSizeOptions = [
   { label: "2×1", w: 2, h: 1 },
   { label: "3×1", w: 3, h: 1 },
@@ -127,6 +127,7 @@ const defaultBigNumberDisplay = {
   alignment: "center",
   valueSize: "xlarge",
   valueColor: "default",
+  customValueColor: "#0F172A",
   trendThreshold: 0.5,
 
   mappings: [
@@ -155,7 +156,6 @@ const defaultBigNumberDisplay = {
   fallbackText: "",
   fallbackColor: "default",
 
-  // Combined Stat + Machine Status mode.
   statusDataKey: "",
   statusLabel: "Machine Status",
   statusSource: "mapping",
@@ -171,17 +171,30 @@ const defaultRangeConfig = {
 };
 
 const defaultGaugeDisplay = {
-  style: "circular", // "circular" | "linear"
+  style: "circular",
+  colorMode: "status",
+  customColor: "#3B82F6",
+  normalColor: "#3B82F6",
+  warningColor: "#F59E0B",
+  dangerColor: "#F43F5E",
 };
 
-const normalizeGaugeDisplay = (display = {}, legacyType = "gauge") => ({
-  ...defaultGaugeDisplay,
-  ...(display || {}),
-  style:
-    legacyType === "linearGauge" || display?.style === "linear"
+const normalizeGaugeDisplay = (display = {}, legacyType = "gauge") => {
+  const requestedStyle =
+    legacyType === "linearGauge"
       ? "linear"
+      : display?.style;
+
+  return {
+    ...defaultGaugeDisplay,
+    ...(display || {}),
+    style: ["circular", "segmented", "linear"].includes(
+      requestedStyle
+    )
+      ? requestedStyle
       : "circular",
-});
+  };
+};
 
 const migrateLegacyGaugeItem = (item) => {
   if (!item || typeof item !== "object") return item;
@@ -224,7 +237,7 @@ const getDefaultThresholdValue = (key, rangeConfig = defaultRangeConfig) => {
 };
 
 const defaultLogDisplay = {
-  mode: "event-log", // event-log | alarm-summary | alarm-list
+  mode: "event-log",
   showTimestamp: true,
   showSource: true,
   showLevel: true,
@@ -317,9 +330,7 @@ const defaultChartDisplay = {
   linePattern: "solid",
   curveType: "linear",
 
-  // LineWidget now owns both visual styles.
-  // The widget type remains "line".
-  chartStyle: "line", // "line" | "area"
+  chartStyle: "line",
   areaOpacity: 0.34,
   areaEndOpacity: 0.025,
 
@@ -327,10 +338,12 @@ const defaultChartDisplay = {
   showLatestValues: true,
   showZeroLine: false,
   autoScalePerSeries: false,
+  yAxisLayout: "shared",
+  yAxisAssignments: {},
+  seriesColors: {},
 
-  // Heatmap-specific display options share the chartDisplay object so draft
-  // persistence/editing remains compatible with the other chart widgets.
   heatmapColumns: 16,
+  heatmapColor: "#0EA5E9",
   heatmapShowValues: false,
   heatmapShowLegend: true,
   heatmapShowTimeLabels: true,
@@ -347,16 +360,38 @@ const normalizeChartDisplay = (display = {}) => {
     ...defaultChartDisplay,
     ...rest,
 
-    // Custom axis has been retired. Old saved custom charts now use
-    // the widget Data Range (rangeConfig.min / rangeConfig.max).
     yAxisMode:
       rest.yAxisMode === "custom"
         ? "range"
         : rest.yAxisMode === "range"
         ? "range"
         : "auto",
+
+    yAxisLayout:
+      rest.yAxisLayout === "dual" ||
+      rest.autoScalePerSeries === true
+        ? "dual"
+        : "shared",
+
+    yAxisAssignments: {
+      ...(rest.yAxisAssignments || {}),
+    },
+
+    seriesColors: {
+      ...(rest.seriesColors || {}),
+    },
   };
 };
+
+const defaultWidgetAppearance = {
+  showDots: true,
+  roundedCorners: true,
+};
+
+const normalizeWidgetAppearance = (appearance = {}) => ({
+  ...defaultWidgetAppearance,
+  ...(appearance || {}),
+});
 
 const defaultHistoryWindow = "15m";
 
@@ -364,7 +399,7 @@ const createDefaultCompositePartConfig = () => ({
   label: "",
   dataKey: "",
   dataKeys: [],
-  sourceMode: "all", // "all" | "custom" for multi-source children
+  sourceMode: "all",
 
   bigNumberDisplay: {
     ...defaultBigNumberDisplay,
@@ -508,7 +543,6 @@ const defaultInfluxConfig = {
 
 const defaultChannelMap = {};
 
-// SAMPLE DATA FOR BUILDER PREVIEW
 const previewData = {
   steamPressure: 31.2,
   steamFlowrate: 44.1,
@@ -523,7 +557,6 @@ const previewData = {
   vgInletTemp: 0,
   vgOutletTemp: 0,
 
-  // Channel-style preview values for Sankey and custom channel previews.
   ch1: 31.2,
   ch2: 44.1,
   ch3: 120,
@@ -538,7 +571,6 @@ const previewData = {
   ch13: 80,
 };
 
-// SAMPLE HISTORY FOR LINE WIDGET PREVIEW (Line / Area styles)
 const previewHistory = Array.from(
   { length: 20 },
   (_, i) => ({
@@ -718,7 +750,7 @@ const InfluxMetadataList = ({
                     font-semibold transition
                     ${
                       selected
-                        ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/40"
+                        ? "bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:ring-cyan-500/40"
                         : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
                     }
                   `}
@@ -769,7 +801,7 @@ const InfluxMetadataList = ({
                 font-semibold transition
                 ${
                   selected
-                    ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/40"
+                    ? "bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:ring-cyan-500/40"
                     : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
                 }
               `}
@@ -800,6 +832,8 @@ export default function TemplateDesigner({
   setEditingImageWidget,
   editingSankeyWidget,
   setEditingSankeyWidget,
+  editReturnPage = "templates",
+  onTemplateUpdated,
 }) {
   const gridRef = useRef(null);
 
@@ -813,27 +847,13 @@ export default function TemplateDesigner({
       : "create"
   );
 
-  // Avoid writing the previous template's state into a newly selected draft key
-  // during the render in which the editor switches template/mode.
+  // Avoid writing the previous template state into a newly selected draft key.
   const skipNextDesignerDraftWriteRef = useRef(true);
 
-  // GRID SIZE
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(4);
 
-  /*
-   * Canvas viewing preference only.
-   *
-   * "fit"
-   *   - all columns remain inside the available page width
-   *   - cells shrink proportionally and remain landscape
-   *
-   * "scroll"
-   *   - each column keeps a comfortable minimum width
-   *   - horizontal scrolling appears when necessary
-   *
-   * This is intentionally NOT stored inside the template layout.
-   */
+  // Canvas mode is a UI preference and is not saved in the template layout.
   const [
     canvasMode,
     setCanvasMode,
@@ -845,11 +865,7 @@ export default function TemplateDesigner({
       return "scroll";
     }
 
-    /*
-     * V2 preference key intentionally ignores the older saved "fit"
-     * preference once. Fixed-size editing is now the safer default because
-     * it never changes widget-box size when columns are added.
-     */
+    // Default to scroll mode so adding columns does not resize existing widget boxes.
     const stored =
       window.localStorage.getItem(
         "templateCanvasModeV2"
@@ -874,17 +890,11 @@ export default function TemplateDesigner({
     );
   }, [canvasMode]);
 
-  // Width available to the template grid.
-  //
-  // Row height is derived from COLUMN width so every 1×1 slot keeps
-  // a landscape / horizontal shape even when the user increases the
-  // number of columns.
   const [
     gridViewportWidth,
     setGridViewportWidth,
   ] = useState(1200);
 
-  // STATES
   const [items, setItems] = useState([]);
 
   const [templateName, setTemplateName] =
@@ -924,20 +934,22 @@ export default function TemplateDesigner({
   const [showModal, setShowModal] =
     useState(false);
 
-  // RESIZABLE WIDGET STUDIO
-  // Vertical split = preview/source workspace vs widget settings.
-  // Horizontal split = live preview vs data-source configuration.
   const studioBodyRef = useRef(null);
   const studioLeftRef = useRef(null);
   const studioPreviewHostRef =
     useRef(null);
 
-  // Used to jump directly to the lower edit/settings section when
-  // the user clicks an existing widget on the dashboard canvas.
+  // Used to jump to widget settings when an existing widget is selected.
   const widgetSettingsScrollRef =
     useRef(null);
 
   const widgetDetailsRef =
+    useRef(null);
+
+  const dataSourceScrollRef =
+    useRef(null);
+
+  const customDataSourceFormRef =
     useRef(null);
 
   const [
@@ -950,9 +962,6 @@ export default function TemplateDesigner({
 
   const [studioSplit, setStudioSplit] =
     useState(72);
-
-  // Widget Type uses a fixed three-column grid. Labels remain visible
-  // at every studio split so the selector stays predictable and readable.
 
   const [previewSplit, setPreviewSplit] =
     useState(58);
@@ -1011,7 +1020,6 @@ export default function TemplateDesigner({
     previewSplit,
   ]);
 
-  // WIDGET SETUP WIZARD
   const [widgetStep, setWidgetStep] =
     useState(1);
 
@@ -1052,9 +1060,7 @@ export default function TemplateDesigner({
     )
   );
 
-  // The widget wizard now starts with Data Source.
-  // "Dedicated" is used for widgets such as Logs, Image and Sankey
-  // that do not select a normal single Influx field.
+  // Dedicated widgets bypass normal field selection.
   const [
     useDedicatedWidgetSource,
     setUseDedicatedWidgetSource,
@@ -1071,12 +1077,7 @@ export default function TemplateDesigner({
   const [newW, setNewW] = useState(1);
   const [newH, setNewH] = useState(1);
 
-  /*
-   * Widget Studio preview uses the same landscape grid-unit geometry as the
-   * template canvas. A 4×1 widget is therefore previewed as a wide 4×1 card,
-   * rather than filling the entire left pane and looking like a different
-   * design.
-   */
+  // Preview uses the same landscape grid-unit proportions as the template canvas.
   const studioPreviewAspectRatio =
     Math.max(
       0.55,
@@ -1163,6 +1164,13 @@ export default function TemplateDesigner({
   });
 
   const [
+    newWidgetAppearance,
+    setNewWidgetAppearance,
+  ] = useState({
+    ...defaultWidgetAppearance,
+  });
+
+  const [
     newLogDisplay,
     setNewLogDisplay,
   ] = useState({
@@ -1199,12 +1207,12 @@ export default function TemplateDesigner({
 
   const [showCustomDataModal, setShowCustomDataModal] = useState(false);
 
-  /*
-   * Data-source form mode:
-   * - add:  create a brand-new connection
-   * - edit: update the existing connection in place, preserving its key
-   * - copy: prefill from an existing connection but create a new key
-   */
+  const [
+    batchSelectedChannels,
+    setBatchSelectedChannels,
+  ] = useState([]);
+
+  // Source form modes: edit preserves the key; add/copy create a new key.
   const [
     customDataMode,
     setCustomDataMode,
@@ -1227,13 +1235,16 @@ export default function TemplateDesigner({
 
   const [showCustomWidgetModal, setShowCustomWidgetModal] = useState(false);
 
+  const [
+    editingCustomWidgetTypeId,
+    setEditingCustomWidgetTypeId,
+  ] = useState("");
+
   const [newWidgetTypeId, setNewWidgetTypeId] = useState("");
 
-  // Pins are kept locally while the image widget is still being configured.
-  // This prevents a new image draft from being added to the grid too early.
+  // Keep image pins local until the widget is committed.
   const [imageDraftPins, setImageDraftPins] = useState([]);
 
-  // Image pins may use several measurements/devices.
   const [
     imageDraftDataOptions,
     setImageDraftDataOptions,
@@ -1244,13 +1255,9 @@ export default function TemplateDesigner({
     setImageDraftDataMapping,
   ] = useState(null);
 
-  // Uploaded image is kept locally while the image widget is still being configured.
-  // The croppedSrc currently uses the original image. Cropping can be added later.
+  // Keep uploaded images local until the widget is committed.
   const [imageDraft, setImageDraft] = useState(defaultImageDraft);
 
-  // =====================================
-  // WIDGET-LEVEL INFLUX SOURCE CONFIGURATION
-  // =====================================
   const role = localStorage.getItem("role");
 
   const isSuperadmin =
@@ -1268,8 +1275,7 @@ export default function TemplateDesigner({
   const [channelMap, setChannelMap] =
     useState(defaultChannelMap);
 
-  // Superadmins can browse all Influx metadata. Organization admins can only
-  // select a device explicitly assigned to their own organization.
+  // Superadmins can browse all Influx metadata; admins only see assigned devices.
   const [availableDevices, setAvailableDevices] =
     useState([]);
 
@@ -1278,8 +1284,7 @@ export default function TemplateDesigner({
     setSelectedDeviceId,
   ] = useState("");
 
-  // UI-only device type selection derived from measurement groups.
-  // The raw Influx measurement remains the actual saved/query value.
+  // Device type is UI-only; the raw Influx measurement is still saved and queried.
   const [
     selectedMeasurementGroup,
     setSelectedMeasurementGroup,
@@ -1291,9 +1296,6 @@ export default function TemplateDesigner({
   const [influxIds, setInfluxIds] =
     useState([]);
 
-  // Superadmin only:
-  // maps each available ID to the measurements inside the selected
-  // Device Type that actually contain that ID.
   const [influxIdMeasurementMap, setInfluxIdMeasurementMap] =
     useState({});
 
@@ -1333,9 +1335,7 @@ export default function TemplateDesigner({
         )
       : [];
 
-  // Organization permissions remain one row per
-  // measurement + device ID. For Widget Studio, group those rows
-  // into one logical assigned device so Admin does not see duplicates.
+  // Group permission rows into logical devices so admins do not see duplicates.
   const logicalAssignedDevices = (() => {
     const map = new Map();
 
@@ -1452,7 +1452,6 @@ export default function TemplateDesigner({
         )
       : [];
 
-  // DRAG & DROP
   const [
     draggingItemId,
     setDraggingItemId,
@@ -1473,12 +1472,10 @@ export default function TemplateDesigner({
     setDidDrag,
   ] = useState(false);
 
-  // Smart drag preview. It highlights the closest valid grid position
-  // for the complete widget footprint, not only the single cell under the cursor.
+  // Drag preview finds the nearest valid position for the full widget footprint.
   const [dragPreview, setDragPreview] =
     useState(null);
 
-  // DRAG RESIZE
   const [
     resizingItemId,
     setResizingItemId,
@@ -1524,7 +1521,6 @@ export default function TemplateDesigner({
         const rawPercent =
           (pointerX / availableWidth) * 100;
 
-        // Keep both panels usable.
         const minimumLeftPx = 520;
         const minimumRightPx = 400;
 
@@ -1637,17 +1633,13 @@ export default function TemplateDesigner({
     };
   }, [studioResizeMode]);
 
-  // CURRENT SELECTED ITEM
   const selectedItem = items.find(
     (i) => i.id === activeItemId
   );
 
   const isEdit = !!selectedItem;
 
-  // Preserve the unsaved Template Designer state while temporarily navigating
-  // to a full-screen widget editor (Image / Sankey). Those pages replace this
-  // component, so local React state would otherwise be recreated from defaults
-  // when the user returns.
+  // Preserve unsaved designer state when opening full-screen Image or Sankey editors.
   const getDesignerSnapshot = () => ({
     rows,
     cols,
@@ -1660,8 +1652,7 @@ export default function TemplateDesigner({
     selectedDeviceId,
     selectedMeasurementGroup,
 
-    // Preserve the currently open Widget Studio draft too, not only widgets
-    // that have already been committed to the grid.
+    // Include the open Widget Studio draft in the designer snapshot.
     activeCell,
     activeItemId,
     showModal,
@@ -1680,6 +1671,7 @@ export default function TemplateDesigner({
     newBigNumberDisplay,
     newRangeConfig,
     newGaugeDisplay,
+    newWidgetAppearance,
     newLogDisplay,
     newChartDisplay,
     newHistoryWindow,
@@ -1778,6 +1770,18 @@ export default function TemplateDesigner({
     if (snapshot.newLogDisplay) {
       setNewLogDisplay(getPreparedLogDisplay(snapshot.newLogDisplay));
     }
+    if (snapshot.newWidgetAppearance) {
+      setNewWidgetAppearance(
+        normalizeWidgetAppearance(
+          snapshot.newWidgetAppearance
+        )
+      );
+    } else {
+      setNewWidgetAppearance({
+        ...defaultWidgetAppearance,
+      });
+    }
+
     if (snapshot.newChartDisplay) {
       setNewChartDisplay({ ...defaultChartDisplay, ...snapshot.newChartDisplay });
     }
@@ -1794,9 +1798,7 @@ export default function TemplateDesigner({
     setImageDraft({ ...defaultImageDraft, ...(snapshot.imageDraft || {}) });
   };
 
-  // Restore a draft for a brand-new template. Edit-mode restoration is handled
-  // inside the template-load effect below so drafts can take priority over the
-  // last officially saved template layout.
+  // Create-mode drafts restore here; edit-mode drafts restore during template loading.
   useEffect(() => {
     if (isEditingTemplate) return;
 
@@ -1806,7 +1808,6 @@ export default function TemplateDesigner({
       restoreDesignerSnapshot(draft);
     }
   }, [isEditingTemplate, designerDraftKey]);
-
 
   useEffect(() => {
     if (!isEditingTemplate || !selectedTemplate) return;
@@ -1973,8 +1974,7 @@ export default function TemplateDesigner({
     }
   }, [isEditingTemplate, selectedTemplate?.id, designerDraftKey]);
 
-  // Autosave the complete working designer state. This is intentionally
-  // separate from the official Create/Update Template action.
+  // Autosave working state separately from the official template save.
   useEffect(() => {
     if (skipNextDesignerDraftWriteRef.current) {
       skipNextDesignerDraftWriteRef.current = false;
@@ -2018,6 +2018,7 @@ export default function TemplateDesigner({
     newBigNumberDisplay,
     newRangeConfig,
     newGaugeDisplay,
+    newWidgetAppearance,
     newLogDisplay,
     newChartDisplay,
     newHistoryWindow,
@@ -2029,8 +2030,6 @@ export default function TemplateDesigner({
     imageDraft,
   ]);
 
-  // Sources shown in Widget Studio are created explicitly through
-  // "Add Data Source". Each option owns its complete Influx source.
   const allDataOptions =
     deduplicateDataOptions(
       customDataOptions
@@ -2062,9 +2061,6 @@ export default function TemplateDesigner({
     "processView",
   ];
 
-  // Data-bound widgets are shown after selecting one or more process fields.
-  // Dedicated widgets are shown after choosing the "System / Dedicated Widget"
-  // option in Step 1, so these dedicated widgets never ask for a normal direct field.
   const wizardWidgetOptions = allWidgetOptions.filter((widget) =>
     useDedicatedWidgetSource
       ? dedicatedWidgetTypes.includes(widget.type)
@@ -2083,11 +2079,14 @@ export default function TemplateDesigner({
   );
 
   const getAvailableDataOptionsForType = (type) => {
-    // These widgets do not ask the user to select a direct field:
-    // - Logs uses its own log configuration.
-    // - Image and Sankey use their dedicated editors.
     if (
-      ["image", "sankey", "logs", "processView"].includes(type)
+      [
+        "image",
+        "sankey",
+        "logs",
+        "processView",
+        "customLayout",
+      ].includes(type)
     ) {
       return [];
     }
@@ -2134,10 +2133,7 @@ export default function TemplateDesigner({
     }
   };
 
-  // Compatibility helper: older Template Designer sections refer to
-  // Sankey "outputs". The current editor stores nodes + links. Expose
-  // the links as output-like objects so older UI/validation code can
-  // remain concise while using the new graph model.
+  // Compatibility: expose Sankey links as output-like objects for older code.
   const getSankeyOutputs = (
     config = sankeyConfig
   ) => {
@@ -2277,6 +2273,39 @@ export default function TemplateDesigner({
 
       return {
         ...normalized,
+        nodes:
+          normalized.nodes.map(
+            (node) => {
+              const connectedSource =
+                sourceByKey.get(
+                  node.dataKey
+                );
+
+              return {
+                ...node,
+                dataSource:
+                  connectedSource
+                    ?.source
+                    ? {
+                        ...connectedSource.source,
+                        channel:
+                          connectedSource
+                            .source
+                            .field ||
+                          connectedSource
+                            .source
+                            .channel ||
+                          node.dataSource
+                            ?.channel ||
+                          "",
+                      }
+                    : {
+                        ...(node.dataSource ||
+                          {}),
+                      },
+              };
+            }
+          ),
         links:
           normalized.links.map(
             (flow) => {
@@ -2304,17 +2333,14 @@ export default function TemplateDesigner({
                           "",
                       }
                     : {
-                        ...(
-                          flow.dataSource ||
-                          {}
-                        ),
+                        ...(flow.dataSource ||
+                          {}),
                       },
               };
             }
           ),
       };
     };
-
 
   const getMinimumGridSizeForItems = () => {
     const minimumRows = Math.max(
@@ -2412,10 +2438,8 @@ export default function TemplateDesigner({
     newType === "pie" ||
     newType === "composite" ||
     newType === "processEquipment" ||
-    newType === "customLayout" ||
     isBigNumberCombined;
 
-  // DEFAULT LABEL
   const getDefaultWidgetLabel = (type) => {
     if (type === "processEquipment") {
       return "Process Equipment";
@@ -2548,7 +2572,6 @@ export default function TemplateDesigner({
         return {
           sourceMode: "custom",
           dataKey: "",
-          // Keep at least one source in custom mode.
           dataKeys: nextKeys.length > 0 ? nextKeys : [key],
         };
       }
@@ -2654,15 +2677,12 @@ export default function TemplateDesigner({
     return true;
   };
 
-  // Keep image widgets in landscape dimensions so the diagram is readable
-  // in both the canvas and the widget settings preview.
   const handleWidgetTypeChange = (type, customWidgetTypeId = "") => {
-    // Backward compatibility:
-    // old/custom "area" widgets are now Line widgets rendered in Area style.
+    // Backward compatibility: migrate legacy Area widgets to Line widgets in Area mode.
     const requestedAreaStyle =
       type === "area";
 
-    // V33: Linear Gauge is now a visual style of Gauge.
+    // Legacy Linear Gauge items are migrated to Gauge with linear style.
     const requestedLegacyLinearGauge =
       type === "linearGauge";
 
@@ -2686,7 +2706,10 @@ export default function TemplateDesigner({
 
     setUseDedicatedWidgetSource(typeUsesDedicatedSource);
 
-    if (typeUsesDedicatedSource) {
+    if (
+      typeUsesDedicatedSource ||
+      type === "customLayout"
+    ) {
       setNewDataKey("");
       setNewDataKeys([]);
     } else if (
@@ -2708,8 +2731,6 @@ export default function TemplateDesigner({
           ? [newDataKey]
           : [];
 
-        // Stat can use one source in Number / Value Mapping mode,
-        // or two sources in Stat + Status mode.
         const limited = selected.slice(0, 2);
 
         setNewDataKey(limited[0] || "");
@@ -2808,6 +2829,7 @@ export default function TemplateDesigner({
       setNewProcessViewConfig(
         normalizeProcessViewConfig({
           ...DEFAULT_PROCESS_VIEW_CONFIG,
+          processFlowId: null,
           templateId:
             selectedTemplate?.id || null,
         })
@@ -2857,17 +2879,7 @@ export default function TemplateDesigner({
       ["line", "bar", "heatmap", "pie"].includes(type) &&
       !isEdit
     ) {
-      /*
-       * Recommended chart footprint.
-       *
-       * In Fit mode a 5-column dashboard gives a 1-column widget
-       * only ~20% of the available width. Multi-category charts need
-       * more horizontal room for axes, labels, values and legends.
-       *
-       * Keep the dashboard at 5 columns; the chart simply spans two
-       * of those columns. Users may still manually resize it down to
-       * 1x1 later because getMinimumWidgetSize() remains 1x1.
-       */
+      // Charts default to a wider footprint for readability but may still be resized to 1×1.
       const originX =
         activeCell?.col ?? 0;
 
@@ -2910,7 +2922,7 @@ export default function TemplateDesigner({
     }
 
     if (
-      ["line", "bar", "heatmap"].includes(type) &&
+      ["line", "bar", "heatmap", "pie"].includes(type) &&
       !isEdit
     ) {
       setNewChartDisplay({
@@ -2933,9 +2945,6 @@ export default function TemplateDesigner({
     }
   };
 
-  // =====================================
-  // LOAD INFLUX METADATA
-  // =====================================
   const fetchAllowedDevices = async (token) => {
     const res = await fetch(
       "http://localhost:5000/influx/allowed-devices",
@@ -3167,6 +3176,7 @@ export default function TemplateDesigner({
       setInfluxChannels(
         []
       );
+      setBatchSelectedChannels([]);
 
       return;
     }
@@ -3201,8 +3211,7 @@ export default function TemplateDesigner({
       )
     );
 
-    // Only measurements explicitly assigned to this organization
-    // are exposed here.
+    // Only measurements assigned to the organization are exposed.
     setInfluxMeasurements(
       selectedDevice.measurements
     );
@@ -3210,6 +3219,7 @@ export default function TemplateDesigner({
     setInfluxChannels(
       []
     );
+    setBatchSelectedChannels([]);
 
     setCustomDataDraft(
       (current) => ({
@@ -3259,6 +3269,7 @@ export default function TemplateDesigner({
         setInfluxChannels(
           []
         );
+        setBatchSelectedChannels([]);
       }
 
       return;
@@ -3274,6 +3285,7 @@ export default function TemplateDesigner({
     setInfluxIds([]);
     setInfluxIdMeasurementMap({});
     setInfluxChannels([]);
+    setBatchSelectedChannels([]);
   };
 
   const refreshInfluxMetadata = async () => {
@@ -3337,9 +3349,7 @@ export default function TemplateDesigner({
           );
         }
 
-        // Do not automatically preselect a source.
-        // Admin explicitly chooses:
-        // Device Type -> Assigned Device -> Measurement -> Channel.
+        // Do not auto-select a source; admins choose the full source path explicitly.
         return;
       }
 
@@ -3360,6 +3370,7 @@ export default function TemplateDesigner({
         setInfluxMeasurements([]);
         setInfluxIds([]);
         setInfluxChannels([]);
+    setBatchSelectedChannels([]);
         setInfluxError(
           "No Influx buckets are available."
         );
@@ -3386,6 +3397,7 @@ export default function TemplateDesigner({
         setInfluxIds([]);
         setInfluxIdMeasurementMap({});
         setInfluxChannels([]);
+    setBatchSelectedChannels([]);
         return;
       }
 
@@ -3444,6 +3456,7 @@ export default function TemplateDesigner({
         setInfluxChannels(channels);
       } else {
         setInfluxChannels([]);
+    setBatchSelectedChannels([]);
       }
     } catch (err) {
       console.error(
@@ -3453,6 +3466,7 @@ export default function TemplateDesigner({
 
       setInfluxIds([]);
       setInfluxChannels([]);
+    setBatchSelectedChannels([]);
       setInfluxError(
         err.message ||
           "Failed to load Influx metadata."
@@ -3462,9 +3476,7 @@ export default function TemplateDesigner({
     }
   };
 
-  // Organization admins receive measurement-level permission rows
-  // already filtered by their organization. Widget Studio groups these
-  // rows into logical assigned devices for easier selection.
+  // Group admin permission rows into logical assigned devices.
   useEffect(() => {
     if (!isOrganizationAdmin) {
       return;
@@ -3537,7 +3549,7 @@ export default function TemplateDesigner({
     loadAssignedDevices();
   }, [isOrganizationAdmin]);
 
-  // Organization admins may map fields only after choosing a permitted device.
+  // Admins may map fields only after choosing a permitted device.
   useEffect(() => {
     if (
       !isOrganizationAdmin ||
@@ -3572,6 +3584,7 @@ export default function TemplateDesigner({
         );
 
         setInfluxChannels([]);
+    setBatchSelectedChannels([]);
         setInfluxError(
           err.message ||
             "Failed to load channels for this device."
@@ -3591,7 +3604,7 @@ export default function TemplateDesigner({
     influxConfig.id,
   ]);
 
-  // Superadmins can browse all measurements in a chosen bucket.
+  // Superadmins may browse all measurements in the selected bucket.
   useEffect(() => {
     if (!isSuperadmin) return;
 
@@ -3637,8 +3650,6 @@ export default function TemplateDesigner({
     loadMeasurements();
   }, [isSuperadmin, influxConfig.bucket]);
 
-  // Superadmin: Measurement -> Device Type -> Available IDs.
-  // Device Type is inferred automatically from the selected measurement.
   useEffect(() => {
     if (!isSuperadmin) return;
 
@@ -3720,6 +3731,7 @@ export default function TemplateDesigner({
             tagValue: "",
           }));
           setInfluxChannels([]);
+    setBatchSelectedChannels([]);
         }
       } catch (err) {
         if (cancelled) return;
@@ -3754,7 +3766,6 @@ export default function TemplateDesigner({
     influxConfig.tagKey,
   ]);
 
-  // Superadmin: ID -> Measurement -> Fields.
   useEffect(() => {
     if (!isSuperadmin) return;
 
@@ -3777,6 +3788,7 @@ export default function TemplateDesigner({
       !selectedId
     ) {
       setInfluxChannels([]);
+    setBatchSelectedChannels([]);
       return;
     }
 
@@ -3811,6 +3823,7 @@ export default function TemplateDesigner({
         );
 
         setInfluxChannels([]);
+    setBatchSelectedChannels([]);
         setInfluxError(
           err.message ||
             "Failed to load fields for the selected device."
@@ -3842,11 +3855,8 @@ export default function TemplateDesigner({
     }
 
     refreshInfluxMetadata();
-    // Refresh once whenever the modal opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCustomDataModal]);
 
-  // UPDATE ONE DATA KEY → CHANNEL MAPPING
   const updateChannelMapping = (
     dataKey,
     channel
@@ -3885,8 +3895,7 @@ export default function TemplateDesigner({
     JSON.stringify(influxChannels),
   ]);
 
-  // Keep the Step 1 data selection when the display type changes.
-  // Only reset Bar orientation when leaving the Bar widget.
+  // Preserve Step 1 data selection when changing display type.
   useEffect(() => {
     if (newType !== "bar") {
       setNewOrientation("vertical");
@@ -3918,8 +3927,6 @@ export default function TemplateDesigner({
     JSON.stringify(influxChannels),
   ]);
 
-  // Keep the Combined Stat secondary field in sync with the two
-  // data sources selected in Step 1.
   useEffect(() => {
     if (
       newType !== "bignumber" ||
@@ -3962,15 +3969,13 @@ export default function TemplateDesigner({
     JSON.stringify(newDataKeys),
   ]);
 
-  // LOAD A RANGE PRESET WHEN THE USER CHANGES THE DATA SOURCE.
   useEffect(() => {
     if (!newDataKey || !supportsRangeConfiguration(
       newType,
       newBigNumberDisplay.mode
     )) return;
 
-    // The selected-widget effect loads the saved range. Do not overwrite it
-    // unless the user changes to a different data source.
+    // Do not overwrite a saved range unless the data source changes.
     if (selectedItem && selectedItem.dataKey === newDataKey) return;
 
     setNewRangeConfig({
@@ -3978,7 +3983,6 @@ export default function TemplateDesigner({
     });
   }, [newDataKey, newType, selectedItem]);
 
-  // RETURN FROM IMAGE EDITOR
   useEffect(() => {
     if (!editingImageWidget?.resumeWidgetSettings) return;
 
@@ -4015,9 +4019,7 @@ export default function TemplateDesigner({
         ...returnedImageDataOptions,
       ]);
 
-    // TemplateDesigner is mounted again after returning from the full-screen
-    // editor. Use the snapshot's items instead of the freshly initialized [] so
-    // the existing grid and all other widgets are preserved.
+    // Restore snapshot items after returning from a full-screen editor.
     const baseItems = Array.isArray(designerSnapshot?.items)
       ? designerSnapshot.items
       : items;
@@ -4041,7 +4043,7 @@ export default function TemplateDesigner({
     if (designerSnapshot) {
       restoreDesignerSnapshot(designerSnapshot, nextItems);
     } else if (alreadyExists) {
-      // Backward compatibility with editor payloads created before snapshots.
+      // Backward compatibility: migrate legacy Area widgets to Line widgets in Area mode.
       setItems(nextItems);
     }
 
@@ -4086,8 +4088,6 @@ export default function TemplateDesigner({
     }
   }, [editingImageWidget, setEditingImageWidget]);
 
-
-  // RETURN FROM SANKEY FLOW EDITOR
   useEffect(() => {
     if (!editingSankeyWidget?.resumeWidgetSettings) return;
 
@@ -4207,6 +4207,42 @@ export default function TemplateDesigner({
     );
   };
 
+  const scrollToCustomDataSourceForm = () => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const scrollHost =
+          dataSourceScrollRef.current;
+
+        const target =
+          customDataSourceFormRef.current;
+
+        if (!scrollHost || !target) {
+          return;
+        }
+
+        const hostRect =
+          scrollHost.getBoundingClientRect();
+
+        const targetRect =
+          target.getBoundingClientRect();
+
+        const top =
+          Math.max(
+            0,
+            scrollHost.scrollTop +
+              targetRect.top -
+              hostRect.top -
+              12
+          );
+
+        scrollHost.scrollTo({
+          top,
+          behavior: "smooth",
+        });
+      });
+    });
+  };
+
   const openWidgetForEdit = (
     item
   ) => {
@@ -4220,7 +4256,6 @@ export default function TemplateDesigner({
     scrollToWidgetDetails();
   };
 
-  // LOAD SELECTED ITEM SETTINGS
   useEffect(() => {
     if (!selectedItem) return;
 
@@ -4240,7 +4275,11 @@ export default function TemplateDesigner({
     setNewLabel(selectedItem.label || "");
 
     setNewDataKey(
-      selectedItem.dataKey || ""
+      resolvedSelectedType ===
+      "customLayout"
+        ? ""
+        : selectedItem.dataKey ||
+          ""
     );
 
     setNewDataKeys(
@@ -4249,8 +4288,7 @@ export default function TemplateDesigner({
         resolvedSelectedType === "heatmap" ||
         resolvedSelectedType === "pie" ||
         resolvedSelectedType === "composite" ||
-        resolvedSelectedType === "processEquipment" ||
-        resolvedSelectedType === "customLayout"
+        resolvedSelectedType === "processEquipment"
         ? selectedItem.dataKeys?.length
           ? selectedItem.dataKeys
           : selectedItem.dataKey
@@ -4300,6 +4338,12 @@ export default function TemplateDesigner({
       )
     );
 
+    setNewWidgetAppearance(
+      normalizeWidgetAppearance(
+        selectedItem.widgetAppearance
+      )
+    );
+
     setNewLogDisplay(
       getPreparedLogDisplay(
         selectedItem.logDisplay || {}
@@ -4310,7 +4354,6 @@ export default function TemplateDesigner({
       normalizeChartDisplay({
         ...(selectedItem.chartDisplay || {}),
 
-        // Migrate old standalone Area widgets into LineWidget Area mode.
         chartStyle:
           selectedItem.type === "area"
             ? "area"
@@ -4386,7 +4429,6 @@ export default function TemplateDesigner({
     );
   }, [activeItemId, selectedItem]);
 
-  // CHECK CELL OCCUPIED
   const isCellOccupied = (row, col) =>
     items.some(
       (item) =>
@@ -4396,7 +4438,6 @@ export default function TemplateDesigner({
         row < item.y + item.h
     );
 
-  // CHECK COLLISION FOR NEW WIDGET
   const hasCollision = (newItem) => {
     for (
       let r = newItem.y;
@@ -4417,7 +4458,6 @@ export default function TemplateDesigner({
     return false;
   };
 
-  // CHECK COLLISION WHEN MOVING WIDGET
   const hasMoveCollision = (movingItem) => {
     return items.some((item) => {
       if (item.id === movingItem.id) {
@@ -4436,8 +4476,7 @@ export default function TemplateDesigner({
     });
   };
 
-  // Every widget may be resized down to one grid cell.
-  // The 1×1 floor is still required so width and height never become zero.
+  // All widgets may resize to 1×1; width and height must remain at least 1.
   const getMinimumWidgetSize = () => ({
     w: 1,
     h: 1,
@@ -4523,8 +4562,12 @@ export default function TemplateDesigner({
       startY: event.clientY,
       item: { ...item },
       direction,
-      cellWidth: rect.width / cols,
-      cellHeight: rect.height / rows,
+      cellWidth:
+        (rect.width - Math.max(0, cols - 1) * gridGapPx) /
+        cols,
+      cellHeight:
+        (rect.height - Math.max(0, rows - 1) * gridGapPx) /
+        rows,
     };
 
     setResizingItemId(item.id);
@@ -4570,45 +4613,53 @@ export default function TemplateDesigner({
             )
           : 0;
 
-      const deltaCols =
-        direction === "y"
-          ? 0
-          : rawDeltaCols;
-
-      const deltaRows =
-        direction === "x"
-          ? 0
-          : rawDeltaRows;
-
       const minimumSize =
-        getMinimumWidgetSize(
-          item.type
+        getMinimumWidgetSize(item.type);
+
+      const resizeLeft = direction.includes("left");
+      const resizeRight = direction.includes("right");
+      const resizeTop = direction.includes("top");
+      const resizeBottom = direction.includes("bottom");
+
+      let nextX = item.x;
+      let nextY = item.y;
+      let nextW = item.w;
+      let nextH = item.h;
+
+      if (resizeRight) {
+        nextW = Math.min(
+          cols - item.x,
+          Math.max(minimumSize.w, item.w + rawDeltaCols)
         );
+      }
 
-      const nextW =
-        direction === "y"
-          ? item.w
-          : Math.min(
-              cols - item.x,
-              Math.max(
-                minimumSize.w,
-                item.w + deltaCols
-              )
-            );
+      if (resizeLeft) {
+        nextX = Math.min(
+          item.x + item.w - minimumSize.w,
+          Math.max(0, item.x + rawDeltaCols)
+        );
+        nextW = item.w + (item.x - nextX);
+      }
 
-      const nextH =
-        direction === "x"
-          ? item.h
-          : Math.min(
-              rows - item.y,
-              Math.max(
-                minimumSize.h,
-                item.h + deltaRows
-              )
-            );
+      if (resizeBottom) {
+        nextH = Math.min(
+          rows - item.y,
+          Math.max(minimumSize.h, item.h + rawDeltaRows)
+        );
+      }
+
+      if (resizeTop) {
+        nextY = Math.min(
+          item.y + item.h - minimumSize.h,
+          Math.max(0, item.y + rawDeltaRows)
+        );
+        nextH = item.h + (item.y - nextY);
+      }
 
       const candidate = {
         ...item,
+        x: nextX,
+        y: nextY,
         w: nextW,
         h: nextH,
       };
@@ -4622,6 +4673,8 @@ export default function TemplateDesigner({
           currentItem.id === item.id
             ? {
                 ...currentItem,
+                x: candidate.x,
+                y: candidate.y,
                 w: candidate.w,
                 h: candidate.h,
               }
@@ -4652,9 +4705,6 @@ export default function TemplateDesigner({
     };
   }, [cols, rows, items]);
 
-  // =====================================
-  // SMART DRAG & DROP
-  // =====================================
   const isPlacementInsideGrid = (item, row, col) =>
     row >= 0 &&
     col >= 0 &&
@@ -4683,8 +4733,7 @@ export default function TemplateDesigner({
     });
   };
 
-  // Finds the closest free area when the pointer is over an occupied cell
-  // or near a grid boundary. This makes a large widget snap to a valid slot.
+  // Snap large widgets to the nearest free grid area.
   const findClosestValidPlacement = (
     item,
     desiredRow,
@@ -4863,7 +4912,6 @@ export default function TemplateDesigner({
     setDidDrag(false);
   };
 
-  // MOVE WIDGET TO NEW CELL
   const moveWidget = (
     itemId,
     targetRow,
@@ -4899,9 +4947,7 @@ export default function TemplateDesigner({
     );
   };
 
-  // STEP 1 DATA SOURCE SELECTION
-  // The source is selected before the widget type, so Step 1 always supports
-  // multiple selections. Single-value widgets use the first selected field.
+  // Step 1 supports multiple sources; single-value widgets use the first source.
   const toggleWizardDataSource = (key) => {
     setUseDedicatedWidgetSource(false);
 
@@ -4938,7 +4984,6 @@ export default function TemplateDesigner({
     }
   };
 
-  // TOGGLE DATA FOR LINE / AREA / BAR / PIE CHART
   const toggleMultiDataKey = (key) => {
     setNewDataKeys((prev) => {
       if (prev.includes(key)) {
@@ -4970,8 +5015,10 @@ export default function TemplateDesigner({
       unit: "",
     });
 
+    setBatchSelectedChannels([]);
     setInfluxError("");
     setInfluxChannels([]);
+    setBatchSelectedChannels([]);
 
     if (isSuperadmin) {
       setInfluxConfig(defaultInfluxConfig);
@@ -4987,9 +5034,11 @@ export default function TemplateDesigner({
       setSelectedMeasurementGroup("");
       setInfluxConfig(defaultInfluxConfig);
       setInfluxChannels([]);
+    setBatchSelectedChannels([]);
     }
 
     setShowCustomDataModal(true);
+    scrollToCustomDataSourceForm();
   };
 
   const openExistingDataSourceModal = (
@@ -5027,6 +5076,8 @@ export default function TemplateDesigner({
         : "edit"
     );
 
+    setBatchSelectedChannels([]);
+
     setEditingDataSourceKey(
       mode === "edit"
         ? dataOption.key
@@ -5038,8 +5089,7 @@ export default function TemplateDesigner({
         mode === "copy"
           ? `${dataOption.label || "Data Source"} Copy`
           : dataOption.label || "",
-      // Editing keeps the original key stable so existing widgets
-      // continue to reference the same source.
+      // Editing preserves the source key so existing widgets remain linked.
       key:
         mode === "edit"
           ? dataOption.key
@@ -5071,8 +5121,7 @@ export default function TemplateDesigner({
         : ""
     );
 
-    // Keep the currently-saved channel visible immediately while
-    // metadata refreshes in the background.
+    // Keep the saved channel visible while metadata refreshes.
     setInfluxChannels(
       channel
         ? [channel]
@@ -5140,6 +5189,230 @@ export default function TemplateDesigner({
     }
 
     setShowCustomDataModal(true);
+    scrollToCustomDataSourceForm();
+  };
+
+  const toggleBatchChannel = (
+    channel
+  ) => {
+    setBatchSelectedChannels(
+      (current) =>
+        current.includes(channel)
+          ? current.filter(
+              (item) =>
+                item !== channel
+            )
+          : [...current, channel]
+    );
+  };
+
+  const renderChannelSelector = (
+    disabled = false
+  ) => {
+    if (
+      customDataMode !== "add"
+    ) {
+      return (
+        <select
+          value={customDataDraft.channel}
+          disabled={disabled}
+          onChange={(event) =>
+            setCustomDataDraft(
+              (current) => ({
+                ...current,
+                channel:
+                  event.target.value,
+              })
+            )
+          }
+          className="
+            w-full rounded-lg
+            border border-slate-300
+            bg-white px-2.5 py-2
+            font-mono text-xs
+            text-slate-900
+            outline-none
+            focus:ring-2
+            focus:ring-cyan-500/20
+            disabled:cursor-not-allowed
+            disabled:opacity-60
+            dark:border-slate-600
+            dark:bg-slate-950
+            dark:text-white
+          "
+        >
+          <option value="">
+            Select channel
+          </option>
+
+          {influxChannels.map(
+            (channel) => (
+              <option
+                key={channel}
+                value={channel}
+              >
+                {channel}
+              </option>
+            )
+          )}
+        </select>
+      );
+    }
+
+    return (
+      <div
+        className={`
+          rounded-lg border
+          border-slate-300
+          bg-white
+          dark:border-slate-600
+          dark:bg-slate-950
+          ${
+            disabled
+              ? "pointer-events-none opacity-60"
+              : ""
+          }
+        `}
+      >
+        <div
+          className="
+            flex items-center
+            justify-between gap-2
+            border-b border-slate-200
+            px-2.5 py-2
+            dark:border-slate-700
+          "
+        >
+          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-300">
+            {batchSelectedChannels.length} selected
+          </span>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={
+                disabled ||
+                influxChannels.length === 0
+              }
+              onClick={() =>
+                setBatchSelectedChannels([
+                  ...influxChannels,
+                ])
+              }
+              className="
+                rounded-md px-2 py-1
+                text-[9px] font-bold
+                text-cyan-600
+                transition
+                hover:bg-cyan-50
+                disabled:opacity-40
+                dark:text-cyan-300
+                dark:hover:bg-cyan-500/10
+              "
+            >
+              Select all
+            </button>
+
+            <button
+              type="button"
+              disabled={
+                disabled ||
+                batchSelectedChannels.length ===
+                  0
+              }
+              onClick={() =>
+                setBatchSelectedChannels(
+                  []
+                )
+              }
+              className="
+                rounded-md px-2 py-1
+                text-[9px] font-bold
+                text-slate-500
+                transition
+                hover:bg-slate-100
+                disabled:opacity-40
+                dark:text-slate-300
+                dark:hover:bg-slate-800
+              "
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div className="max-h-36 overflow-y-auto p-2">
+          {influxChannels.length === 0 ? (
+            <div className="px-1 py-3 text-center text-[10px] text-slate-400">
+              {disabled
+                ? "Complete the previous source path steps first."
+                : "No channels available."}
+            </div>
+          ) : (
+            <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+              {influxChannels.map(
+                (channel) => {
+                  const selected =
+                    batchSelectedChannels.includes(
+                      channel
+                    );
+
+                  return (
+                    <button
+                      key={channel}
+                      type="button"
+                      onClick={() =>
+                        toggleBatchChannel(
+                          channel
+                        )
+                      }
+                      className={`
+                        flex min-w-0 items-center
+                        gap-2 rounded-md
+                        border px-2 py-1.5
+                        text-left font-mono
+                        text-[10px]
+                        transition
+                        ${
+                          selected
+                            ? "border-cyan-400 bg-cyan-50 text-cyan-800 dark:border-cyan-500/60 dark:bg-cyan-500/10 dark:text-cyan-200"
+                            : "border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        }
+                      `}
+                    >
+                      <span
+                        className={`
+                          flex h-4 w-4
+                          shrink-0 items-center
+                          justify-center
+                          rounded border
+                          ${
+                            selected
+                              ? "border-cyan-500 bg-cyan-500 text-white"
+                              : "border-slate-300 dark:border-slate-600"
+                          }
+                        `}
+                      >
+                        {selected && (
+                          <Check
+                            size={10}
+                            strokeWidth={3}
+                          />
+                        )}
+                      </span>
+
+                      <span className="truncate">
+                        {channel}
+                      </span>
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const openEditDataSourceModal = (
@@ -5157,7 +5430,6 @@ export default function TemplateDesigner({
       dataOption,
       "copy"
     );
-
 
   useEffect(() => {
     if (
@@ -5178,9 +5450,6 @@ export default function TemplateDesigner({
   const saveCustomDataSource = () => {
     const label =
       customDataDraft.label.trim();
-
-    const channel =
-      customDataDraft.channel.trim();
 
     const unit =
       customDataDraft.unit.trim();
@@ -5225,27 +5494,19 @@ export default function TemplateDesigner({
       return;
     }
 
-    if (!channel) {
+    const singleChannel =
+      customDataDraft.channel.trim();
+
+    if (
+      customDataMode !== "add" &&
+      !singleChannel
+    ) {
       showToast(
         "error",
         "Select an Influx channel."
       );
       return;
     }
-
-    const resolvedLabel =
-      label ||
-      formatInfluxFieldLabel(channel);
-
-    const source = {
-      bucket: bucketName,
-      measurement: measurementName,
-      tagKey: tagKey || "id",
-      tagValue,
-      id: tagValue,
-      field: channel,
-      channel,
-    };
 
     if (
       customDataMode === "edit" &&
@@ -5268,11 +5529,26 @@ export default function TemplateDesigner({
         return;
       }
 
+      const resolvedLabel =
+        label ||
+        formatInfluxFieldLabel(
+          singleChannel
+        );
+
+      const source = {
+        bucket: bucketName,
+        measurement: measurementName,
+        tagKey: tagKey || "id",
+        tagValue,
+        id: tagValue,
+        field: singleChannel,
+        channel: singleChannel,
+      };
+
       const updatedOption = {
         ...existing,
         key,
-        label:
-          resolvedLabel,
+        label: resolvedLabel,
         unit,
         isCustom: true,
         source,
@@ -5291,7 +5567,7 @@ export default function TemplateDesigner({
       setChannelMap(
         (previousMap) => ({
           ...previousMap,
-          [key]: channel,
+          [key]: singleChannel,
         })
       );
 
@@ -5302,6 +5578,7 @@ export default function TemplateDesigner({
         unit: "",
       });
 
+      setBatchSelectedChannels([]);
       setCustomDataMode("add");
       setEditingDataSourceKey("");
       setShowCustomDataModal(false);
@@ -5315,59 +5592,132 @@ export default function TemplateDesigner({
       return;
     }
 
-    // Add and Copy both create a fresh key. Copy simply starts with
-    // the existing source pre-filled in the form.
-    const baseKey =
-      createSafeDataKey(
-        customDataDraft.key ||
-          resolvedLabel ||
-          channel
-      );
+    const channelsToCreate =
+      customDataMode === "add"
+        ? [
+            ...new Set(
+              batchSelectedChannels.filter(
+                (channel) =>
+                  influxChannels.includes(
+                    channel
+                  )
+              )
+            ),
+          ]
+        : [singleChannel];
 
-    const key =
-      getUniqueDataKey(
-        baseKey,
-        allDataOptions
+    if (channelsToCreate.length === 0) {
+      showToast(
+        "error",
+        "Select at least one Influx channel."
       );
+      return;
+    }
 
-    const newOption = {
-      key,
-      label: resolvedLabel,
-      unit,
-      isCustom: true,
-      source,
-    };
+    const createdOptions = [];
+
+    channelsToCreate.forEach(
+      (channel) => {
+        const isSingle =
+          channelsToCreate.length === 1;
+
+        const resolvedLabel =
+          isSingle && label
+            ? label
+            : formatInfluxFieldLabel(
+                channel
+              );
+
+        const baseKey =
+          createSafeDataKey(
+            isSingle
+              ? customDataDraft.key ||
+                  resolvedLabel ||
+                  channel
+              : channel
+          );
+
+        const key =
+          getUniqueDataKey(
+            baseKey,
+            [
+              ...allDataOptions,
+              ...createdOptions,
+            ]
+          );
+
+        createdOptions.push({
+          key,
+          label: resolvedLabel,
+          unit,
+          isCustom: true,
+          source: {
+            bucket: bucketName,
+            measurement:
+              measurementName,
+            tagKey: tagKey || "id",
+            tagValue,
+            id: tagValue,
+            field: channel,
+            channel,
+          },
+        });
+      }
+    );
 
     setCustomDataOptions(
       (previousOptions) => [
         ...previousOptions,
-        newOption,
+        ...createdOptions,
       ]
     );
 
     setChannelMap(
       (previousMap) => ({
         ...previousMap,
-        [key]: channel,
+        ...Object.fromEntries(
+          createdOptions.map(
+            (option) => [
+              option.key,
+              option.source.channel,
+            ]
+          )
+        ),
       })
     );
+
+    const createdKeys =
+      createdOptions.map(
+        (option) => option.key
+      );
 
     if (isMultiDataWidget) {
       setNewDataKeys(
         (previousKeys) => [
           ...new Set([
             ...previousKeys,
-            key,
+            ...createdKeys,
           ]),
         ]
       );
+      setNewDataKey(
+        (current) =>
+          current ||
+          createdKeys[0] ||
+          ""
+      );
     } else {
-      setNewDataKey(key);
+      setNewDataKey(
+        createdKeys[0] || ""
+      );
     }
 
-    if (!newLabel.trim()) {
+    if (
+      !newLabel.trim() &&
+      createdOptions[0]
+    ) {
       setNewLabel(
-        resolvedLabel
+        createdOptions[0].label
       );
     }
 
@@ -5377,6 +5727,8 @@ export default function TemplateDesigner({
       channel: "",
       unit: "",
     });
+
+    setBatchSelectedChannels([]);
 
     const completedMode =
       customDataMode;
@@ -5389,13 +5741,16 @@ export default function TemplateDesigner({
       "success",
       completedMode === "copy"
         ? "A new connected source was created from the existing configuration and selected."
+        : createdOptions.length > 1
+        ? `${createdOptions.length} connected sources were added.`
         : "The new connected source is ready to use.",
       completedMode === "copy"
         ? "Data source copied"
+        : createdOptions.length > 1
+        ? "Data sources added"
         : "Data source added"
     );
   };
-
 
   const deleteCustomDataSource = (key) => {
     const isUsed = items.some(
@@ -5437,25 +5792,141 @@ export default function TemplateDesigner({
     );
   };
 
+  const resetCustomWidgetDraft = () => {
+    setCustomWidgetDraft({
+      label: "",
+      description: "",
+      layoutConfig:
+        normalizeCustomLayoutConfig(
+          DEFAULT_CUSTOM_LAYOUT_CONFIG
+        ),
+    });
+  };
+
+  const openNewCustomWidgetModal = () => {
+    setEditingCustomWidgetTypeId("");
+    resetCustomWidgetDraft();
+    setShowCustomWidgetModal(true);
+  };
+
+  const closeCustomWidgetModal = () => {
+    setShowCustomWidgetModal(false);
+    setEditingCustomWidgetTypeId("");
+    resetCustomWidgetDraft();
+  };
+
+  const editCustomWidgetType = (id) => {
+    const customWidget =
+      customWidgetTypes.find(
+        (widget) =>
+          widget.id === id
+      );
+
+    if (!customWidget) {
+      return;
+    }
+
+    setEditingCustomWidgetTypeId(id);
+    setCustomWidgetDraft({
+      label:
+        customWidget.label || "",
+      description:
+        customWidget.description ||
+        "",
+      layoutConfig:
+        normalizeCustomLayoutConfig(
+          customWidget.layoutConfig ||
+            DEFAULT_CUSTOM_LAYOUT_CONFIG
+        ),
+    });
+    setShowCustomWidgetModal(true);
+  };
+
   const addCustomWidgetType = () => {
-    const label = customWidgetDraft.label.trim();
-    const description = customWidgetDraft.description.trim();
-    const layoutConfig = normalizeCustomLayoutConfig(
-      customWidgetDraft.layoutConfig ||
-        DEFAULT_CUSTOM_LAYOUT_CONFIG
-    );
+    const label =
+      customWidgetDraft.label.trim();
+
+    const description =
+      customWidgetDraft.description.trim();
+
+    const layoutConfig =
+      normalizeCustomLayoutConfig(
+        customWidgetDraft.layoutConfig ||
+          DEFAULT_CUSTOM_LAYOUT_CONFIG
+      );
 
     if (!label) {
-      showToast("error", "Enter a name for the custom widget type.");
+      showToast(
+        "error",
+        "Enter a name for the custom widget type."
+      );
       return;
     }
 
     if (!layoutConfig.parts.length) {
-      showToast("error", "Add at least one section to the custom widget.");
+      showToast(
+        "error",
+        "Add at least one element to the custom widget."
+      );
       return;
     }
 
-    const id = `customWidget-${Date.now()}`;
+    if (editingCustomWidgetTypeId) {
+      const id =
+        editingCustomWidgetTypeId;
+
+      setCustomWidgetTypes(
+        (previousTypes) =>
+          previousTypes.map(
+            (widget) =>
+              widget.id === id
+                ? {
+                    ...widget,
+                    label,
+                    description,
+                    layoutConfig,
+                  }
+                : widget
+          )
+      );
+
+      setItems((previousItems) =>
+        previousItems.map((item) =>
+          item.customWidgetTypeId ===
+          id
+            ? {
+                ...item,
+                customWidgetTypeLabel:
+                  label,
+                customLayoutConfig:
+                  layoutConfig,
+              }
+            : item
+        )
+      );
+
+      setNewCustomLayoutConfig(
+        layoutConfig
+      );
+
+      setShowCustomWidgetModal(false);
+      setEditingCustomWidgetTypeId("");
+      resetCustomWidgetDraft();
+
+      handleWidgetTypeChange(
+        "customLayout",
+        id
+      );
+
+      showToast(
+        "success",
+        "Custom widget updated."
+      );
+      return;
+    }
+
+    const id =
+      `customWidget-${Date.now()}`;
 
     const newWidgetType = {
       id,
@@ -5467,23 +5938,28 @@ export default function TemplateDesigner({
       isCustomWidgetType: true,
     };
 
-    setCustomWidgetTypes((previousTypes) => [
-      ...previousTypes,
-      newWidgetType,
-    ]);
+    setCustomWidgetTypes(
+      (previousTypes) => [
+        ...previousTypes,
+        newWidgetType,
+      ]
+    );
 
-    setCustomWidgetDraft({
-      label: "",
-      description: "",
-      layoutConfig: normalizeCustomLayoutConfig(
-        DEFAULT_CUSTOM_LAYOUT_CONFIG
-      ),
-    });
-
+    resetCustomWidgetDraft();
     setShowCustomWidgetModal(false);
-    setNewCustomLayoutConfig(layoutConfig);
-    handleWidgetTypeChange("customLayout", id);
-    showToast("success", "Custom widget layout added.");
+    setNewCustomLayoutConfig(
+      layoutConfig
+    );
+
+    handleWidgetTypeChange(
+      "customLayout",
+      id
+    );
+
+    showToast(
+      "success",
+      "Custom widget layout added."
+    );
   };
 
   const deleteCustomWidgetType = (id) => {
@@ -5600,15 +6076,14 @@ export default function TemplateDesigner({
     }
 
     const primaryDataKey =
-      newDataKeys[0] || newDataKey || "";
+      newDataKey || newDataKeys[0] || "";
 
     const configuredStatusDataKey =
       newBigNumberDisplay.statusDataKey || "";
 
     const statusDataKey =
       configuredStatusDataKey &&
-      configuredStatusDataKey !== primaryDataKey &&
-      newDataKeys.includes(configuredStatusDataKey)
+      configuredStatusDataKey !== primaryDataKey
         ? configuredStatusDataKey
         : newDataKeys.find(
             (key) => key && key !== primaryDataKey
@@ -5625,7 +6100,7 @@ export default function TemplateDesigner({
     if (!statusDataKey) {
       showToast(
         "error",
-        "Stat + Status requires a second data source for the machine status. Go back to Data Source and select two fields."
+        "Stat + Status requires a separate status data source. Choose it in Stat Display."
       );
       return false;
     }
@@ -5654,15 +6129,14 @@ export default function TemplateDesigner({
     }
 
     const primaryDataKey =
-      newDataKeys[0] || newDataKey || "";
+      newDataKey || newDataKeys[0] || "";
 
     const configuredStatusDataKey =
       newBigNumberDisplay.statusDataKey || "";
 
     const statusDataKey =
       configuredStatusDataKey &&
-      configuredStatusDataKey !== primaryDataKey &&
-      newDataKeys.includes(configuredStatusDataKey)
+      configuredStatusDataKey !== primaryDataKey
         ? configuredStatusDataKey
         : newDataKeys.find(
             (key) => key && key !== primaryDataKey
@@ -5675,18 +6149,45 @@ export default function TemplateDesigner({
     };
   };
 
+  const validateProcessViewConfig = () => {
+    if (newType !== "processView") {
+      return true;
+    }
+
+    if (!newProcessViewConfig?.processFlowId) {
+      showToast(
+        "error",
+        "Choose a saved Process Flow before adding the Process View widget."
+      );
+      return false;
+    }
+
+    return true;
+  };
+
   const validateProcessEquipmentConfig = () => {
     if (newType !== "processEquipment") return true;
 
-    const selectedSet = new Set(newDataKeys.filter(Boolean));
-    const bindings = Object.values(
-      newProcessEquipmentConfig?.metricBindings || {}
-    ).filter((key) => selectedSet.has(key));
+    const selectedSet = new Set(
+      newDataKeys.filter(Boolean)
+    );
 
-    if (bindings.length === 0) {
+    const primaryDataKey =
+      newProcessEquipmentConfig?.primaryMeasurement
+        ?.dataKey || "";
+
+    const hasPrimaryMeasurement =
+      Boolean(primaryDataKey) &&
+      selectedSet.has(primaryDataKey);
+
+    const hasSemanticBinding = Object.values(
+      newProcessEquipmentConfig?.metricBindings || {}
+    ).some((key) => selectedSet.has(key));
+
+    if (!hasPrimaryMeasurement && !hasSemanticBinding) {
       showToast(
         "error",
-        "Map at least one selected data source to an equipment metric."
+        "Choose a selected data source for the Primary Measurement."
       );
       return false;
     }
@@ -5700,16 +6201,11 @@ export default function TemplateDesigner({
     const config = normalizeCustomLayoutConfig(
       newCustomLayoutConfig
     );
-    const hasConfiguredPart = config.parts.some(
-      (part) =>
-        Boolean(part.dataKey) ||
-        (Array.isArray(part.dataKeys) && part.dataKeys.length > 0)
-    );
 
-    if (!hasConfiguredPart) {
+    if (!config.parts.length) {
       showToast(
         "error",
-        "Configure at least one custom section with a selected data source."
+        "Add at least one element to the custom widget."
       );
       return false;
     }
@@ -5717,7 +6213,6 @@ export default function TemplateDesigner({
     return true;
   };
 
-  // ADD WIDGET
   const addWidget = () => {
     if (!activeCell) return;
 
@@ -5725,11 +6220,13 @@ export default function TemplateDesigner({
     if (!validateBigNumberDataSources()) return;
     if (!validateCompositeConfig()) return;
     if (!validateProcessEquipmentConfig()) return;
+    if (!validateProcessViewConfig()) return;
     if (!validateCustomLayoutConfig()) return;
 
     if (
       isMultiDataWidget &&
       newType !== "sankey" &&
+      newType !== "customLayout" &&
       newDataKeys.length === 0
     ) {
       showToast(
@@ -5743,48 +6240,17 @@ export default function TemplateDesigner({
     const preparedSankeyConfig = getPreparedSankeyConfig();
     const hasValidSankeyOutput =
       newType !== "sankey" ||
-      preparedSankeyConfig.outputs.some(
-        (output) =>
-          output.name &&
-          (
-            output.dataKey ||
-            output.dataSource?.channel
-          )
-      );
+      getConfiguredSankeyOutputs(
+        preparedSankeyConfig
+      ).length > 0;
 
     if (!hasValidSankeyOutput) {
       showToast(
         "error",
-        "Please configure at least one Sankey output with a channel or existing data key."
+        "Map at least one Sankey flow to a connected data source in the Sankey editor."
       );
 
       return;
-    }
-
-    if (
-      newType === "sankey"
-    ) {
-      const unmappedTerminalFlows =
-        getUnmappedTerminalSankeyFlows(
-          preparedSankeyConfig
-        );
-
-      if (
-        unmappedTerminalFlows.length >
-        0
-      ) {
-        showToast(
-          "error",
-          `${unmappedTerminalFlows.length} terminal Sankey flow${
-            unmappedTerminalFlows.length === 1
-              ? " still needs"
-              : "s still need"
-          } a connected data source. Open the Sankey Flow Editor and assign one before saving.`,
-          "Sankey data source required"
-        );
-
-        return;
-      }
     }
 
     const sankeyDataKeys = getSankeyDataKeys(preparedSankeyConfig);
@@ -5793,6 +6259,11 @@ export default function TemplateDesigner({
       id: Date.now(),
 
       type: newType,
+
+      widgetAppearance:
+        normalizeWidgetAppearance(
+          newWidgetAppearance
+        ),
 
       customWidgetTypeId: newWidgetTypeId || undefined,
 
@@ -5812,18 +6283,22 @@ export default function TemplateDesigner({
             )),
 
       dataKey:
-        newType === "sankey"
+        newType === "customLayout"
+          ? ""
+          : newType === "sankey"
           ? sankeyDataKeys[0] || newDataKey
           : isMultiDataWidget
           ? newDataKeys[0] || newDataKey
           : newDataKey,
 
       dataKeys:
-        newType === "sankey"
+        newType === "customLayout"
+          ? undefined
+          : newType === "sankey"
           ? sankeyDataKeys
           : isBigNumberCombined
           ? [
-              newDataKeys[0] || newDataKey,
+              newDataKey || newDataKeys[0],
               getPreparedBigNumberDisplay()?.statusDataKey,
             ].filter(Boolean)
           : isMultiDataWidget
@@ -5836,7 +6311,7 @@ export default function TemplateDesigner({
           : undefined,
 
       chartDisplay:
-        ["line", "bar", "heatmap", "composite"].includes(
+        ["line", "bar", "heatmap", "pie", "composite"].includes(
           newType
         )
           ? normalizeChartDisplay(newChartDisplay)
@@ -5971,6 +6446,9 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
     setNewGaugeDisplay({ ...defaultGaugeDisplay });
+    setNewWidgetAppearance({
+      ...defaultWidgetAppearance,
+    });
 
     setNewCompositeConfig(
       normalizeCompositeConfig()
@@ -5999,7 +6477,6 @@ export default function TemplateDesigner({
     );
   };
 
-  // UPDATE WIDGET
   const updateWidget = () => {
     if (!selectedItem) return;
 
@@ -6007,10 +6484,12 @@ export default function TemplateDesigner({
     if (!validateBigNumberDataSources()) return;
     if (!validateCompositeConfig()) return;
     if (!validateProcessEquipmentConfig()) return;
+    if (!validateProcessViewConfig()) return;
     if (!validateCustomLayoutConfig()) return;
 
     if (
       isMultiDataWidget &&
+      newType !== "customLayout" &&
       newDataKeys.length === 0
     ) {
       showToast(
@@ -6024,48 +6503,17 @@ export default function TemplateDesigner({
     const preparedSankeyConfig = getPreparedSankeyConfig();
     const hasValidSankeyOutput =
       newType !== "sankey" ||
-      preparedSankeyConfig.outputs.some(
-        (output) =>
-          output.name &&
-          (
-            output.dataKey ||
-            output.dataSource?.channel
-          )
-      );
+      getConfiguredSankeyOutputs(
+        preparedSankeyConfig
+      ).length > 0;
 
     if (!hasValidSankeyOutput) {
       showToast(
         "error",
-        "Please configure at least one Sankey output with a channel or existing data key."
+        "Map at least one Sankey flow to a connected data source in the Sankey editor."
       );
 
       return;
-    }
-
-    if (
-      newType === "sankey"
-    ) {
-      const unmappedTerminalFlows =
-        getUnmappedTerminalSankeyFlows(
-          preparedSankeyConfig
-        );
-
-      if (
-        unmappedTerminalFlows.length >
-        0
-      ) {
-        showToast(
-          "error",
-          `${unmappedTerminalFlows.length} terminal Sankey flow${
-            unmappedTerminalFlows.length === 1
-              ? " still needs"
-              : "s still need"
-          } a connected data source. Open the Sankey Flow Editor and assign one before saving.`,
-          "Sankey data source required"
-        );
-
-        return;
-      }
     }
 
     const sankeyDataKeys = getSankeyDataKeys(preparedSankeyConfig);
@@ -6093,6 +6541,11 @@ export default function TemplateDesigner({
 
             type: newType,
 
+            widgetAppearance:
+              normalizeWidgetAppearance(
+                newWidgetAppearance
+              ),
+
             customWidgetTypeId: newWidgetTypeId || undefined,
 
             customWidgetTypeLabel:
@@ -6111,14 +6564,18 @@ export default function TemplateDesigner({
                   )),
 
             dataKey:
-              newType === "sankey"
+              newType === "customLayout"
+                ? ""
+                : newType === "sankey"
                 ? sankeyDataKeys[0] || ""
                 : isMultiDataWidget
                 ? newDataKeys[0] || newDataKey
                 : newDataKey,
 
             dataKeys:
-              newType === "sankey"
+              newType === "customLayout"
+                ? undefined
+                : newType === "sankey"
                 ? sankeyDataKeys
                 : isBigNumberCombined
                 ? [
@@ -6135,7 +6592,7 @@ export default function TemplateDesigner({
                 : undefined,
 
             chartDisplay:
-              ["line", "bar", "heatmap", "composite"].includes(
+              ["line", "bar", "heatmap", "pie", "composite"].includes(
                 newType
               )
                 ? normalizeChartDisplay(newChartDisplay)
@@ -6261,6 +6718,9 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
     setNewGaugeDisplay({ ...defaultGaugeDisplay });
+    setNewWidgetAppearance({
+      ...defaultWidgetAppearance,
+    });
 
     setNewCompositeConfig(
       normalizeCompositeConfig()
@@ -6283,7 +6743,6 @@ export default function TemplateDesigner({
     );
   };
 
-  // REMOVE WIDGET
   const removeWidget = (id) => {
     setItems((prev) =>
       prev.filter((i) => i.id !== id)
@@ -6308,13 +6767,15 @@ export default function TemplateDesigner({
       ...defaultRangeConfig,
     });
     setNewGaugeDisplay({ ...defaultGaugeDisplay });
+    setNewWidgetAppearance({
+      ...defaultWidgetAppearance,
+    });
 
     setNewLogDisplay(
       getPreparedLogDisplay()
     );
   };
 
-  // CREATE OR UPDATE TEMPLATE
   const saveTemplate = async () => {
     const token =
       localStorage.getItem("token");
@@ -6383,11 +6844,9 @@ export default function TemplateDesigner({
               rows,
               cols,
 
-              // Preferred architecture:
-              // every dashboard data key owns a complete source.
+              // Each dashboard data key should own a complete source; legacy mapping remains as fallback.
               dataSources,
 
-              // Compatibility fallback for older runtime code.
               influx:
                 Object.values(dataSources)[0]
                   ? {
@@ -6418,9 +6877,33 @@ export default function TemplateDesigner({
         throw new Error(text);
       }
 
-      // The backend save is now authoritative. Remove the temporary working
-      // draft so reopening this template loads the newly saved version.
       clearPageDraft(designerDraftKey);
+
+      if (isEditingTemplate) {
+        onTemplateUpdated?.({
+          ...(selectedTemplate || {}),
+          id: selectedTemplate?.id,
+          name:
+            templateName ||
+            selectedTemplate?.name ||
+            `Template ${Date.now()}`,
+          layout: {
+            rows,
+            cols,
+            dataSources,
+            influx:
+              Object.values(dataSources)[0]
+                ? {
+                    ...Object.values(dataSources)[0],
+                  }
+                : undefined,
+            channelMap,
+            customDataOptions,
+            customWidgetTypes,
+            items,
+          },
+        });
+      }
 
       setToast({
         type: "success",
@@ -6429,13 +6912,19 @@ export default function TemplateDesigner({
             ? "Template updated"
             : "Template created",
         message:
-          isEditingTemplate
+          isEditingTemplate && editReturnPage === "dashboard"
+            ? "Changes saved. Returning to the dashboard."
+            : isEditingTemplate
             ? "The template changes were saved successfully."
             : "The new template was created successfully.",
       });
 
       setTimeout(() => {
-        setPage("templates");
+        setPage(
+          isEditingTemplate && editReturnPage === "dashboard"
+            ? "dashboard"
+            : "templates"
+        );
       }, 900);
     } catch (err) {
       console.error(
@@ -6450,12 +6939,16 @@ export default function TemplateDesigner({
     }
   };
 
-  // BASE PREVIEW
   const base = isEdit
     ? selectedItem
     : activeCell
     ? {
         type: newType,
+
+        widgetAppearance:
+          normalizeWidgetAppearance(
+            newWidgetAppearance
+          ),
 
         customWidgetTypeId: newWidgetTypeId || undefined,
 
@@ -6492,7 +6985,7 @@ export default function TemplateDesigner({
             : undefined,
 
         chartDisplay:
-          ["line", "bar", "heatmap"].includes(
+          ["line", "bar", "heatmap", "pie"].includes(
             newType
           )
             ? normalizeChartDisplay(newChartDisplay)
@@ -6565,13 +7058,20 @@ export default function TemplateDesigner({
     : null;
 
   const isDataSourceRequired =
-    !["image", "sankey", "logs", "processView"].includes(
-      newType
-    );
+    ![
+      "image",
+      "sankey",
+      "logs",
+      "processView",
+      "customLayout",
+    ].includes(newType);
 
-  // Events & Alarms keeps the legacy internal type "logs" and uses its dedicated event feed.
   const skipsWidgetDataSourceStep =
-    ["logs", "processView"].includes(newType);
+    [
+      "logs",
+      "processView",
+      "customLayout",
+    ].includes(newType);
 
   const hasSelectedDataSource =
     newType === "sankey"
@@ -6612,6 +7112,8 @@ export default function TemplateDesigner({
       ? `${selectedSourceCount} configured output${
           selectedSourceCount === 1 ? "" : "s"
         }`
+      : newType === "customLayout"
+      ? "Sources mapped inside custom widget"
       : `${selectedSourceCount} source${
           selectedSourceCount === 1 ? "" : "s"
         }`;
@@ -6640,6 +7142,7 @@ export default function TemplateDesigner({
   const goToNextWidgetStep = () => {
     if (
       widgetStep === 1 &&
+      !skipsWidgetDataSourceStep &&
       !useDedicatedWidgetSource &&
       newDataKeys.length === 0 &&
       !newDataKey
@@ -6672,18 +7175,29 @@ export default function TemplateDesigner({
                 gridRef.current
                   ?.parentElement;
 
-              const rect =
-                parent?.getBoundingClientRect();
+              const measuredWidth =
+                parent?.clientWidth ||
+                parent?.getBoundingClientRect()
+                  ?.width ||
+                0;
 
-              if (!rect?.width) {
+              if (!measuredWidth) {
                 return;
               }
 
-              setGridViewportWidth(
+              const nextWidth =
                 Math.max(
                   320,
-                  Math.floor(rect.width)
-                )
+                  Math.floor(
+                    measuredWidth
+                  )
+                );
+
+              setGridViewportWidth(
+                (current) =>
+                  current === nextWidth
+                    ? current
+                    : nextWidth
               );
             }
           );
@@ -6732,39 +7246,13 @@ export default function TemplateDesigner({
     };
   }, [rows, cols]);
 
-  // Keep the editor grid geometry aligned with Dashboard.jsx.
+  // Keep editor grid geometry aligned with Dashboard.jsx.
   const gridGapPx = 8;
 
-  /*
-   * LANDSCAPE GRID CELLS
-   * --------------------
-   * A grid unit represents layout space, not a square.
-   *
-   * The previous implementation derived row height from the remaining
-   * viewport height. At 12 columns this created very narrow, tall cells.
-   *
-   * Instead, row height now follows COLUMN WIDTH.
-   *
-   * Target:
-   *   width : height ≈ 1.65 : 1
-   *
-   * Examples on a normal desktop:
-   *   4 columns  -> about 220px high (capped)
-   *   8 columns  -> about 115px high
-   *   12 columns -> about 70px high
-   *
-   * A minimum logical cell width is also preserved. If the screen becomes
-   * too narrow for all columns, the builder scrolls horizontally instead of
-   * turning cells into portrait rectangles.
-   */
-  const targetCellAspectRatio = 1.65;
+  // Row height follows column width so grid cells remain landscape.
+  const targetCellAspectRatio = 1.52;
 
-  /*
-   * FIT MODE
-   * --------
-   * All columns must fit inside the visible editor width, so cells shrink
-   * when more columns are added.
-   */
+  // Fit mode shrinks cells so all columns remain visible.
   const fitMinimumCellWidthPx = 28;
 
   const fitCellWidth =
@@ -6778,18 +7266,7 @@ export default function TemplateDesigner({
         cols
     );
 
-  /*
-   * SCROLL MODE
-   * -----------
-   * Cell size must NOT shrink when more columns are added.
-   *
-   * We use the comfortable size of a 4-column canvas as the reference cell
-   * size. A 4-column, 8-column, or 12-column template therefore uses the
-   * SAME 1×1 widget-box dimensions in Scroll mode.
-   *
-   * More columns only make the canvas wider, which produces horizontal
-   * scrolling.
-   */
+  // Scroll mode keeps a fixed cell size and expands the canvas horizontally.
   const scrollReferenceColumns = 4;
   const scrollMinimumCellWidthPx = 180;
   const scrollMaximumCellWidthPx = 320;
@@ -6813,9 +7290,9 @@ export default function TemplateDesigner({
       )
     );
 
-  const maximumGridRowHeight = 220;
-  const minimumFitRowHeight = 34;
-  const minimumScrollRowHeight = 105;
+  const maximumGridRowHeight = 240;
+  const minimumFitRowHeight = 38;
+  const minimumScrollRowHeight = 115;
 
   const calculatedCellWidth =
     canvasMode === "scroll"
@@ -6896,7 +7373,7 @@ export default function TemplateDesigner({
       }));
 
     const compactInput =
-      "h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-950 dark:text-white";
+      "h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/15 dark:border-slate-700 dark:bg-slate-950 dark:text-white";
 
     const toggleClass =
       "flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300";
@@ -6908,7 +7385,7 @@ export default function TemplateDesigner({
       >
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
           <div className="min-w-0">
-            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-300">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-600 dark:text-cyan-300">
               {partName === "primary" ? "Primary" : "Secondary"}
             </div>
             <div className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
@@ -6974,7 +7451,7 @@ export default function TemplateDesigner({
                           }
                           className={`h-7 rounded-md px-2.5 text-[10px] font-semibold transition-colors ${
                             selected
-                              ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                              ? "bg-white text-cyan-700 shadow-sm dark:bg-slate-800 dark:text-cyan-300"
                               : "text-slate-500 dark:text-slate-400"
                           }`}
                         >
@@ -6998,14 +7475,14 @@ export default function TemplateDesigner({
                             }
                             className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[11px] transition-colors ${
                               selected
-                                ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-                                : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                                ? "border-cyan-300 bg-cyan-50 text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-cyan-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
                             }`}
                           >
                             <span
                               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
                                 selected
-                                  ? "border-emerald-500 bg-emerald-500 text-white"
+                                  ? "border-cyan-500 bg-cyan-500 text-white"
                                   : "border-slate-300 dark:border-slate-600"
                               }`}
                             >
@@ -7047,7 +7524,7 @@ export default function TemplateDesigner({
           )}
 
           {widgetType === "bignumber" && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-[10px] font-semibold text-slate-500">
                   Decimals
@@ -7464,10 +7941,13 @@ export default function TemplateDesigner({
     );
   };
 
-
   return (
-    <div className="template-builder relative h-full overflow-auto bg-transparent p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="template-builder relative h-full overflow-auto bg-transparent p-3 text-slate-900 dark:bg-transparent dark:text-slate-100">
       <style>{`
+        .template-builder {
+          scrollbar-gutter: stable;
+        }
+
         .dark .template-builder {
           color: #e2e8f0;
         }
@@ -7584,11 +8064,10 @@ export default function TemplateDesigner({
         }
 
         .template-builder .resizing-widget {
-          outline: 2px solid rgba(16, 185, 129, 0.9);
-          outline-offset: 2px;
+          outline: 1px dashed rgba(34, 211, 238, 0.55);
+          outline-offset: -1px;
         }
       `}</style>
-      {/* GRID BACKGROUND */}
       <div
         className="
           absolute inset-0
@@ -7599,7 +8078,6 @@ export default function TemplateDesigner({
         "
       />
 
-      {/* COMPACT BUILDER HEADER */}
       <div
         className="
           sticky top-0 z-20
@@ -7607,12 +8085,11 @@ export default function TemplateDesigner({
           border border-slate-200
           bg-white p-3
           shadow-sm
-          dark:border-slate-800
-          dark:bg-slate-900
+          dark:border-[#2C3C61]
+          dark:bg-[#0E172D]
           dark:shadow-none
         "
       >
-        {/* TITLE / MAIN ACTION */}
         <div
           className="
             flex items-center
@@ -7624,10 +8101,10 @@ export default function TemplateDesigner({
               className="
                 flex h-8 w-8 shrink-0
                 items-center justify-center
-                rounded-lg bg-emerald-50
-                text-emerald-600
-                dark:bg-emerald-500/10
-                dark:text-emerald-300
+                rounded-lg bg-cyan-50
+                text-cyan-600
+                dark:bg-cyan-500/10
+                dark:text-cyan-300
               "
             >
               <LayoutGrid size={16} />
@@ -7668,11 +8145,11 @@ export default function TemplateDesigner({
               inline-flex h-8 shrink-0
               items-center justify-center
               gap-1.5 rounded-lg
-              bg-emerald-600 px-3
+              bg-gradient-to-r from-blue-600 to-cyan-500 px-3
               text-xs font-semibold
               text-white shadow-sm
-              transition-colors
-              hover:bg-emerald-700
+              transition
+              hover:from-blue-500 hover:to-cyan-400
             "
           >
             <Save size={14} />
@@ -7691,7 +8168,6 @@ export default function TemplateDesigner({
           </button>
         </div>
 
-        {/* NAME + COMPACT GRID CONTROLS */}
         <div
           className="
             mt-2 grid
@@ -7700,7 +8176,6 @@ export default function TemplateDesigner({
             xl:items-end
           "
         >
-          {/* TEMPLATE NAME */}
           <div>
             <label
               className="
@@ -7726,9 +8201,9 @@ export default function TemplateDesigner({
                 bg-white px-3
                 text-sm text-slate-900
                 outline-none transition
-                focus:border-emerald-500
+                focus:border-cyan-500
                 focus:ring-2
-                focus:ring-emerald-500/15
+                focus:ring-cyan-500/15
                 dark:border-slate-700
                 dark:bg-slate-950
                 dark:text-white
@@ -7736,7 +8211,6 @@ export default function TemplateDesigner({
             />
           </div>
 
-          {/* GRID SIZE */}
           <div>
             <div
               className="
@@ -7766,7 +8240,6 @@ export default function TemplateDesigner({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* ROWS */}
               <div
                 className="
                   flex h-8 items-center
@@ -7846,7 +8319,6 @@ export default function TemplateDesigner({
                 </button>
               </div>
 
-              {/* COLUMNS */}
               <div
                 className="
                   flex h-8 items-center
@@ -7926,7 +8398,6 @@ export default function TemplateDesigner({
                 </button>
               </div>
 
-              {/* CANVAS WIDTH MODE */}
               <div
                 className="
                   inline-flex h-8
@@ -7936,7 +8407,7 @@ export default function TemplateDesigner({
                   dark:border-slate-700
                   dark:bg-slate-950
                 "
-                title="Fit shrinks cells to show everything · Fixed preserves widget size and scrolls horizontally"
+                title="Fit keeps the full grid visible · Actual Size keeps larger widget cells and allows horizontal scrolling"
               >
                 <button
                   type="button"
@@ -7952,14 +8423,14 @@ export default function TemplateDesigner({
                     transition-colors
                     ${
                       canvasMode === "fit"
-                        ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                        ? "bg-white text-cyan-700 shadow-sm dark:bg-slate-800 dark:text-cyan-300"
                         : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                     }
                   `}
-                  title="Fit all columns inside the page"
+                  title="Fit the complete grid inside the available width"
                 >
                   <Scan size={12} />
-                  Fit
+                  Fit Page
                 </button>
 
                 <button
@@ -7979,16 +8450,16 @@ export default function TemplateDesigner({
                     ${
                       canvasMode ===
                       "scroll"
-                        ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300"
+                        ? "bg-white text-cyan-700 shadow-sm dark:bg-slate-800 dark:text-cyan-300"
                         : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                     }
                   `}
-                  title="Fixed-size widgets · horizontal scrolling appears when needed"
+                  title="Keep larger widget cells and scroll horizontally when required"
                 >
                   <MoveHorizontal
                     size={12}
                   />
-                  Fixed
+                  Actual Size
                 </button>
               </div>
             </div>
@@ -7996,7 +8467,6 @@ export default function TemplateDesigner({
         </div>
       </div>
 
-      {/* DELETE DROP ZONE */}
       {draggingItemId && (
         <div
           onDragOver={(e) => {
@@ -8073,7 +8543,6 @@ export default function TemplateDesigner({
         </div>
       )}
 
-      {/* DIRECT MANIPULATION HINT */}
       <div
         className="
           mb-2 hidden
@@ -8085,19 +8554,14 @@ export default function TemplateDesigner({
         "
       >
         <span>
-          {canvasMode === "fit"
-            ? `Fit mode · all ${cols} columns visible · ${Math.round(
-                calculatedCellWidth
-              )} × ${fittedGridRowHeight}px per unit`
-            : `Fixed mode · ${scrollCellWidth} × ${fittedGridRowHeight}px per unit · adding columns only widens the canvas`}
+          {cols} columns × {rows} rows
         </span>
 
         <span>
-          Click to edit · drag widget to move · drag edge to resize
+          Click to edit · drag to move · resize from any edge or corner
         </span>
       </div>
 
-      {/* GRID VIEWPORT */}
       <div
         className={
           canvasMode === "scroll"
@@ -8105,7 +8569,6 @@ export default function TemplateDesigner({
             : "w-full overflow-x-hidden overflow-y-visible"
         }
       >
-      {/* GRID */}
       <div
         ref={gridRef}
         onDragOver={updateSmartDragPreview}
@@ -8144,7 +8607,7 @@ export default function TemplateDesigner({
               transition-all duration-150
               ${
                 dragPreview.valid
-                  ? "border-emerald-500 bg-emerald-500/15"
+                  ? "border-cyan-500 bg-cyan-500/15"
                   : "border-red-500 bg-red-500/15"
               }
             `}
@@ -8158,7 +8621,7 @@ export default function TemplateDesigner({
                 rounded-xl px-3 py-2 text-xs font-semibold shadow-sm
                 ${
                   dragPreview.valid
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-cyan-600 text-white"
                     : "bg-red-500 text-white"
                 }
               `}
@@ -8170,7 +8633,6 @@ export default function TemplateDesigner({
           </div>
         )}
 
-        {/* EMPTY CELLS */}
         {Array.from({
           length: rows * cols,
         }).map((_, i) => {
@@ -8222,15 +8684,15 @@ export default function TemplateDesigner({
                 ${
                   isDragOver
                     ? `
-                      border-emerald-500
-                      bg-emerald-50
-                      dark:bg-emerald-900/20
+                      border-cyan-500
+                      bg-cyan-50
+                      dark:bg-cyan-900/20
                       scale-[1.02]
                     `
                     : `
                       border-gray-300 dark:border-slate-600
-                      hover:border-emerald-500
-                      hover:bg-emerald-50 dark:hover:bg-emerald-900/20
+                      hover:border-cyan-500
+                      hover:bg-cyan-50 dark:hover:bg-cyan-900/20
                     `
                 }
               `}
@@ -8238,9 +8700,9 @@ export default function TemplateDesigner({
               <div className="text-center">
                 {draggingItemId ? (
                   <>
-                    <Move className="mx-auto mb-2 text-emerald-500" />
+                    <Move className="mx-auto mb-2 text-cyan-500" />
 
-                    <p className="text-sm text-emerald-500">
+                    <p className="text-sm text-cyan-500">
                       Drop Here
                     </p>
                   </>
@@ -8287,7 +8749,6 @@ export default function TemplateDesigner({
           );
         })}
 
-        {/* WIDGETS */}
         {items.map((item) => (
           <div
             key={item.id}
@@ -8347,12 +8808,8 @@ export default function TemplateDesigner({
               bg-transparent
               border border-transparent
               rounded-xl
+              box-border
               shadow-none
-              hover:ring-1
-              hover:ring-emerald-300/70
-              dark:hover:ring-emerald-500/50
-              transition-[box-shadow]
-              duration-150
               overflow-hidden
               cursor-grab
               active:cursor-grabbing
@@ -8373,86 +8830,81 @@ export default function TemplateDesigner({
               gridColumn: `${item.x + 1} / span ${item.w}`,
               gridRow: `${item.y + 1} / span ${item.h}`,
             }}
-            title="Click to edit · Hold and drag to move · Drag an edge to resize"
           >
-            {/* DIRECT-MANIPULATION RESIZE EDGES
-                Move: drag the widget itself.
-                Edit: click the widget.
-                Resize: drag the right edge, bottom edge, or corner. */}
 
-            {/* WIDTH RESIZE EDGE
-                Invisible hit zone: cursor indicates resize without drawing
-                a permanent/hover side bar over the widget. */}
+            {[
+              {
+                direction: "left",
+                className:
+                  "left-0 top-3 bottom-3 w-2 cursor-ew-resize",
+                title: "Resize from left",
+              },
+              {
+                direction: "right",
+                className:
+                  "right-0 top-3 bottom-3 w-2 cursor-ew-resize",
+                title: "Resize from right",
+              },
+              {
+                direction: "top",
+                className:
+                  "top-0 left-3 right-3 h-2 cursor-ns-resize",
+                title: "Resize from top",
+              },
+              {
+                direction: "bottom",
+                className:
+                  "bottom-0 left-3 right-3 h-2 cursor-ns-resize",
+                title: "Resize from bottom",
+              },
+              {
+                direction: "top-left",
+                className:
+                  "left-0 top-0 h-4 w-4 cursor-nwse-resize",
+                title: "Resize from top-left",
+              },
+              {
+                direction: "top-right",
+                className:
+                  "right-0 top-0 h-4 w-4 cursor-nesw-resize",
+                title: "Resize from top-right",
+              },
+              {
+                direction: "bottom-left",
+                className:
+                  "bottom-0 left-0 h-4 w-4 cursor-nesw-resize",
+                title: "Resize from bottom-left",
+              },
+              {
+                direction: "bottom-right",
+                className:
+                  "bottom-0 right-0 h-4 w-4 cursor-nwse-resize",
+                title: "Resize from bottom-right",
+              },
+            ].map((handle) => (
+              <div
+                key={handle.direction}
+                className={`resize-handle absolute z-40 ${handle.className}`}
+                onMouseDown={(event) =>
+                  startResizeWidget(
+                    event,
+                    item,
+                    handle.direction
+                  )
+                }
+                onClick={(event) =>
+                  event.stopPropagation()
+                }
+                title={handle.title}
+              />
+            ))}
+
             <div
               className="
-                resize-handle
-                absolute right-0 top-2 bottom-2
-                z-30 w-2
-                cursor-ew-resize
-              "
-              onMouseDown={(event) =>
-                startResizeWidget(
-                  event,
-                  item,
-                  "x"
-                )
-              }
-              onClick={(event) =>
-                event.stopPropagation()
-              }
-              title="Drag edge to change width"
-            />
-
-            {/* HEIGHT RESIZE EDGE */}
-            <div
-              className="
-                resize-handle
-                absolute bottom-0 left-2 right-2
-                z-30 h-2
-                cursor-ns-resize
-              "
-              onMouseDown={(event) =>
-                startResizeWidget(
-                  event,
-                  item,
-                  "y"
-                )
-              }
-              onClick={(event) =>
-                event.stopPropagation()
-              }
-              title="Drag edge to change height"
-            />
-
-            {/* CORNER RESIZE HANDLE */}
-            <div
-              className="
-                resize-handle
-                absolute bottom-0 right-0
-                z-40 h-5 w-5
-                cursor-nwse-resize
-              "
-              onMouseDown={(event) =>
-                startResizeWidget(
-                  event,
-                  item,
-                  "both"
-                )
-              }
-              onClick={(event) =>
-                event.stopPropagation()
-              }
-              title="Drag corner to resize width and height"
-            />
-
-            {/* ACTUAL WIDGET PREVIEW
-                No editor-only padding here. Dashboard.jsx also gives
-                WidgetRenderer the full grid cell, so responsive widgets
-                receive comparable dimensions in both places. */}
-            <div
-              className="
-                absolute inset-0
-                p-0
+                absolute inset-[1px]
+                min-h-0 min-w-0
+                overflow-hidden
+                rounded-[11px]
                 pointer-events-none
               "
             >
@@ -8533,7 +8985,6 @@ export default function TemplateDesigner({
               )}
             </div>
 
-            {/* SIZE BADGE */}
             <div
               className="
                 absolute bottom-2 left-2
@@ -8571,7 +9022,7 @@ export default function TemplateDesigner({
                 ? "border-amber-200 bg-white text-amber-800 dark:border-amber-900 dark:bg-gray-900/95 dark:text-amber-200"
                 : toast.type === "info"
                 ? "border-sky-200 bg-white text-sky-800 dark:border-sky-900 dark:bg-gray-900/95 dark:text-sky-200"
-                : "border-emerald-200 bg-white text-emerald-800 dark:border-emerald-900 dark:bg-gray-900/95 dark:text-emerald-200"
+                : "border-cyan-200 bg-white text-cyan-800 dark:border-cyan-900 dark:bg-gray-900/95 dark:text-cyan-200"
             }
           `}
           role="status"
@@ -8586,7 +9037,7 @@ export default function TemplateDesigner({
                   ? "bg-amber-100 text-amber-600 dark:bg-amber-950/70 dark:text-amber-300"
                   : toast.type === "info"
                   ? "bg-sky-100 text-sky-600 dark:bg-sky-950/70 dark:text-sky-300"
-                  : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-300"
+                  : "bg-cyan-100 text-cyan-600 dark:bg-cyan-950/70 dark:text-cyan-300"
               }
             `}
           >
@@ -8629,7 +9080,6 @@ export default function TemplateDesigner({
         </div>
       )}
 
-      {/* MODAL */}
       {showModal && base && (
         <div
           className="
@@ -8646,7 +9096,6 @@ export default function TemplateDesigner({
               flex flex-col
             "
           >
-            {/* HEADER */}
             <div
               className="
                 flex shrink-0 items-center
@@ -8661,8 +9110,8 @@ export default function TemplateDesigner({
                   <div
                     className="
                       flex h-9 w-9 items-center justify-center
-                      rounded-xl bg-emerald-50 text-emerald-600
-                      dark:bg-emerald-500/10 dark:text-emerald-300
+                      rounded-xl bg-cyan-50 text-cyan-600
+                      dark:bg-cyan-500/10 dark:text-cyan-300
                     "
                   >
                     <LayoutGrid size={18} />
@@ -8680,7 +9129,6 @@ export default function TemplateDesigner({
                     </p>
                   </div>
                 </div>
-
 
               </div>
 
@@ -8753,14 +9201,16 @@ export default function TemplateDesigner({
                     min-w-[106px]
                     items-center justify-center
                     gap-1.5 rounded-lg
-                    bg-emerald-600 px-3
+                    bg-gradient-to-r
+                    from-blue-600 to-cyan-500 px-3
                     text-xs font-semibold
                     text-white shadow-sm
-                    transition-colors
-                    hover:bg-emerald-700
+                    transition-all
+                    hover:from-blue-700
+                    hover:to-cyan-600
                     focus:outline-none
                     focus:ring-2
-                    focus:ring-emerald-500/30
+                    focus:ring-cyan-500/30
                   "
                 >
                   <Save size={14} />
@@ -8803,7 +9253,6 @@ export default function TemplateDesigner({
               </div>
             </div>
 
-            {/* BODY */}
             <div
               ref={studioBodyRef}
               className="
@@ -8815,7 +9264,6 @@ export default function TemplateDesigner({
                   `minmax(0, ${studioSplit}fr) 8px minmax(400px, ${100 - studioSplit}fr)`,
               }}
             >
-              {/* LEFT PREVIEW */}
               <div
                 ref={studioLeftRef}
                 className="
@@ -8826,7 +9274,10 @@ export default function TemplateDesigner({
                 "
                 style={{
                   gridTemplateRows:
-                    `minmax(220px, ${previewSplit}fr) 8px minmax(190px, ${100 - previewSplit}fr)`,
+                    newType ===
+                    "customLayout"
+                      ? "minmax(0, 1fr) 0px 0px"
+                      : `minmax(220px, ${previewSplit}fr) 8px minmax(190px, ${100 - previewSplit}fr)`,
                 }}
               >
                 <div
@@ -8885,8 +9336,8 @@ export default function TemplateDesigner({
                         <span
                           className="
                             text-xs
-                            text-emerald-500
-                            bg-emerald-50 dark:bg-emerald-900/30
+                            text-cyan-500
+                            bg-cyan-50 dark:bg-cyan-900/30
                             px-2 py-1
                             rounded-lg
                           "
@@ -8898,8 +9349,8 @@ export default function TemplateDesigner({
                           <span
                             className="
                               text-xs
-                              text-emerald-500
-                              bg-emerald-50 dark:bg-emerald-900/30
+                              text-cyan-500
+                              bg-cyan-50 dark:bg-cyan-900/30
                               px-2 py-1
                               rounded-lg
                             "
@@ -8908,8 +9359,6 @@ export default function TemplateDesigner({
                           </span>
                         )
                       )}
-
-
 
                       {newType === "bar" && (
                         <span
@@ -8948,21 +9397,14 @@ export default function TemplateDesigner({
                       }}
                     >
                       {showEmptyLivePreview || showNoValuesLivePreview ? (
-                        <button
-                          type="button"
-                          onClick={() => {}}
+                        <div
                           className="
-                            group flex h-full w-full
+                            flex h-full w-full
                             flex-col items-center justify-center
                             overflow-hidden rounded-xl
                             bg-slate-50/70 dark:bg-slate-950
                             px-8 py-10
                             text-center
-                            transition-colors duration-150
-                            hover:border-emerald-400
-                            hover:bg-emerald-50/60
-                            dark:hover:border-emerald-500
-                            dark:hover:bg-emerald-500/5
                           "
                         >
                           <div
@@ -8970,15 +9412,15 @@ export default function TemplateDesigner({
                               flex h-14 w-14
                               items-center justify-center
                               rounded-xl
-                              border border-emerald-200
-                              bg-emerald-100
-                              text-emerald-700
+                              border border-cyan-200
+                              bg-cyan-100
+                              text-cyan-700
                               shadow-sm
                               transition-transform duration-200
                               group-hover:scale-105
-                              dark:border-emerald-800
-                              dark:bg-emerald-500/15
-                              dark:text-emerald-300
+                              dark:border-cyan-800
+                              dark:bg-cyan-500/15
+                              dark:text-cyan-300
                             "
                           >
                             <Database size={24} />
@@ -9017,29 +9459,46 @@ export default function TemplateDesigner({
                                 } preview.`}
                           </p>
 
-                          <span
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewSplit(32);
+
+                              window.requestAnimationFrame(() => {
+                                dataSourceScrollRef.current?.scrollTo({
+                                  top: 0,
+                                  behavior: "smooth",
+                                });
+                              });
+                            }}
                             className="
+                              pointer-events-auto
+                              relative z-20
                               mt-6 inline-flex items-center gap-2
                               rounded-xl
-                              bg-emerald-600
+                              bg-[#0891B2]
                               px-5 py-3
                               text-sm font-bold
                               text-white
-                              shadow-sm shadow-emerald-600/20
-                              transition
-                              group-hover:bg-emerald-700
-                              dark:bg-emerald-500
-                              dark:text-slate-950
-                              dark:shadow-emerald-500/20
-                              dark:group-hover:bg-emerald-400
+                              shadow-sm
+                              transition-colors
+                              hover:bg-[#07829F]
+                              active:bg-[#066F89]
+                              focus:outline-none
+                              focus:ring-2 focus:ring-[#0891B2]/30
+                              focus:ring-offset-2
+                              dark:bg-[#0891B2]
+                              dark:text-white
+                              dark:hover:bg-[#0AA3C7]
+                              dark:focus:ring-offset-slate-950
                             "
                           >
                             <Database size={16} />
                             {showNoValuesLivePreview
                               ? "Change Data Source"
                               : "Choose Data Source"}
-                          </span>
-                        </button>
+                          </button>
+                        </div>
                       ) : (
                         <WidgetRenderer
                           type={newType}
@@ -9074,20 +9533,31 @@ export default function TemplateDesigner({
 
                             type: newType,
 
+                            widgetAppearance:
+                              normalizeWidgetAppearance(
+                                newWidgetAppearance
+                              ),
+
                             label:
                               newLabel.trim() ||
                               getDefaultWidgetLabel(
                                 newType
                               ),
 
-                            dataKey: isMultiDataWidget
-                              ? newDataKeys[0] ||
-                                newDataKey
-                              : newDataKey,
+                            dataKey:
+                              newType === "customLayout"
+                                ? ""
+                                : isMultiDataWidget
+                                ? newDataKeys[0] ||
+                                  newDataKey
+                                : newDataKey,
 
-                            dataKeys: isBigNumberCombined
+                            dataKeys:
+                              newType === "customLayout"
+                                ? undefined
+                                : isBigNumberCombined
                               ? [
-                                  newDataKeys[0] || newDataKey,
+                                  newDataKey || newDataKeys[0],
                                   getPreparedBigNumberDisplay()?.statusDataKey,
                                 ].filter(Boolean)
                               : isMultiDataWidget
@@ -9100,7 +9570,7 @@ export default function TemplateDesigner({
                                 : undefined,
 
                             chartDisplay:
-                              ["line", "bar", "heatmap", "composite"].includes(
+                              ["line", "bar", "heatmap", "pie", "composite"].includes(
                                 newType
                               )
                                 ? normalizeChartDisplay(newChartDisplay)
@@ -9221,38 +9691,51 @@ export default function TemplateDesigner({
                     event.preventDefault();
                     setStudioResizeMode("rows");
                   }}
-                  className="
+                  className={`
                     group relative z-20
-                    flex h-2 w-full
+                    h-2 w-full
                     cursor-row-resize
+                    ${
+                      newType ===
+                      "customLayout"
+                        ? "hidden"
+                        : "flex"
+                    }
                     items-center justify-center
                     border-y border-slate-200
                     bg-slate-100
                     transition-colors
-                    hover:bg-emerald-50
+                    hover:bg-cyan-50
                     dark:border-slate-700
                     dark:bg-slate-800
-                    dark:hover:bg-emerald-500/10
-                  "
+                    dark:hover:bg-cyan-500/10
+                  `}
                 >
                   <span
                     className="
                       h-1 w-12 rounded-full
                       bg-slate-300
                       transition-colors
-                      group-hover:bg-emerald-400
+                      group-hover:bg-cyan-400
                       dark:bg-slate-600
-                      dark:group-hover:bg-emerald-500
+                      dark:group-hover:bg-cyan-500
                     "
                   />
                 </button>
 
                 <div
-                  className="
+                  ref={dataSourceScrollRef}
+                  className={`
                     min-h-0 overflow-y-auto
                     bg-white p-4
                     dark:bg-slate-900
-                  "
+                    ${
+                      newType ===
+                      "customLayout"
+                        ? "hidden"
+                        : ""
+                    }
+                  `}
                 >
                   <div
                     className="
@@ -9262,11 +9745,15 @@ export default function TemplateDesigner({
                   >
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                        Data Source
+                        {newType === "processView"
+                          ? "Process Flow"
+                          : "Data Source"}
                       </h3>
 
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        {useDedicatedWidgetSource
+                        {newType === "processView"
+                          ? "Choose the saved process this widget should display."
+                          : useDedicatedWidgetSource
                           ? "This widget uses its own dedicated configuration."
                           : allDataOptions.length
                           ? "Choose the source this widget should read, or connect another source."
@@ -9277,14 +9764,16 @@ export default function TemplateDesigner({
                     <span
                       className="
                         rounded-full
-                        bg-emerald-50 px-2.5 py-1
+                        bg-cyan-50 px-2.5 py-1
                         text-[10px] font-bold
-                        text-emerald-700
-                        dark:bg-emerald-500/10
-                        dark:text-emerald-300
+                        text-cyan-700
+                        dark:bg-cyan-500/10
+                        dark:text-cyan-300
                       "
                     >
-                      {useDedicatedWidgetSource
+                      {newType === "processView"
+                        ? "Process"
+                        : useDedicatedWidgetSource
                         ? "Dedicated"
                         : `${allDataOptions.length} Source${
                             allDataOptions.length === 1
@@ -9294,11 +9783,27 @@ export default function TemplateDesigner({
                     </span>
                   </div>
 
-                {/* STEP 1: DATA SOURCE */}
                 {true && (
                   <>
                     <div className="space-y-3">
                       {useDedicatedWidgetSource ? (
+                        newType === "processView" ? (
+                          <div
+                            className="
+                              rounded-xl border
+                              border-cyan-200/80
+                              bg-cyan-50/40 p-4
+                              dark:border-cyan-500/20
+                              dark:bg-cyan-500/[0.04]
+                            "
+                          >
+                            <ProcessViewSettings
+                              config={newProcessViewConfig}
+                              onChange={setNewProcessViewConfig}
+                              sourceOnly
+                            />
+                          </div>
+                        ) : (
                         <div
                           className="
                             rounded-xl border
@@ -9313,10 +9818,10 @@ export default function TemplateDesigner({
                               className="
                                 flex h-10 w-10 shrink-0
                                 items-center justify-center
-                                rounded-xl bg-emerald-50
-                                text-emerald-600
-                                dark:bg-emerald-500/10
-                                dark:text-emerald-300
+                                rounded-xl bg-cyan-50
+                                text-cyan-600
+                                dark:bg-cyan-500/10
+                                dark:text-cyan-300
                               "
                             >
                               <CheckCircle2 size={18} />
@@ -9325,7 +9830,7 @@ export default function TemplateDesigner({
                             <div className="min-w-0">
                               <h4 className="text-sm font-bold text-slate-900 dark:text-white">
                                 {newType === "sankey"
-                                  ? "Data source required in Sankey editor"
+                                  ? "Sankey data is configured in the editor"
                                   : "No process source required"}
                               </h4>
 
@@ -9335,14 +9840,13 @@ export default function TemplateDesigner({
                                   : newType === "image"
                                   ? "Interactive Process Image configures live data overlays inside the image editor."
                                   : newType === "sankey"
-                                  ? "Sankey requires connected data sources. Add/edit sources and assign them to terminal flows inside the Sankey editor."
-                                  : newType === "processView"
-                                  ? "Process View can reference a saved Process Flow directly, so Plant Simulator and Dashboard render the same topology."
+                                  ? "Map at least one flow in the Sankey editor. Node-level data such as the Boiler reading is optional and can be mapped separately."
                                   : "This widget manages its data through a dedicated configuration."}
                               </p>
                             </div>
                           </div>
                         </div>
+                        )
                       ) : allDataOptions.length === 0 &&
                         !showCustomDataModal ? (
                         <div
@@ -9363,10 +9867,10 @@ export default function TemplateDesigner({
                                   className="
                                     flex h-11 w-11 shrink-0
                                     items-center justify-center
-                                    rounded-xl bg-emerald-50
-                                    text-emerald-600
-                                    dark:bg-emerald-500/10
-                                    dark:text-emerald-300
+                                    rounded-xl bg-cyan-50
+                                    text-cyan-600
+                                    dark:bg-cyan-500/10
+                                    dark:text-cyan-300
                                   "
                                 >
                                   <Database size={20} />
@@ -9427,13 +9931,15 @@ export default function TemplateDesigner({
                                 inline-flex shrink-0
                                 items-center justify-center
                                 gap-2 rounded-xl
-                                bg-emerald-600
+                                bg-gradient-to-r
+                                from-blue-600 to-cyan-500
                                 px-5 py-3
                                 text-sm font-semibold
                                 text-white
                                 shadow-sm
-                                transition-colors
-                                hover:bg-emerald-700
+                                transition-all
+                                hover:from-blue-700
+                                hover:to-cyan-600
                               "
                             >
                               <Plus size={16} />
@@ -9493,17 +9999,17 @@ export default function TemplateDesigner({
                                   inline-flex shrink-0
                                   items-center justify-center
                                   gap-2 rounded-xl
-                                  border border-emerald-200
-                                  bg-emerald-50
+                                  border border-cyan-200
+                                  bg-cyan-50
                                   px-3 py-2
                                   text-xs font-semibold
-                                  text-emerald-700
+                                  text-cyan-700
                                   transition-colors
-                                  hover:bg-emerald-100
-                                  dark:border-emerald-500/20
-                                  dark:bg-emerald-500/10
-                                  dark:text-emerald-300
-                                  dark:hover:bg-emerald-500/15
+                                  hover:bg-cyan-100
+                                  dark:border-cyan-500/20
+                                  dark:bg-cyan-500/10
+                                  dark:text-cyan-300
+                                  dark:hover:bg-cyan-500/15
                                 "
                               >
                                 <Plus size={14} />
@@ -9555,8 +10061,8 @@ export default function TemplateDesigner({
                                     transition-colors
                                     ${
                                       selected
-                                        ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
-                                        : "border-slate-200 bg-slate-50/60 hover:border-emerald-300 hover:bg-emerald-50/40 dark:border-slate-700 dark:bg-slate-950/50 dark:hover:border-emerald-500/40"
+                                        ? "border-cyan-400 bg-cyan-50 ring-1 ring-cyan-200 dark:border-cyan-500/40 dark:bg-cyan-500/10 dark:ring-cyan-500/20"
+                                        : "border-slate-200 bg-slate-50/60 hover:border-cyan-300 hover:bg-cyan-50/40 dark:border-slate-700 dark:bg-slate-950/50 dark:hover:border-cyan-500/40"
                                     }
                                   `}
                                 >
@@ -9568,7 +10074,7 @@ export default function TemplateDesigner({
                                       border
                                       ${
                                         selected
-                                          ? "border-emerald-500 bg-emerald-600 text-white"
+                                          ? "border-cyan-500 bg-cyan-600 text-white"
                                           : "border-slate-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-900"
                                       }
                                     `}
@@ -9714,12 +10220,12 @@ export default function TemplateDesigner({
                               className="
                                 mt-3 flex items-center
                                 gap-2 rounded-xl
-                                bg-emerald-50
+                                bg-cyan-50
                                 px-3 py-2
                                 text-[11px]
-                                text-emerald-700
-                                dark:bg-emerald-500/10
-                                dark:text-emerald-300
+                                text-cyan-700
+                                dark:bg-cyan-500/10
+                                dark:text-cyan-300
                               "
                             >
                               <CheckCircle2
@@ -9747,13 +10253,8 @@ export default function TemplateDesigner({
       {showCustomDataModal &&
         !useDedicatedWidgetSource && (
         <div
-          className="
-            mt-4
-            rounded-xl
-            bg-slate-50/80
-            p-2
-            dark:bg-slate-950/80
-          "
+          ref={customDataSourceFormRef}
+          className="mt-5"
         >
           <div
             className="
@@ -9769,7 +10270,6 @@ export default function TemplateDesigner({
               event.stopPropagation()
             }
           >
-            {/* HEADER */}
             <div
               className="
                 flex shrink-0
@@ -9785,9 +10285,9 @@ export default function TemplateDesigner({
                     flex h-9 w-9
                     shrink-0 items-center
                     justify-center rounded-xl
-                    bg-emerald-100 text-emerald-600
-                    dark:bg-emerald-500/15
-                    dark:text-emerald-300
+                    bg-cyan-100 text-cyan-600
+                    dark:bg-cyan-500/15
+                    dark:text-cyan-300
                   "
                 >
                   <Database size={17} />
@@ -9830,6 +10330,7 @@ export default function TemplateDesigner({
                   setShowCustomDataModal(false);
                   setCustomDataMode("add");
                   setEditingDataSourceKey("");
+                  setBatchSelectedChannels([]);
                 }}
                 className="
                   rounded-xl p-2
@@ -9845,10 +10346,8 @@ export default function TemplateDesigner({
               </button>
             </div>
 
-            {/* SCROLLABLE BODY */}
             <div className="p-4">
               <div className="space-y-4">
-                {/* SOURCE FORM */}
                 <div
                   className="
                     p-4
@@ -9920,11 +10419,10 @@ export default function TemplateDesigner({
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-                          {/* DEVICE TYPE */}
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                           <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                             <div className="mb-2 flex items-center gap-2">
-                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                                 1
                               </span>
 
@@ -9952,7 +10450,7 @@ export default function TemplateDesigner({
                                 text-xs text-slate-900
                                 outline-none
                                 focus:ring-2
-                                focus:ring-emerald-500/20
+                                focus:ring-cyan-500/20
                                 disabled:opacity-60
                                 dark:border-slate-600
                                 dark:bg-slate-950
@@ -9976,10 +10474,9 @@ export default function TemplateDesigner({
                             </select>
                           </label>
 
-                          {/* ASSIGNED LOGICAL DEVICE */}
                           <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                             <div className="mb-2 flex items-center gap-2">
-                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                                 2
                               </span>
 
@@ -10006,7 +10503,7 @@ export default function TemplateDesigner({
                                 text-xs text-slate-900
                                 outline-none
                                 focus:ring-2
-                                focus:ring-emerald-500/20
+                                focus:ring-cyan-500/20
                                 disabled:opacity-60
                                 dark:border-slate-600
                                 dark:bg-slate-950
@@ -10031,10 +10528,9 @@ export default function TemplateDesigner({
                             </select>
                           </label>
 
-                          {/* ASSIGNED MEASUREMENT */}
                           <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                             <div className="mb-2 flex items-center gap-2">
-                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                                 3
                               </span>
 
@@ -10079,7 +10575,7 @@ export default function TemplateDesigner({
                                 text-slate-900
                                 outline-none
                                 focus:ring-2
-                                focus:ring-emerald-500/20
+                                focus:ring-cyan-500/20
                                 disabled:opacity-60
                                 dark:border-slate-600
                                 dark:bg-slate-950
@@ -10103,102 +10599,25 @@ export default function TemplateDesigner({
                             </select>
                           </label>
 
-                          {/* CHANNEL */}
-                          <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900 lg:col-span-3">
                             <div className="mb-2 flex items-center gap-2">
-                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                                 4
                               </span>
 
                               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                Channel
+                                Channels
                               </span>
                             </div>
 
-                            <select
-                              value={customDataDraft.channel}
-                              onChange={(event) =>
-                                setCustomDataDraft(
-                                  (current) => ({
-                                    ...current,
-                                    channel:
-                                      event.target.value,
-                                  })
-                                )
-                              }
-                              disabled={
-                                influxLoading ||
+                            {renderChannelSelector(
+                              influxLoading ||
                                 !influxConfig.measurement
-                              }
-                              className="
-                                w-full rounded-lg
-                                border border-slate-300
-                                bg-white px-2.5 py-2
-                                font-mono text-xs
-                                text-slate-900
-                                outline-none
-                                focus:ring-2
-                                focus:ring-emerald-500/20
-                                disabled:opacity-60
-                                dark:border-slate-600
-                                dark:bg-slate-950
-                                dark:text-white
-                              "
-                            >
-                              <option value="">
-                                Select channel
-                              </option>
-
-                              {influxChannels.map(
-                                (channel) => (
-                                  <option
-                                    key={channel}
-                                    value={channel}
-                                  >
-                                    {channel}
-                                  </option>
-                                )
-                              )}
-                            </select>
+                            )}
                           </label>
                         </div>
                       </div>
 
-                      {selectedDeviceId && (
-                        <div
-                          className="
-                            flex flex-wrap
-                            items-center
-                            gap-x-4 gap-y-1
-                            rounded-xl
-                            bg-slate-50
-                            px-3 py-2
-                            text-[10px]
-                            text-slate-500
-                            dark:bg-slate-950
-                            dark:text-slate-400
-                          "
-                        >
-                          <span>
-                            Bucket:{" "}
-                            <strong className="font-mono text-slate-700 dark:text-slate-200">
-                              {influxConfig.bucket}
-                            </strong>
-                          </span>
-
-                          <span>
-                            Device ID:{" "}
-                            <strong className="font-mono text-slate-700 dark:text-slate-200">
-                              {influxConfig.tagValue ||
-                                influxConfig.id}
-                            </strong>
-                          </span>
-
-                          <span>
-                            {influxMeasurements.length} assigned measurement(s)
-                          </span>
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div>
@@ -10212,10 +10631,10 @@ export default function TemplateDesigner({
                         </p>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
                         <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                           <div className="mb-2 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                               1
                             </span>
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -10240,6 +10659,7 @@ export default function TemplateDesigner({
                               setInfluxIds([]);
                               setInfluxIdMeasurementMap({});
                               setInfluxChannels([]);
+    setBatchSelectedChannels([]);
                               setCustomDataDraft(
                                 (current) => ({
                                   ...current,
@@ -10254,7 +10674,7 @@ export default function TemplateDesigner({
                               font-mono text-xs
                               text-slate-900 outline-none
                               focus:ring-2
-                              focus:ring-emerald-500/20
+                              focus:ring-cyan-500/20
                               disabled:cursor-not-allowed
                               disabled:opacity-60
                               dark:border-slate-600
@@ -10281,7 +10701,7 @@ export default function TemplateDesigner({
 
                         <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                           <div className="mb-2 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                               2
                             </span>
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -10319,6 +10739,7 @@ export default function TemplateDesigner({
                               setInfluxIds([]);
                               setInfluxIdMeasurementMap({});
                               setInfluxChannels([]);
+    setBatchSelectedChannels([]);
                               setCustomDataDraft(
                                 (current) => ({
                                   ...current,
@@ -10333,7 +10754,7 @@ export default function TemplateDesigner({
                               font-mono text-xs
                               text-slate-900 outline-none
                               focus:ring-2
-                              focus:ring-emerald-500/20
+                              focus:ring-cyan-500/20
                               disabled:cursor-not-allowed
                               disabled:opacity-60
                               dark:border-slate-600
@@ -10362,7 +10783,7 @@ export default function TemplateDesigner({
 
                         <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                           <div className="mb-2 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                               3
                             </span>
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -10377,7 +10798,7 @@ export default function TemplateDesigner({
                               text-xs font-semibold
                               ${
                                 influxConfig.measurement
-                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                  ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300"
                                   : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
                               }
                             `}
@@ -10392,7 +10813,7 @@ export default function TemplateDesigner({
 
                         <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                           <div className="mb-2 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                               4
                             </span>
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -10422,6 +10843,7 @@ export default function TemplateDesigner({
                               );
 
                               setInfluxChannels([]);
+    setBatchSelectedChannels([]);
                               setCustomDataDraft(
                                 (current) => ({
                                   ...current,
@@ -10436,7 +10858,7 @@ export default function TemplateDesigner({
                               font-mono text-xs
                               text-slate-900 outline-none
                               focus:ring-2
-                              focus:ring-emerald-500/20
+                              focus:ring-cyan-500/20
                               disabled:cursor-not-allowed
                               disabled:opacity-60
                               dark:border-slate-600
@@ -10461,99 +10883,36 @@ export default function TemplateDesigner({
                           </select>
                         </label>
 
-                        <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        <label className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900 lg:col-span-4">
                           <div className="mb-2 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-[9px] font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-[9px] font-black text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300">
                               5
                             </span>
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                              Channel
+                              Channels
                             </span>
                           </div>
 
-                          <select
-                            value={customDataDraft.channel}
-                            disabled={
-                              influxLoading ||
+                          {renderChannelSelector(
+                            influxLoading ||
                               !influxConfig.measurement ||
                               !(
                                 influxConfig.tagValue ||
                                 influxConfig.id
                               )
-                            }
-                            onChange={(event) =>
-                              setCustomDataDraft(
-                                (current) => ({
-                                  ...current,
-                                  channel:
-                                    event.target.value,
-                                })
-                              )
-                            }
-                            className="
-                              w-full rounded-lg border
-                              border-slate-300 bg-white
-                              px-2.5 py-2
-                              font-mono text-xs
-                              text-slate-900 outline-none
-                              focus:ring-2
-                              focus:ring-emerald-500/20
-                              disabled:cursor-not-allowed
-                              disabled:opacity-60
-                              dark:border-slate-600
-                              dark:bg-slate-950
-                              dark:text-white
-                            "
-                          >
-                            <option value="">
-                              {influxConfig.tagValue ||
-                              influxConfig.id
-                                ? "Select channel"
-                                : "Select device ID first"}
-                            </option>
-
-                            {influxChannels.map(
-                              (channel) => (
-                                <option
-                                  key={channel}
-                                  value={channel}
-                                >
-                                  {channel}
-                                </option>
-                              )
-                            )}
-                          </select>
+                          )}
                         </label>
                       </div>
                     </div>
                   )}
 
-                  <div
-                    className="
-                      mt-3 rounded-xl
-                      bg-slate-50 px-3 py-2
-                      text-[10px] text-slate-500
-                      dark:bg-slate-950
-                      dark:text-slate-400
-                    "
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-semibold">
-                        {influxLoading
-                          ? "Loading available Influx metadata..."
-                          : `${influxBuckets.length} bucket(s) · ${influxMeasurements.length} measurement(s) · ${influxIds.length} device ID(s) · ${influxChannels.length} channel(s)`}
-                      </span>
-
-                      {influxError && (
-                        <span className="font-semibold text-red-500 dark:text-red-300">
-                          {influxError}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  {influxError && (
+                    <p className="mt-3 text-[10px] font-semibold text-red-500 dark:text-red-300">
+                      {influxError}
+                    </p>
+                  )}
                 </div>
 
-                {/* DASHBOARD SETTINGS */}
                 <div
                   className="
                     border-t border-slate-200
@@ -10579,11 +10938,20 @@ export default function TemplateDesigner({
                         dark:text-slate-400
                       "
                     >
-                      Give this source a readable name and optional unit.
+                      {customDataMode === "add" &&
+                      batchSelectedChannels.length > 1
+                        ? "Multiple channels will be added as separate sources. Names and keys are generated from each channel; the unit below applies to all."
+                        : "Give this source a readable name and optional unit."}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div
+                    className={`grid grid-cols-1 gap-3 ${
+                      isSuperadmin
+                        ? "md:grid-cols-3"
+                        : "md:grid-cols-2"
+                    }`}
+                  >
                     <label>
                       <span
                         className="
@@ -10599,6 +10967,10 @@ export default function TemplateDesigner({
                       <input
                         type="text"
                         value={customDataDraft.label}
+                        disabled={
+                          customDataMode === "add" &&
+                          batchSelectedChannels.length > 1
+                        }
                         onChange={(event) =>
                           setCustomDataDraft(
                             (current) => ({
@@ -10616,7 +10988,7 @@ export default function TemplateDesigner({
                           text-sm text-slate-900
                           outline-none
                           focus:ring-2
-                          focus:ring-emerald-500
+                          focus:ring-cyan-500
                           dark:border-slate-600
                           dark:bg-slate-950
                           dark:text-white
@@ -10624,57 +10996,63 @@ export default function TemplateDesigner({
                       />
                     </label>
 
-                    <label>
-                      <span
-                        className="
-                          text-xs font-semibold
-                          uppercase tracking-wider
-                          text-slate-500
-                          dark:text-slate-300
-                        "
-                      >
-                        Dashboard key
-                      </span>
+                    {isSuperadmin && (
+                      <label>
+                        <span
+                          className="
+                            text-xs font-semibold
+                            uppercase tracking-wider
+                            text-slate-500
+                            dark:text-slate-300
+                          "
+                        >
+                          Dashboard key
+                        </span>
 
-                      <input
-                        type="text"
-                        value={customDataDraft.key}
-                        list={
-                          customDataMode === "edit"
-                            ? undefined
-                            : "dashboard-key-options"
-                        }
-                        readOnly={
-                          customDataMode === "edit"
-                        }
-                        onChange={(event) =>
-                          setCustomDataDraft(
-                            (current) => ({
-                              ...current,
-                              key:
-                                event.target.value,
-                            })
-                          )
-                        }
-                        placeholder="Auto generated if empty"
-                        className={`
-                          mt-2 w-full rounded-xl
-                          border px-3 py-2.5
-                          text-sm outline-none
-                          ${
+                        <input
+                          type="text"
+                          value={customDataDraft.key}
+                          list={
                             customDataMode === "edit"
-                              ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
-                              : "border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                              ? undefined
+                              : "dashboard-key-options"
                           }
-                        `}
-                      />
+                          readOnly={
+                            customDataMode === "edit"
+                          }
+                          disabled={
+                            customDataMode === "add" &&
+                            batchSelectedChannels.length > 1
+                          }
+                          onChange={(event) =>
+                            setCustomDataDraft(
+                              (current) => ({
+                                ...current,
+                                key:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                          placeholder="Auto generated if empty"
+                          className={`
+                            mt-2 w-full rounded-xl
+                            border px-3 py-2.5
+                            text-sm outline-none
+                            ${
+                              customDataMode === "edit"
+                                ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                                : "border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                            }
+                          `}
+                        />
 
-                      <p className="mt-1 text-[11px] text-slate-400">
-                        {customDataMode === "edit"
-                          ? "Key is kept unchanged so existing widgets continue to work."
-                          : "Example: doorPressure, sterilizerTemp, oilFlowrate."}
-                      </p>
-                    </label>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          {customDataMode === "edit"
+                            ? "Key is kept unchanged so existing widgets continue to work."
+                            : "Example: doorPressure, sterilizerTemp, oilFlowrate."}
+                        </p>
+                      </label>
+                    )}
 
                     <label>
                       <span
@@ -10709,7 +11087,7 @@ export default function TemplateDesigner({
                           text-sm text-slate-900
                           outline-none
                           focus:ring-2
-                          focus:ring-emerald-500
+                          focus:ring-cyan-500
                           dark:border-slate-600
                           dark:bg-slate-950
                           dark:text-white
@@ -10720,12 +11098,12 @@ export default function TemplateDesigner({
                     <div
                       className="
                         rounded-xl border
-                        border-emerald-100
-                        bg-emerald-50 p-4
-                        text-sm text-emerald-800
-                        dark:border-emerald-900/60
-                        dark:bg-emerald-950/30
-                        dark:text-emerald-200
+                        border-cyan-100
+                        bg-cyan-50 p-4
+                        text-sm text-cyan-800
+                        dark:border-cyan-900/60
+                        dark:bg-cyan-950/30
+                        dark:text-cyan-200
                       "
                     >
                       {customDataMode === "edit"
@@ -10759,7 +11137,6 @@ export default function TemplateDesigner({
               </div>
             </div>
 
-            {/* FOOTER */}
             <div
               className="
                 flex shrink-0
@@ -10776,6 +11153,7 @@ export default function TemplateDesigner({
                   setShowCustomDataModal(false);
                   setCustomDataMode("add");
                   setEditingDataSourceKey("");
+                  setBatchSelectedChannels([]);
                 }}
                 className="
                   rounded-xl border
@@ -10797,11 +11175,13 @@ export default function TemplateDesigner({
                 onClick={saveCustomDataSource}
                 className="
                   inline-flex items-center gap-2
-                  rounded-xl bg-emerald-600
+                  rounded-xl bg-gradient-to-r
+                  from-blue-600 to-cyan-500
                   px-5 py-3 text-sm
                   font-semibold text-white
-                  shadow-sm shadow-emerald-600/20
-                  transition hover:bg-emerald-700
+                  shadow-sm shadow-cyan-600/20
+                  transition hover:from-blue-700
+                  hover:to-cyan-600
                 "
               >
                 {customDataMode === "edit" ? (
@@ -10816,6 +11196,8 @@ export default function TemplateDesigner({
                   ? "Save Changes"
                   : customDataMode === "copy"
                   ? "Create Copy"
+                  : batchSelectedChannels.length > 1
+                  ? `Add ${batchSelectedChannels.length} Sources`
                   : "Connect & Select"}
               </button>
             </div>
@@ -10823,12 +11205,10 @@ export default function TemplateDesigner({
         </div>
       )}
 
-
                     </div>
 
                   </>
                 )}
-
 
                 </div>
               </div>
@@ -10849,10 +11229,10 @@ export default function TemplateDesigner({
                   border-x border-slate-200
                   bg-slate-100
                   transition-colors
-                  hover:bg-emerald-50
+                  hover:bg-cyan-50
                   dark:border-slate-700
                   dark:bg-slate-800
-                  dark:hover:bg-emerald-500/10
+                  dark:hover:bg-cyan-500/10
                 "
               >
                 <span
@@ -10860,14 +11240,13 @@ export default function TemplateDesigner({
                     h-12 w-1 rounded-full
                     bg-slate-300
                     transition-colors
-                    group-hover:bg-emerald-400
+                    group-hover:bg-cyan-400
                     dark:bg-slate-600
-                    dark:group-hover:bg-emerald-500
+                    dark:group-hover:bg-cyan-500
                   "
                 />
               </button>
 
-              {/* RIGHT SETTINGS / WIDGET CONFIGURATION */}
               <div
                 ref={
                   widgetSettingsScrollRef
@@ -10877,7 +11256,7 @@ export default function TemplateDesigner({
                   overflow-y-auto overflow-x-hidden
                   overscroll-contain
                   bg-slate-50/70
-                  px-3.5 pt-3.5 pb-0
+                  px-3.5 pt-3.5 pb-6
                   dark:bg-slate-950/60
                   flex flex-col
                 "
@@ -10891,14 +11270,14 @@ export default function TemplateDesigner({
                   </p>
                 </div>
 
-                {/* WIDGET TYPE */}
                 <WidgetTypePanel
                   allWidgetOptions={allWidgetOptions}
                   newWidgetTypeId={newWidgetTypeId}
                   newType={newType}
                   handleWidgetTypeChange={handleWidgetTypeChange}
                   deleteCustomWidgetType={deleteCustomWidgetType}
-                  setShowCustomWidgetModal={setShowCustomWidgetModal}
+                  editCustomWidgetType={editCustomWidgetType}
+                  setShowCustomWidgetModal={openNewCustomWidgetModal}
                   newDataKeys={newDataKeys}
                   newDataKey={newDataKey}
                   newCompositeConfig={newCompositeConfig}
@@ -10911,10 +11290,9 @@ export default function TemplateDesigner({
                   goToNextWidgetStep={goToNextWidgetStep}
                 />
 
-                {/* WIDGET DETAILS / SIZE */}
                 {true && (
                   <>
-                    <div className="space-y-4">
+                    <div className="mt-4 space-y-4">
                       <div
                         ref={
                           widgetDetailsRef
@@ -10952,7 +11330,7 @@ export default function TemplateDesigner({
                             dark:text-white
                             px-4 py-3
                             outline-none
-                            focus:ring-2 focus:ring-emerald-500
+                            focus:ring-2 focus:ring-cyan-500
                           "
                         />
 
@@ -10974,9 +11352,11 @@ export default function TemplateDesigner({
                         setNewBigNumberDisplay={setNewBigNumberDisplay}
                         newDataKeys={newDataKeys}
                         newDataKey={newDataKey}
+                        setNewDataKey={setNewDataKey}
+                        setNewDataKeys={setNewDataKeys}
+                        dataOptions={allDataOptions}
                         getDataSourceLabel={getDataSourceLabel}
                       />
-
 
                       {newType === "bar" && (
                         <div
@@ -11001,7 +11381,7 @@ export default function TemplateDesigner({
                                   py-4 rounded-xl border transition-all font-medium capitalize
                                   ${
                                     newOrientation === direction
-                                      ? "bg-emerald-600 text-white border-emerald-600 shadow"
+                                      ? "bg-cyan-600 text-white border-cyan-600 shadow"
                                       : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
                                   }
                                 `}
@@ -11050,7 +11430,7 @@ export default function TemplateDesigner({
                                   py-4 rounded-xl border transition-all font-medium
                                   ${
                                     newW === s.w && newH === s.h
-                                      ? "bg-emerald-600 text-white border-emerald-600 shadow"
+                                      ? "bg-cyan-600 text-white border-cyan-600 shadow"
                                       : exceedsGrid
                                       ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-950 dark:border-slate-700 dark:text-slate-600"
                                       : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
@@ -11086,10 +11466,10 @@ export default function TemplateDesigner({
                             <span
                               className="
                                 rounded-full
-                                bg-emerald-100 dark:bg-emerald-900/30
+                                bg-cyan-100 dark:bg-cyan-900/30
                                 px-3 py-1
                                 text-xs font-bold
-                                text-emerald-700 dark:text-emerald-300
+                                text-cyan-700 dark:text-cyan-300
                               "
                             >
                               {newW} × {newH}
@@ -11119,7 +11499,7 @@ export default function TemplateDesigner({
                                   text-center
                                   font-bold
                                   outline-none
-                                  focus:ring-2 focus:ring-emerald-500
+                                  focus:ring-2 focus:ring-cyan-500
                                   dark:text-white
                                 "
                               />
@@ -11147,7 +11527,7 @@ export default function TemplateDesigner({
                                   text-center
                                   font-bold
                                   outline-none
-                                  focus:ring-2 focus:ring-emerald-500
+                                  focus:ring-2 focus:ring-cyan-500
                                   dark:text-white
                                 "
                               />
@@ -11165,7 +11545,7 @@ export default function TemplateDesigner({
                     {skipsWidgetDataSourceStep && (
                     <div
                       className="
-                        mt-3 rounded-xl border
+                        mt-4 mb-1 rounded-xl border
                         border-slate-200 bg-white
                         px-3 py-3
                         dark:border-slate-700
@@ -11178,10 +11558,10 @@ export default function TemplateDesigner({
                             mt-0.5 flex h-7 w-7
                             shrink-0 items-center
                             justify-center rounded-lg
-                            bg-emerald-50
-                            text-emerald-600
-                            dark:bg-emerald-500/10
-                            dark:text-emerald-300
+                            bg-cyan-50
+                            text-cyan-600
+                            dark:bg-cyan-500/10
+                            dark:text-cyan-300
                           "
                         >
                           <CheckCircle2 size={15} />
@@ -11232,7 +11612,6 @@ export default function TemplateDesigner({
 
                   </>
                 )}
-                {/* TYPE-SPECIFIC DISPLAY / DATA SETTINGS */}
                 {!skipsWidgetDataSourceStep && (
                   <>
                     {newType === "image" ? (
@@ -11437,6 +11816,7 @@ export default function TemplateDesigner({
                     ) : (
                       <div
                         className="
+                          mt-5
                           bg-gray-50 dark:bg-slate-950
                           border border-gray-200 dark:border-slate-700
                           rounded-xl
@@ -11481,6 +11861,8 @@ export default function TemplateDesigner({
                               onChange={setNewProcessEquipmentConfig}
                               selectedDataKeys={newDataKeys}
                               dataOptions={allDataOptions}
+                              previewData={previewValues}
+                              previewHistory={previewHistory}
                             />
                           </div>
                         )}
@@ -11499,28 +11881,19 @@ export default function TemplateDesigner({
                             <ProcessViewSettings
                               config={newProcessViewConfig}
                               onChange={setNewProcessViewConfig}
+                              displayOnly
                             />
                           </div>
                         )}
 
-                        {newType === "customLayout" && (
-                          <div className="mt-4 rounded-xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-cyan-50/50 p-4 dark:border-blue-500/20 dark:from-blue-950/20 dark:via-slate-950 dark:to-cyan-950/10">
-                            <div className="mb-4">
-                              <h3 className="font-bold text-gray-900 dark:text-white">
-                                Custom Widget Layout
-                              </h3>
-                              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">
-                                Combine up to four existing widget renderers inside one dashboard card.
-                              </p>
+                        {newType === "customLayout" &&
+                          newWidgetTypeId && (
+                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/60">
+                              <div className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                Data sources and layout are configured inside the custom widget.
+                              </div>
                             </div>
-                            <CustomLayoutSettings
-                              config={newCustomLayoutConfig}
-                              onChange={setNewCustomLayoutConfig}
-                              availableDataKeys={newDataKeys}
-                              dataOptions={allDataOptions}
-                            />
-                          </div>
-                        )}
+                          )}
 
                         <HeatmapSettings
                           newType={newType}
@@ -11535,62 +11908,133 @@ export default function TemplateDesigner({
                           setNewHistoryWindow={setNewHistoryWindow}
                           newChartDisplay={newChartDisplay}
                           setNewChartDisplay={setNewChartDisplay}
+                          selectedDataKeys={newDataKeys}
+                          dataOptions={allDataOptions}
                         />
                         {newType === "gauge" &&
                           hasSelectedDataSource && (
-                            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950">
-                              <div className="mb-4">
-                                <h3 className="font-bold text-gray-900 dark:text-white">
-                                  Gauge Style
-                                </h3>
-                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                  Choose how the same Gauge data is visualized. You can switch styles without changing the data source or range settings.
-                                </p>
+                            <div className="mt-5 rounded-xl border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                              <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                                    Gauge Style
+                                  </h3>
+                                  <p className="mt-0.5 text-[10px] text-gray-500 dark:text-slate-400">
+                                    Choose the visual style.
+                                  </p>
+                                </div>
+
+                                <span className="rounded-md bg-cyan-50 px-2 py-1 text-[9px] font-bold text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200">
+                                  {
+                                    {
+                                      circular:
+                                        "Classic",
+                                      segmented:
+                                        "Threshold Arc",
+                                      linear:
+                                        "Linear",
+                                    }[
+                                      newGaugeDisplay.style ||
+                                        "circular"
+                                    ]
+                                  }
+                                </span>
                               </div>
 
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <div className="grid grid-cols-2 gap-2">
                                 {[
-                                  { key: "circular", label: "Circular", description: "Semi-circle instrument gauge" },
-                                  { key: "linear", label: "Linear", description: "Horizontal range position indicator" },
+                                  {
+                                    key: "circular",
+                                    label: "Classic",
+                                    sublabel: "Needle",
+                                  },
+                                  {
+                                    key: "segmented",
+                                    label: "Threshold Arc",
+                                    sublabel: "Arc meter",
+                                  },
+                                  {
+                                    key: "linear",
+                                    label: "Linear",
+                                    sublabel: "Horizontal",
+                                  },
                                 ].map((option) => {
                                   const selected =
-                                    newGaugeDisplay.style === option.key;
+                                    newGaugeDisplay.style ===
+                                    option.key;
 
                                   return (
                                     <button
                                       key={option.key}
                                       type="button"
                                       onClick={() =>
-                                        setNewGaugeDisplay({ style: option.key })
+                                        setNewGaugeDisplay({
+                                          ...newGaugeDisplay,
+                                          style:
+                                            option.key,
+                                        })
                                       }
-                                      className={`rounded-xl border p-3 text-left transition ${
+                                      className={`relative min-w-0 rounded-lg border p-2 text-left transition ${
                                         selected
-                                          ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-100 dark:bg-emerald-500/10 dark:ring-emerald-500/20"
-                                          : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                                          ? "border-cyan-500 bg-cyan-50/70 ring-1 ring-cyan-200 dark:bg-cyan-500/10 dark:ring-cyan-500/20"
+                                          : "border-gray-200 bg-gray-50/60 hover:border-cyan-300 hover:bg-white dark:border-slate-700 dark:bg-slate-950/50 dark:hover:bg-slate-900"
                                       }`}
                                     >
-                                      <div className="mb-3 flex h-14 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950">
-                                        {option.key === "circular" ? (
-                                          <div className="relative h-9 w-16 overflow-hidden">
-                                            <div className={`absolute inset-x-1 top-1 h-14 rounded-full border-[5px] ${selected ? "border-emerald-500" : "border-slate-300 dark:border-slate-600"}`} />
-                                            <div className="absolute inset-x-0 bottom-0 h-5 bg-slate-50 dark:bg-slate-950" />
-                                            <div className={`absolute bottom-1 left-1/2 h-0.5 w-6 origin-left -rotate-[35deg] rounded-full ${selected ? "bg-emerald-600" : "bg-slate-500"}`} />
-                                          </div>
-                                        ) : (
-                                          <div className="w-full max-w-[150px] px-2">
-                                            <div className="relative h-4">
-                                              <div className="absolute left-0 right-0 top-1.5 h-2 rounded-full bg-slate-200 dark:bg-slate-700" />
-                                              <div className={`absolute left-0 top-1.5 h-2 w-[58%] rounded-l-full ${selected ? "bg-emerald-500" : "bg-slate-400"}`} />
-                                              <div className={`absolute left-[58%] top-0 h-5 w-5 -translate-x-1/2 rounded-full border-4 border-white shadow-sm dark:border-slate-900 ${selected ? "bg-emerald-500" : "bg-slate-500"}`} />
+                                      {selected && (
+                                        <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-cyan-500" />
+                                      )}
+
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex h-11 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white dark:bg-slate-950">
+                                          {option.key ===
+                                            "circular" && (
+                                            <div className="relative h-8 w-12 overflow-hidden">
+                                              <div className="absolute inset-x-1 top-1 h-10 rounded-full border-[4px] border-cyan-400" />
+                                              <div className="absolute inset-x-0 bottom-0 h-4 bg-white dark:bg-slate-950" />
+                                              <div className="absolute bottom-1 left-1/2 h-0.5 w-4 origin-left -rotate-[35deg] rounded-full bg-slate-500 dark:bg-slate-300" />
                                             </div>
+                                          )}
+
+                                          {option.key ===
+                                            "segmented" && (
+                                            <div className="relative h-9 w-12 overflow-hidden">
+                                              <div className="absolute -bottom-3 left-1/2 h-12 w-12 -translate-x-1/2 rounded-full border-[5px] border-slate-200 dark:border-slate-700" />
+                                              <div className="absolute -bottom-3 left-1/2 h-12 w-12 -translate-x-1/2 rounded-full border-[5px] border-cyan-500 border-b-transparent border-r-slate-200 dark:border-r-slate-700" />
+                                              <div className="absolute inset-x-0 bottom-0 text-center text-[8px] font-black text-cyan-600 dark:text-cyan-300">
+                                                49.8
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {option.key ===
+                                            "linear" && (
+                                            <div className="w-11">
+                                              <div className="relative h-3">
+                                                <div className="absolute left-0 right-0 top-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700" />
+                                                <div className="absolute left-0 top-1 h-1.5 w-[58%] rounded-full bg-cyan-500" />
+                                                <div className="absolute left-[58%] top-0 h-3.5 w-3.5 -translate-x-1/2 rounded-full border-2 border-white bg-cyan-500 dark:border-slate-950" />
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div className="min-w-0">
+                                          <div
+                                            className={`truncate text-[10px] font-black ${
+                                              selected
+                                                ? "text-cyan-700 dark:text-cyan-300"
+                                                : "text-slate-800 dark:text-white"
+                                            }`}
+                                          >
+                                            {option.label}
                                           </div>
-                                        )}
-                                      </div>
-                                      <div className={`text-sm font-bold ${selected ? "text-emerald-700 dark:text-emerald-300" : "text-slate-800 dark:text-white"}`}>
-                                        {option.label}
-                                      </div>
-                                      <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                                        {option.description}
+
+                                          <div className="mt-0.5 text-[8px] text-slate-400">
+                                            {
+                                              option.sublabel
+                                            }
+                                          </div>
+                                        </div>
                                       </div>
                                     </button>
                                   );
@@ -11598,6 +12042,22 @@ export default function TemplateDesigner({
                               </div>
                             </div>
                           )}
+
+                        <WidgetColorSettings
+                          newType={newType}
+                          selectedDataKeys={
+                            isMultiDataWidget
+                              ? newDataKeys
+                              : [newDataKey]
+                          }
+                          dataOptions={allDataOptions}
+                          chartDisplay={newChartDisplay}
+                          setChartDisplay={setNewChartDisplay}
+                          gaugeDisplay={newGaugeDisplay}
+                          setGaugeDisplay={setNewGaugeDisplay}
+                          bigNumberDisplay={newBigNumberDisplay}
+                          setBigNumberDisplay={setNewBigNumberDisplay}
+                        />
 
                         <RangeThresholdSettings
                           enabled={
@@ -11618,8 +12078,8 @@ export default function TemplateDesigner({
                           <div
                             className="
                               mt-4 rounded-xl border p-4
-                              border-emerald-200 bg-emerald-50
-                              dark:border-emerald-500/40
+                              border-cyan-200 bg-cyan-50
+                              dark:border-cyan-500/40
                               dark:bg-slate-900
                             "
                           >
@@ -11640,7 +12100,7 @@ export default function TemplateDesigner({
                                   Open the full-screen editor to configure the source name and output data sources.
                                 </p>
 
-                                <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                                <p className="mt-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300">
                                   Current setup: {getSankeyOutputs().length} output(s)
                                 </p>
                               </div>
@@ -11690,14 +12150,14 @@ export default function TemplateDesigner({
                                 }}
                                 className="
                                   inline-flex items-center justify-center
-                                  rounded-xl bg-emerald-600
+                                  rounded-xl bg-cyan-600
                                   px-5 py-3 text-sm font-bold
                                   text-white shadow-sm
-                                  shadow-emerald-600/20
-                                  transition hover:bg-emerald-700
-                                  dark:bg-emerald-500
+                                  shadow-cyan-600/20
+                                  transition hover:bg-cyan-700
+                                  dark:bg-cyan-500
                                   dark:text-slate-950
-                                  dark:hover:bg-emerald-400
+                                  dark:hover:bg-cyan-400
                                 "
                               >
                                 Open Sankey Flow Editor
@@ -11706,13 +12166,12 @@ export default function TemplateDesigner({
                           </div>
                         )}
 
-
                       </div>
                     )}
 
                     <div
                       className="
-                        mt-3 rounded-xl border
+                        mt-4 mb-1 rounded-xl border
                         border-slate-200 bg-white
                         px-3 py-3
                         dark:border-slate-700
@@ -11725,10 +12184,10 @@ export default function TemplateDesigner({
                             mt-0.5 flex h-7 w-7
                             shrink-0 items-center
                             justify-center rounded-lg
-                            bg-emerald-50
-                            text-emerald-600
-                            dark:bg-emerald-500/10
-                            dark:text-emerald-300
+                            bg-cyan-50
+                            text-cyan-600
+                            dark:bg-cyan-500/10
+                            dark:text-cyan-300
                           "
                         >
                           <CheckCircle2 size={15} />
@@ -11786,26 +12245,30 @@ export default function TemplateDesigner({
 
       {showCustomWidgetModal && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
-          onClick={() => setShowCustomWidgetModal(false)}
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-5"
+          onClick={closeCustomWidgetModal}
         >
           <div
-            className="w-[min(980px,96vw)] max-h-[92vh] overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            className="flex w-[min(1480px,98vw)] max-h-[94vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 dark:border-slate-700">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Build Custom Widget
+                  {editingCustomWidgetTypeId
+                    ? "Edit Custom Widget"
+                    : "Build Custom Widget"}
                 </h3>
                 <p className="mt-1 text-sm text-gray-500 dark:text-slate-300">
-                  Build a reusable dashboard card by combining the existing widget renderers.
+                  {editingCustomWidgetTypeId
+                    ? "Update the reusable widget definition. Existing placed instances using it will update too."
+                    : "Design a reusable dashboard card on a freeform canvas with draggable and resizable elements."}
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={() => setShowCustomWidgetModal(false)}
+                onClick={closeCustomWidgetModal}
                 className="rounded-xl p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-slate-800 dark:hover:text-white"
                 aria-label="Close custom widget type form"
               >
@@ -11813,7 +12276,7 @@ export default function TemplateDesigner({
               </button>
             </div>
 
-            <div className="space-y-5 overflow-y-auto p-6">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-300">
                   Widget type name
@@ -11828,7 +12291,7 @@ export default function TemplateDesigner({
                     }))
                   }
                   placeholder="e.g. Boiler Status, Steam KPI, Sterilizer Trend"
-                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 />
               </div>
 
@@ -11838,7 +12301,7 @@ export default function TemplateDesigner({
                     Widget composition
                   </div>
                   <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-400">
-                    Use the data sources selected in Step 1, then combine existing widgets into one reusable card.
+                    Add any elements you need, place them anywhere, resize them freely, and map each data element independently.
                   </p>
                 </div>
                 <CustomLayoutSettings
@@ -11849,8 +12312,12 @@ export default function TemplateDesigner({
                       layoutConfig,
                     }))
                   }
-                  availableDataKeys={newDataKeys}
+                  availableDataKeys={allDataOptions.map(
+                    (option) => option.key
+                  )}
                   dataOptions={allDataOptions}
+                  previewData={previewValues}
+                  previewHistory={previewHistory}
                 />
               </div>
 
@@ -11868,19 +12335,24 @@ export default function TemplateDesigner({
                   }
                   placeholder="Optional description shown under the custom widget type."
                   rows={3}
-                  className="mt-2 w-full resize-none rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
+                  className="mt-2 w-full resize-none rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-950 dark:text-white"
                 />
               </div>
 
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
+              <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-4 text-sm text-cyan-800 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-200">
                 Custom widget layouts are saved with the template and can be reused like any other widget.
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5 dark:border-slate-700">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-200 bg-white px-5 py-3.5 dark:border-slate-700 dark:bg-slate-900">
+              <span className="hidden text-[10px] text-slate-400 sm:block">
+                Freeform canvas · up to 30 elements.
+              </span>
+
+              <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setShowCustomWidgetModal(false)}
+                onClick={closeCustomWidgetModal}
                 className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:border-slate-600 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
               >
                 Cancel
@@ -11889,10 +12361,13 @@ export default function TemplateDesigner({
               <button
                 type="button"
                 onClick={addCustomWidgetType}
-                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                className="rounded-xl bg-cyan-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-cyan-500"
               >
-                Save and Select Custom Widget
+                {editingCustomWidgetTypeId
+                  ? "Save Changes"
+                  : "Save & Select"}
               </button>
+              </div>
             </div>
           </div>
         </div>

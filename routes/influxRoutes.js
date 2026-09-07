@@ -1301,7 +1301,7 @@ router.get(
 // =====================================
 router.get(
   "/influx/channels",
-  auth(["superadmin", "admin"]),
+  auth(["superadmin", "admin", "editor"]),
   async (req, res) => {
     const selectedBucket =
       req.query.bucket || bucket;
@@ -1330,7 +1330,7 @@ router.get(
 
     // Organization admins may only discover fields for a device
     // explicitly assigned to their own organization.
-    if (req.user.role === "admin") {
+    if (req.user.role !== "superadmin") {
       if (!tagValue) {
         return res.status(400).json({
           error:

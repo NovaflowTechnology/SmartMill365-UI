@@ -1,12 +1,76 @@
+import { Plus, Trash2 } from "lucide-react";
+
 export default function StatSettings({
   newType,
   newBigNumberDisplay,
   setNewBigNumberDisplay,
-  newDataKeys,
+  newDataKeys = [],
   newDataKey,
+  setNewDataKey,
+  setNewDataKeys,
+  dataOptions = [],
   getDataSourceLabel,
 }) {
   if (newType !== "bignumber") return null;
+
+  const sourceOptions = Array.isArray(dataOptions)
+    ? dataOptions.filter((option) => option?.key)
+    : [];
+
+  const primaryDataKey =
+    newDataKeys?.[0] || newDataKey || "";
+
+  const statusDataKey =
+    newBigNumberDisplay.statusDataKey ||
+    newDataKeys?.find(
+      (key) => key && key !== primaryDataKey
+    ) ||
+    "";
+
+  const setSingleSource = (key) => {
+    const nextKey = key || "";
+    setNewDataKey?.(nextKey);
+    setNewDataKeys?.(nextKey ? [nextKey] : []);
+  };
+
+  const setPrimarySource = (key) => {
+    const nextPrimary = key || "";
+    const currentStatus =
+      statusDataKey && statusDataKey !== nextPrimary
+        ? statusDataKey
+        : "";
+
+    setNewDataKey?.(nextPrimary);
+    setNewDataKeys?.(
+      [nextPrimary, currentStatus].filter(Boolean)
+    );
+
+    if (!currentStatus) {
+      setNewBigNumberDisplay((previous) => ({
+        ...previous,
+        statusDataKey: "",
+      }));
+    }
+  };
+
+  const setStatusSource = (key) => {
+    const nextStatus = key || "";
+
+    setNewBigNumberDisplay((previous) => ({
+      ...previous,
+      statusSource: "mapping",
+      statusDataKey: nextStatus,
+    }));
+
+    setNewDataKeys?.(
+      [primaryDataKey, nextStatus]
+        .filter(Boolean)
+        .filter(
+          (keyValue, index, values) =>
+            values.indexOf(keyValue) === index
+        )
+    );
+  };
 
   return (
                         <div
@@ -27,8 +91,6 @@ export default function StatSettings({
                               Display a numeric KPI or convert incoming values into readable status text.
                             </p>
                           </div>
-
-                          {/* DISPLAY MODE */}
                           <div>
                             <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
                               Display Mode
@@ -63,13 +125,15 @@ export default function StatSettings({
                                   <button
                                     key={option.value}
                                     type="button"
-                                    onClick={() =>
+                                    onClick={() => {
+                                      const nextMode = option.value;
+
                                       setNewBigNumberDisplay(
                                         (previous) => ({
                                           ...previous,
-                                          mode: option.value,
+                                          mode: nextMode,
 
-                                          ...(option.value ===
+                                          ...(nextMode ===
                                           "valueMapping"
                                             ? {
                                                 showTrend: false,
@@ -78,7 +142,7 @@ export default function StatSettings({
                                               }
                                             : {}),
 
-                                          ...(option.value ===
+                                          ...(nextMode ===
                                           "combined"
                                             ? {
                                                 statusSource: "mapping",
@@ -88,23 +152,29 @@ export default function StatSettings({
                                                     (key) =>
                                                       key &&
                                                       key !==
-                                                        (newDataKeys[0] ||
-                                                          newDataKey)
+                                                        primaryDataKey
                                                   ) ||
                                                   "",
                                               }
                                             : {}),
                                         })
-                                      )
-                                    }
+                                      );
+
+                                      if (
+                                        nextMode === "number" ||
+                                        nextMode === "valueMapping"
+                                      ) {
+                                        setSingleSource(primaryDataKey);
+                                      }
+                                    }}
                                     className={`
                                       rounded-xl border
                                       p-4 text-left
                                       transition-all
                                       ${
                                         selected
-                                          ? "border-emerald-600 bg-emerald-600 text-white shadow"
-                                          : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
+                                          ? "border-[#0891B2] bg-[#0891B2] text-white shadow-sm"
+                                          : "border-gray-200 bg-white text-gray-700 hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
                                       }
                                     `}
                                   >
@@ -117,7 +187,7 @@ export default function StatSettings({
                                         mt-1 text-[11px]
                                         ${
                                           selected
-                                            ? "text-emerald-50"
+                                            ? "text-cyan-50"
                                             : "text-gray-400 dark:text-slate-400"
                                         }
                                       `}
@@ -129,8 +199,6 @@ export default function StatSettings({
                               })}
                             </div>
                           </div>
-
-                          {/* COMMON STAT SETTINGS */}
                           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                               <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
@@ -156,7 +224,7 @@ export default function StatSettings({
                                   bg-white px-4 py-3
                                   text-gray-900 outline-none
                                   focus:ring-2
-                                  focus:ring-emerald-500
+                                  focus:ring-cyan-500
                                   dark:border-slate-600
                                   dark:bg-slate-900
                                   dark:text-white
@@ -198,7 +266,7 @@ export default function StatSettings({
                                   bg-white px-4 py-3
                                   text-gray-900 outline-none
                                   focus:ring-2
-                                  focus:ring-emerald-500
+                                  focus:ring-cyan-500
                                   dark:border-slate-600
                                   dark:bg-slate-900
                                   dark:text-white
@@ -249,11 +317,9 @@ export default function StatSettings({
                                   })
                                 )
                               }
-                              className="h-5 w-5 accent-emerald-600"
+                              className="h-5 w-5 accent-cyan-600"
                             />
                           </label>
-
-                          {/* NUMBER MODE */}
                           {newBigNumberDisplay.mode ===
                             "number" && (
                             <div className="mt-4 space-y-4">
@@ -306,8 +372,8 @@ export default function StatSettings({
                                           transition-all
                                           ${
                                             selected
-                                              ? "border-emerald-600 bg-emerald-600 text-white shadow"
-                                              : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
+                                              ? "border-[#0891B2] bg-[#0891B2] text-white shadow-sm"
+                                              : "border-gray-200 bg-white text-gray-700 hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
                                           }
                                         `}
                                       >
@@ -381,7 +447,7 @@ export default function StatSettings({
                                                 ml-2 text-[9px]
                                                 ${
                                                   selected
-                                                    ? "text-emerald-50"
+                                                    ? "text-cyan-50"
                                                     : "text-slate-400"
                                                 }
                                               `}
@@ -397,7 +463,7 @@ export default function StatSettings({
                                                 ml-1 text-[9px]
                                                 ${
                                                   selected
-                                                    ? "text-emerald-50"
+                                                    ? "text-cyan-50"
                                                     : "text-slate-400"
                                                 }
                                               `}
@@ -412,7 +478,7 @@ export default function StatSettings({
                                             mt-1.5 text-[11px]
                                             ${
                                               selected
-                                                ? "text-emerald-50"
+                                                ? "text-cyan-50"
                                                 : "text-gray-400 dark:text-slate-400"
                                             }
                                           `}
@@ -469,7 +535,7 @@ export default function StatSettings({
                                           })
                                         )
                                       }
-                                      className="h-5 w-5 accent-emerald-600"
+                                      className="h-5 w-5 accent-cyan-600"
                                     />
                                   </label>
                                 ))}
@@ -511,7 +577,7 @@ export default function StatSettings({
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
                                       focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -545,7 +611,7 @@ export default function StatSettings({
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
                                       focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -578,7 +644,7 @@ export default function StatSettings({
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
                                       focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -645,7 +711,7 @@ export default function StatSettings({
                                         bg-white px-4 py-3
                                         text-gray-900 outline-none
                                         focus:ring-2
-                                        focus:ring-emerald-500
+                                        focus:ring-cyan-500
                                         dark:border-slate-600
                                         dark:bg-slate-900
                                         dark:text-white
@@ -666,10 +732,10 @@ export default function StatSettings({
                             <div
                               className="
                                 mt-4 rounded-xl border
-                                border-emerald-200 bg-emerald-50/60
+                                border-cyan-200 bg-cyan-50/60
                                 p-4
-                                dark:border-emerald-500/25
-                                dark:bg-emerald-500/[0.05]
+                                dark:border-cyan-500/25
+                                dark:bg-cyan-500/[0.05]
                               "
                             >
                               <div className="mb-4">
@@ -688,24 +754,28 @@ export default function StatSettings({
                                     Numeric Stat Data
                                   </label>
 
-                                  <div
-                                    className="
-                                      min-h-[48px] rounded-xl border
-                                      border-gray-200 bg-white
-                                      px-4 py-3 text-sm font-semibold
-                                      text-gray-800
-                                      dark:border-slate-700
-                                      dark:bg-slate-900
-                                      dark:text-white
-                                    "
+                                  <select
+                                    value={primaryDataKey}
+                                    onChange={(event) =>
+                                      setPrimarySource(
+                                        event.target.value
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
                                   >
-                                    {newDataKeys[0] || newDataKey
-                                      ? getDataSourceLabel(
-                                          newDataKeys[0] ||
-                                            newDataKey
-                                        )
-                                      : "No numeric source selected"}
-                                  </div>
+                                    <option value="">
+                                      Select numeric data source
+                                    </option>
+
+                                    {sourceOptions.map((option) => (
+                                      <option
+                                        key={option.key}
+                                        value={option.key}
+                                      >
+                                        {option.label || option.key}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
 
                                 <div>
@@ -714,18 +784,10 @@ export default function StatSettings({
                                   </label>
 
                                   <select
-                                    value={
-                                      newBigNumberDisplay.statusDataKey ||
-                                      ""
-                                    }
+                                    value={statusDataKey}
                                     onChange={(event) =>
-                                      setNewBigNumberDisplay(
-                                        (previous) => ({
-                                          ...previous,
-                                          statusSource: "mapping",
-                                          statusDataKey:
-                                            event.target.value,
-                                        })
+                                      setStatusSource(
+                                        event.target.value
                                       )
                                     }
                                     className="
@@ -733,7 +795,7 @@ export default function StatSettings({
                                       border-gray-300 bg-white
                                       px-4 py-3 text-gray-900
                                       outline-none focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -743,22 +805,17 @@ export default function StatSettings({
                                       Select second data source
                                     </option>
 
-                                    {newDataKeys
+                                    {sourceOptions
                                       .filter(
-                                        (key) =>
-                                          key &&
-                                          key !==
-                                            (newDataKeys[0] ||
-                                              newDataKey)
+                                        (option) =>
+                                          option.key !== primaryDataKey
                                       )
-                                      .map((key) => (
+                                      .map((option) => (
                                         <option
-                                          key={key}
-                                          value={key}
+                                          key={option.key}
+                                          value={option.key}
                                         >
-                                          {getDataSourceLabel(
-                                            key
-                                          )}
+                                          {option.label || option.key}
                                         </option>
                                       ))}
                                   </select>
@@ -790,7 +847,7 @@ export default function StatSettings({
                                       border-gray-300 bg-white
                                       px-4 py-3 text-gray-900
                                       outline-none focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -799,7 +856,7 @@ export default function StatSettings({
                                 </div>
                               </div>
 
-                              {newDataKeys.length < 2 && (
+                              {(!primaryDataKey || !statusDataKey) && (
                                 <div
                                   className="
                                     mt-4 rounded-xl border
@@ -811,9 +868,45 @@ export default function StatSettings({
                                     dark:text-amber-300
                                   "
                                 >
-                                  Select two data sources in Step 1 to use Stat + Status.
+                                  Choose both the numeric and status data sources above to use Stat + Status.
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {newBigNumberDisplay.mode ===
+                            "valueMapping" && (
+                            <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50/60 p-4 dark:border-cyan-500/25 dark:bg-cyan-500/[0.05]">
+                              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-white">
+                                Mapping Data Source
+                              </label>
+
+                              <select
+                                value={primaryDataKey}
+                                onChange={(event) =>
+                                  setSingleSource(
+                                    event.target.value
+                                  )
+                                }
+                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                              >
+                                <option value="">
+                                  Select data source
+                                </option>
+
+                                {sourceOptions.map((option) => (
+                                  <option
+                                    key={option.key}
+                                    value={option.key}
+                                  >
+                                    {option.label || option.key}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                                The raw value from this source is converted using the mappings below.
+                              </p>
                             </div>
                           )}
 
@@ -838,7 +931,7 @@ export default function StatSettings({
                                 ).map(
                                   (mapping, index) => (
                                     <div
-                                      key={`${index}-${mapping.value}`}
+                                      key={index}
                                       className="
                                         grid min-w-0
                                         grid-cols-[minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(90px,1fr)_36px]
@@ -892,7 +985,7 @@ export default function StatSettings({
                                           text-sm text-gray-900
                                           outline-none
                                           focus:ring-2
-                                          focus:ring-emerald-500
+                                          focus:ring-cyan-500
                                           dark:border-slate-600
                                           dark:bg-slate-950
                                           dark:text-white
@@ -941,7 +1034,7 @@ export default function StatSettings({
                                           text-sm text-gray-900
                                           outline-none
                                           focus:ring-2
-                                          focus:ring-emerald-500
+                                          focus:ring-cyan-500
                                           dark:border-slate-600
                                           dark:bg-slate-950
                                           dark:text-white
@@ -989,7 +1082,7 @@ export default function StatSettings({
                                           text-sm text-gray-900
                                           outline-none
                                           focus:ring-2
-                                          focus:ring-emerald-500
+                                          focus:ring-cyan-500
                                           dark:border-slate-600
                                           dark:bg-slate-950
                                           dark:text-white
@@ -1088,15 +1181,15 @@ export default function StatSettings({
                                 className="
                                   inline-flex items-center
                                   gap-2 rounded-xl
-                                  border border-emerald-300
+                                  border border-cyan-300
                                   px-4 py-2.5
                                   text-sm font-bold
-                                  text-emerald-700
+                                  text-cyan-700
                                   transition
-                                  hover:bg-emerald-50
-                                  dark:border-emerald-800
-                                  dark:text-emerald-300
-                                  dark:hover:bg-emerald-500/10
+                                  hover:bg-cyan-50
+                                  dark:border-cyan-800
+                                  dark:text-cyan-300
+                                  dark:hover:bg-cyan-500/10
                                 "
                               >
                                 <Plus size={15} />
@@ -1132,7 +1225,7 @@ export default function StatSettings({
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
                                       focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -1166,7 +1259,7 @@ export default function StatSettings({
                                       bg-white px-4 py-3
                                       text-gray-900 outline-none
                                       focus:ring-2
-                                      focus:ring-emerald-500
+                                      focus:ring-cyan-500
                                       dark:border-slate-600
                                       dark:bg-slate-900
                                       dark:text-white
@@ -1230,7 +1323,7 @@ export default function StatSettings({
                                       })
                                     )
                                   }
-                                  className="h-5 w-5 accent-emerald-600"
+                                  className="h-5 w-5 accent-cyan-600"
                                 />
                               </label>
                             </div>

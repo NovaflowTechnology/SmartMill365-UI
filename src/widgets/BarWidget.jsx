@@ -334,7 +334,14 @@ export default function BarWidget({
       name: dataLabels?.[key] || readableFieldLabel(key),
       value: toFiniteNumber(data?.[key], 0),
       unit: String(config.unit || "").trim(),
-      color: TECH_SERIES[index % TECH_SERIES.length],
+      color:
+        chartDisplay?.seriesColors?.[
+          key
+        ] ||
+        TECH_SERIES[
+          index %
+            TECH_SERIES.length
+        ],
     };
   });
 

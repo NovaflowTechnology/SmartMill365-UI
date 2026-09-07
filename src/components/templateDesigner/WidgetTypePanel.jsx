@@ -2,7 +2,7 @@ import {
   CheckCircle2,
   LayoutGrid,
   Plus,
-  X,
+  Trash2,
 } from "lucide-react";
 
 export default function WidgetTypePanel({
@@ -11,6 +11,7 @@ export default function WidgetTypePanel({
   newType = "",
   handleWidgetTypeChange = () => {},
   deleteCustomWidgetType = () => {},
+  editCustomWidgetType = () => {},
   setShowCustomWidgetModal = () => {},
   newDataKeys = [],
   newDataKey = "",
@@ -27,6 +28,26 @@ export default function WidgetTypePanel({
   setWidgetStep = () => {},
   goToNextWidgetStep = () => {},
 }) {
+  const selectedCustomWidget =
+    allWidgetOptions.find(
+      (widget) =>
+        widget.isCustomWidgetType &&
+        widget.optionId ===
+          newWidgetTypeId
+    ) || null;
+
+  const builtInWidgets =
+    allWidgetOptions.filter(
+      (widget) =>
+        !widget.isCustomWidgetType
+    );
+
+  const customWidgets =
+    allWidgetOptions.filter(
+      (widget) =>
+        widget.isCustomWidgetType
+    );
+
   return (
     <>
       <div
@@ -47,38 +68,78 @@ export default function WidgetTypePanel({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowCustomWidgetModal(true)}
-            className="
-              inline-flex shrink-0
-              items-center justify-center
-              gap-1.5 rounded-xl
-              border border-slate-200
-              bg-white px-2.5 py-2
-              text-[11px] font-semibold
-              text-slate-600 transition
-              hover:border-emerald-300
-              hover:text-emerald-700
-              dark:border-slate-700
-              dark:bg-slate-900
-              dark:text-slate-300
-            "
-            title="Add custom widget type"
-          >
-            <Plus size={14} />
-            <span className="hidden xl:inline">
-              Custom
-            </span>
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {selectedCustomWidget && (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    editCustomWidgetType(
+                      selectedCustomWidget.optionId
+                    )
+                  }
+                  className="
+                    inline-flex items-center
+                    justify-center rounded-lg
+                    border border-slate-200
+                    bg-white px-2.5 py-2
+                    text-[10px] font-semibold
+                    text-slate-500
+                    transition
+                    hover:border-[#0891B2]
+                    hover:bg-cyan-50
+                    hover:text-[#0891B2]
+                    dark:border-slate-700
+                    dark:bg-slate-900
+                    dark:text-slate-300
+                    dark:hover:bg-cyan-500/10
+                  "
+                >
+                  Edit
+                </button>
+
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() =>
+                setShowCustomWidgetModal(
+                  true
+                )
+              }
+              className="
+                inline-flex items-center
+                justify-center gap-1.5
+                rounded-xl border
+                border-slate-200 bg-white
+                px-2.5 py-2
+                text-[11px] font-semibold
+                text-slate-600 transition
+                hover:border-cyan-300
+                hover:text-cyan-700
+                dark:border-slate-700
+                dark:bg-slate-900
+                dark:text-slate-300
+              "
+              title="Add custom widget type"
+            >
+              <Plus size={14} />
+              <span className="hidden xl:inline">
+                Custom
+              </span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          {allWidgetOptions.map((w) => {
-            const Icon = w.icon || LayoutGrid;
-            const selected = w.isCustomWidgetType
-              ? newWidgetTypeId === w.optionId
-              : !newWidgetTypeId && newType === w.type;
+          {builtInWidgets.map((w) => {
+            const Icon =
+              w.icon || LayoutGrid;
+
+            const selected =
+              !newWidgetTypeId &&
+              newType === w.type;
 
             return (
               <button
@@ -87,87 +148,149 @@ export default function WidgetTypePanel({
                 onClick={() =>
                   handleWidgetTypeChange(
                     w.type,
-                    w.isCustomWidgetType ? w.optionId : ""
+                    ""
                   )
                 }
                 className={`
                   relative flex min-h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border p-2.5 text-center transition-colors
                   ${
                     selected
-                      ? "bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-500/20"
-                      : "bg-white dark:bg-slate-900 hover:bg-gray-100 dark:bg-[#050a1e] dark:hover:bg-gray-800 border-gray-200 dark:border-slate-700 dark:text-white"
+                      ? "border-[#0891B2] bg-[#0891B2] text-white shadow-sm ring-2 ring-[#0891B2]/15 hover:bg-[#07829F] dark:border-[#0891B2] dark:bg-[#0891B2] dark:text-white dark:ring-[#0891B2]/20 dark:hover:bg-[#0AA3C7]"
+                      : "border-gray-200 bg-white hover:bg-gray-100 dark:border-slate-700 dark:bg-[#050a1e] dark:text-white dark:hover:bg-gray-800"
                   }
                 `}
                 title={w.label}
                 aria-label={w.label}
               >
-                {w.isCustomWidgetType && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      deleteCustomWidgetType(w.optionId);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.stopPropagation();
-                        deleteCustomWidgetType(w.optionId);
-                      }
-                    }}
-                    className={`absolute right-2 top-2 rounded-lg p-1 transition ${
-                      selected
-                        ? "text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/15"
-                        : "text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                    }`}
-                    title="Delete custom widget type"
-                  >
-                    <X size={14} />
-                  </span>
-                )}
-
                 <Icon className="mb-1.5 h-5 w-5 shrink-0" />
 
                 <div className="line-clamp-2 min-w-0 break-words text-[11px] font-semibold leading-[1.15]">
                   {w.label}
                 </div>
-
-                <div
-                  className={`
-                    hidden
-                    ${
-                      selected
-                        ? "text-emerald-50"
-                        : "text-gray-400 dark:text-slate-400"
-                    }
-                  `}
-                >
-                  {w.isCustomWidgetType
-                    ? w.description || `Based on ${w.baseType}`
-                    : w.type === "gauge"
-                    ? "Circular / linear gauge"
-                    : w.type === "line"
-                    ? "Trend over time"
-                    : w.type === "image"
-                    ? "Mimic diagram"
-                    : w.type === "bar"
-                    ? "Bar comparison"
-                    : w.type === "bignumber"
-                    ? "KPI number"
-                    : w.type === "composite"
-                    ? "Two compatible views in one card"
-                    : w.type === "alarm"
-                    ? "Status warning"
-                    : w.type === "pie"
-                    ? "Ratio chart"
-                    : w.type === "sankey"
-                    ? "Flow split diagram"
-                    : "Widget"}
-                </div>
               </button>
             );
           })}
         </div>
+
+        {customWidgets.length > 0 && (
+          <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                  Custom Widgets
+                </div>
+
+                <div className="mt-0.5 text-[8px] text-slate-400 dark:text-slate-500">
+                  Saved with this template
+                </div>
+              </div>
+
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                {customWidgets.length}
+              </span>
+            </div>
+
+            <div
+              className={`grid gap-2 ${
+                customWidgets.length === 1
+                  ? "grid-cols-1"
+                  : "grid-cols-2"
+              }`}
+            >
+              {customWidgets.map((w) => {
+                const Icon =
+                  w.icon || LayoutGrid;
+
+                const selected =
+                  newWidgetTypeId ===
+                  w.optionId;
+
+                return (
+                  <button
+                    key={w.optionId}
+                    type="button"
+                    onClick={() =>
+                      handleWidgetTypeChange(
+                        w.type,
+                        w.optionId
+                      )
+                    }
+                    className={`
+                      relative flex min-h-[50px] min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 pr-9 text-left transition-colors
+                      ${
+                        selected
+                          ? "border-[#0891B2] bg-[#0891B2] text-white shadow-sm ring-2 ring-[#0891B2]/15"
+                          : "border-gray-200 bg-white hover:border-cyan-300 hover:bg-cyan-50/40 dark:border-slate-700 dark:bg-[#050a1e] dark:text-white dark:hover:bg-cyan-500/5"
+                      }
+                    `}
+                    title={w.label}
+                  >
+                    <div
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                        selected
+                          ? "bg-white/15 text-white"
+                          : "bg-cyan-50 text-[#0891B2] dark:bg-cyan-500/10 dark:text-cyan-300"
+                      }`}
+                    >
+                      <Icon size={16} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="truncate text-[11px] font-bold">
+                        {w.label}
+                      </div>
+
+                      {w.description && (
+                        <div
+                          className={`mt-0.5 truncate text-[8px] ${
+                            selected
+                              ? "text-white/70"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          {w.description}
+                        </div>
+                      )}
+                    </div>
+
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteCustomWidgetType(
+                          w.optionId
+                        );
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key ===
+                            "Enter" ||
+                          event.key === " "
+                        ) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          deleteCustomWidgetType(
+                            w.optionId
+                          );
+                        }
+                      }}
+                      className={`absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md transition ${
+                        selected
+                          ? "text-white/80 hover:bg-white/15 hover:text-white"
+                          : "text-slate-300 hover:bg-rose-50 hover:text-rose-500 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+                      }`}
+                      title="Delete custom widget"
+                      aria-label={`Delete ${w.label}`}
+                    >
+                      <Trash2 size={12} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {newType === "composite" && (
@@ -216,8 +339,8 @@ export default function WidgetTypePanel({
                     text-left transition-all
                     ${
                       selected
-                        ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-300 dark:bg-emerald-500/10 dark:ring-emerald-500/30"
-                        : "border-gray-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"
+                        ? "border-cyan-400 bg-cyan-50 ring-1 ring-cyan-200 dark:bg-cyan-500/10 dark:ring-cyan-500/25"
+                        : "border-gray-200 bg-white hover:border-cyan-300 dark:border-slate-700 dark:bg-slate-900"
                     }
                   `}
                 >
@@ -235,7 +358,7 @@ export default function WidgetTypePanel({
                     {selected && (
                       <CheckCircle2
                         size={17}
-                        className="shrink-0 text-emerald-600 dark:text-emerald-300"
+                        className="shrink-0 text-cyan-600 dark:text-cyan-300"
                       />
                     )}
                   </div>
@@ -266,7 +389,7 @@ export default function WidgetTypePanel({
                   border border-gray-300
                   bg-white px-4 py-2.5
                   text-gray-900 outline-none
-                  focus:ring-2 focus:ring-emerald-500
+                  focus:ring-2 focus:ring-cyan-500
                   dark:border-slate-600
                   dark:bg-slate-900
                   dark:text-white
@@ -305,7 +428,7 @@ export default function WidgetTypePanel({
                     })
                   )
                 }
-                className="w-full accent-emerald-600"
+                className="w-full accent-cyan-600"
               />
             </div>
           </div>
@@ -435,7 +558,7 @@ export default function WidgetTypePanel({
           onClick={goToNextWidgetStep}
           className="
             rounded-xl
-            bg-emerald-600 hover:bg-emerald-700
+            bg-cyan-600 hover:bg-cyan-700
             text-white
             px-6 py-3
             font-semibold

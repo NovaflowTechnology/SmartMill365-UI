@@ -128,11 +128,13 @@ export default function ProcessFlowWorkspace({
   const [creating, setCreating] =
     useState(false);
 
-  const [renameTarget, setRenameTarget] =
+  const [editTarget, setEditTarget] =
     useState(null);
-  const [renameName, setRenameName] =
+  const [editName, setEditName] =
     useState("");
-  const [renaming, setRenaming] =
+  const [editDescription, setEditDescription] =
+    useState("");
+  const [editing, setEditing] =
     useState(false);
 
   const token =
@@ -534,27 +536,35 @@ export default function ProcessFlowWorkspace({
     return updated;
   };
 
-  const renameFlow = (flow) => {
-    setRenameTarget(flow);
-    setRenameName(flow?.name || "");
+  const editFlow = (flow) => {
+    setEditTarget(flow);
+    setEditName(flow?.name || "");
+    setEditDescription(flow?.description || "");
   };
 
-  const submitRename = async () => {
+  const closeEditFlow = () => {
+    setEditTarget(null);
+    setEditName("");
+    setEditDescription("");
+  };
+
+  const submitEdit = async () => {
     if (
-      !renameTarget ||
-      !renameName.trim()
+      !editTarget ||
+      !editName.trim()
     ) {
       return;
     }
 
     try {
-      setRenaming(true);
+      setEditing(true);
 
       const updated =
         await updateProcessFlow(
-          renameTarget.id,
+          editTarget.id,
           {
-            name: renameName.trim(),
+            name: editName.trim(),
+            description: editDescription.trim(),
           }
         );
 
@@ -567,21 +577,20 @@ export default function ProcessFlowWorkspace({
         )
       );
 
-      setRenameTarget(null);
-      setRenameName("");
+      closeEditFlow();
 
       notify(
-        "Process flow renamed",
+        "Process flow updated",
         "success"
       );
     } catch (error) {
       notify(
         error.message ||
-          "Unable to rename process flow",
+          "Unable to update process flow",
         "error"
       );
     } finally {
-      setRenaming(false);
+      setEditing(false);
     }
   };
 
@@ -725,9 +734,9 @@ export default function ProcessFlowWorkspace({
   };
 
   return (
-    <div className="min-w-0">
-      {/* OPEN PROCESS FLOW TABS */}
-      <div className="mb-2 flex min-h-[42px] items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white px-2 py-1.5 dark:border-[#2C3C61] dark:bg-[#0E172D]">
+    <div className="flex h-[calc(100vh-1.25rem)] min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="mb-2 flex min-h-[52px] shrink-0 min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-2 dark:border-[#2C3C61] dark:bg-[#0E172D]">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         <button
           type="button"
           onClick={() =>
@@ -811,10 +820,18 @@ export default function ProcessFlowWorkspace({
             <Plus size={13} />
           </button>
         )}
+        </div>
+
+        {!showLibrary && activeFlow ? (
+          <div
+            id="process-flow-toolbar-host"
+            className="ml-auto flex shrink-0 items-center"
+          />
+        ) : null}
       </div>
 
       {showLibrary || !activeFlow ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-[#2C3C61] dark:bg-[#0E172D]">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4 dark:border-[#2C3C61] dark:bg-[#0E172D]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
@@ -859,7 +876,7 @@ export default function ProcessFlowWorkspace({
             </div>
           </div>
 
-          <div className="relative mt-4 max-w-[420px]">
+          <div className="relative mt-4 max-w-[420px] shrink-0">
             <Search
               size={13}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -877,11 +894,11 @@ export default function ProcessFlowWorkspace({
           </div>
 
           {loading ? (
-            <div className="flex min-h-[360px] items-center justify-center text-sm text-slate-400">
+            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-slate-400">
               Loading process flows…
             </div>
           ) : filteredFlows.length === 0 ? (
-            <div className="mt-4 flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 px-5 text-center dark:border-[#2C3C61]">
+            <div className="mt-4 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 px-5 text-center dark:border-[#2C3C61]">
               <Factory
                 size={34}
                 className="text-slate-300 dark:text-slate-600"
@@ -917,7 +934,8 @@ export default function ProcessFlowWorkspace({
               )}
             </div>
           ) : (
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
               {filteredFlows.map(
                 (flow) => {
                   const topology =
@@ -1016,9 +1034,9 @@ export default function ProcessFlowWorkspace({
                             <button
                               type="button"
                               onClick={() =>
-                                renameFlow(flow)
+                                editFlow(flow)
                               }
-                              title="Rename"
+                              title="Edit name and description"
                               className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:text-amber-600 dark:border-[#2C3C61] dark:bg-[#081022]"
                             >
                               <Pencil size={11} />
@@ -1052,64 +1070,95 @@ export default function ProcessFlowWorkspace({
                   );
                 }
               )}
+              </div>
             </div>
           )}
         </div>
       ) : (
-        <ProcessSimulator
-          key={activeFlow.id}
-          template={template}
-          dark={dark}
-          processFlow={activeFlow}
-          onSaveProcessFlow={
-            handleSaveTopology
-          }
-        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <ProcessSimulator
+            key={activeFlow.id}
+            template={template}
+            dark={dark}
+            processFlow={activeFlow}
+            onSaveProcessFlow={
+              handleSaveTopology
+            }
+            toolbarHostId="process-flow-toolbar-host"
+          />
+        </div>
       )}
 
-      {renameTarget && (
+      {editTarget && (
         <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-[#2C3C61] dark:bg-[#0E172D]">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                Rename Process Flow
-              </h3>
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-[#2C3C61] dark:bg-[#0E172D]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  Edit Process Flow
+                </h3>
+                <p className="mt-1 text-[9px] text-slate-400">
+                  Update the process flow name and description.
+                </p>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setRenameTarget(null)}
+                onClick={closeEditFlow}
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-[#15213D]"
+                aria-label="Close edit process flow"
               >
                 <X size={14} />
               </button>
             </div>
 
-            <input
-              value={renameName}
-              onChange={(event) => setRenameName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  submitRename();
-                }
-              }}
-              autoFocus
-              className="mt-4 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
-            />
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                  Name
+                </span>
+                <input
+                  value={editName}
+                  onChange={(event) =>
+                    setEditName(event.target.value)
+                  }
+                  autoFocus
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                  Description
+                </span>
+                <textarea
+                  value={editDescription}
+                  onChange={(event) =>
+                    setEditDescription(event.target.value)
+                  }
+                  rows={4}
+                  placeholder="Describe this process flow..."
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-5 outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                />
+              </label>
+            </div>
 
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setRenameTarget(null)}
+                onClick={closeEditFlow}
                 className="h-9 rounded-lg border border-slate-200 px-3 text-[10px] font-semibold text-slate-500 dark:border-[#2C3C61] dark:text-slate-300"
               >
                 Cancel
               </button>
+
               <button
                 type="button"
-                disabled={renaming || !renameName.trim()}
-                onClick={submitRename}
-                className="h-9 rounded-lg bg-cyan-600 px-3 text-[10px] font-bold text-white disabled:opacity-50"
+                disabled={editing || !editName.trim()}
+                onClick={submitEdit}
+                className="h-9 rounded-lg bg-cyan-600 px-3 text-[10px] font-bold text-white transition hover:bg-cyan-500 disabled:opacity-50"
               >
-                {renaming ? "Saving…" : "Rename"}
+                {editing ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </div>

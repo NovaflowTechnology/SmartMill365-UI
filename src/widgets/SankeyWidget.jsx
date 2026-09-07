@@ -4,10 +4,10 @@ import {
   Tooltip,
 } from "recharts";
 
-import { useId } from "react";
+import { useId, useRef } from "react";
 import {
   TECH_SURFACE_CLASS,
-  TechBackdrop,
+  useWidgetSize,
 } from "./widgetTech";
 
 const NODE_COLORS = [
@@ -295,6 +295,14 @@ const normalizeGraphConfig = (config = {}) => {
       NODE_COLORS[index % NODE_COLORS.length]
     ),
     tier: normalizeTier(node?.tier, 1),
+    dataKey:
+      String(
+        node?.dataKey || ""
+      ).trim(),
+    dataSource:
+      normalizeDataSource(
+        node?.dataSource || {}
+      ),
   }));
 
   const nodeIds = new Set(nodes.map((node) => node.id));
@@ -360,7 +368,7 @@ const normalizeGraphConfig = (config = {}) => {
     0,
     Math.min(
       18,
-      Number(config.flowGap ?? 7) || 0
+      Number(config.flowGap ?? 4) || 0
     )
   );
 
@@ -466,8 +474,8 @@ export const defaultSankeyConfig = {
   unit: "psi",
   // separated keeps a visible gap between adjacent Sankey ribbons.
   // continuous restores the traditional touching-ribbon appearance.
-  flowStyle: "separated",
-  flowGap: 7,
+  flowStyle: "continuous",
+  flowGap: 4,
   tierCount: 2,
   nodes: [
     {
@@ -578,18 +586,31 @@ export const normalizeSankeyConfig = (
   };
 };
 
-export const getSankeyDataKeys = (config) => [
-  ...new Set(
-    normalizeSankeyConfig(config)
-      .links.map(
-        (link) =>
-          link.dataKey ||
-          link.dataSource?.channel ||
-          ""
-      )
-      .filter(Boolean)
-  ),
-];
+export const getSankeyDataKeys = (config) => {
+  const normalized =
+    normalizeSankeyConfig(config);
+
+  return [
+    ...new Set(
+      [
+        ...normalized.nodes.map(
+          (node) =>
+            node.dataKey ||
+            node.dataSource?.field ||
+            node.dataSource?.channel ||
+            ""
+        ),
+        ...normalized.links.map(
+          (link) =>
+            link.dataKey ||
+            link.dataSource?.field ||
+            link.dataSource?.channel ||
+            ""
+        ),
+      ].filter(Boolean)
+    ),
+  ];
+};
 
 const formatNumber = (value) => {
   const number = Number(value);
@@ -626,7 +647,15 @@ function CustomNode({
   payload,
 }) {
   if (payload?.synthetic) {
-    return <g />;
+    return (
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={Math.max(4, Number(height) || 0)}
+        fill={normalizeHexColor(payload?.color)}
+      />
+    );
   }
 
   const color = normalizeHexColor(
@@ -637,6 +666,12 @@ function CustomNode({
   const compact = Boolean(payload?.compact);
   const role = payload?.role || "intermediate";
 
+  // Keep very small valid flows visible. Recharts can otherwise render
+  // low-value terminal nodes as an almost invisible hairline.
+  const minimumNodeHeight = compact ? 6 : 8;
+  const visibleHeight = Math.max(minimumNodeHeight, Number(height) || 0);
+  const visibleY = y - (visibleHeight - height) / 2;
+
   // Keep labels OUTSIDE the main flow whenever possible.
   // Root labels sit left of the source node, terminal labels sit right of
   // the destination node, and intermediate labels sit just above the node.
@@ -646,25 +681,26 @@ function CustomNode({
 
   if (role === "root") {
     textX = x - (compact ? 8 : 12);
-    textY = y + height / 2;
+    textY = visibleY + visibleHeight / 2;
     textAnchor = "end";
   } else if (role === "terminal") {
     textX = x + width + (compact ? 8 : 12);
-    textY = y + height / 2;
+    textY = visibleY + visibleHeight / 2;
     textAnchor = "start";
   }
 
   return (
     <g>
+      <title>{payload?.name}</title>
       <rect
         x={x}
-        y={y}
+        y={visibleY}
         width={width}
-        height={height}
-        rx={2}
+        height={visibleHeight}
+        rx={1.5}
         fill={color}
-        stroke="rgba(255,255,255,0.24)"
-        strokeWidth={1}
+        stroke="rgba(255,255,255,0.7)"
+        strokeWidth={1.25}
       />
 
       <text
@@ -673,13 +709,15 @@ function CustomNode({
         textAnchor={textAnchor}
         dominantBaseline="middle"
         className="sankey-node-label"
-        fontSize={compact ? 9 : 11}
+        fontSize={compact ? 8.5 : 10.5}
         fontWeight={800}
         paintOrder="stroke"
-        strokeWidth={compact ? 3 : 4}
+        strokeWidth={compact ? 2.5 : 3.5}
         strokeLinejoin="round"
       >
-        {payload?.name}
+        {String(payload?.name || "").length > (payload?.labelLimit || 22)
+          ? `${String(payload.name).slice(0, (payload.labelLimit || 22) - 1)}…`
+          : payload?.name}
       </text>
     </g>
   );
@@ -705,8 +743,11 @@ function CustomLink({
   const gradientId =
     `${gradientPrefix}-link-${index}`;
 
+  // Preserve the real Sankey proportions for layout, but enforce a
+  // minimum rendered width so low-value flows remain visible.
+  const minimumVisibleFlow = payload?.compact ? 4 : 6;
   const allocatedLinkWidth = Math.max(
-    2,
+    minimumVisibleFlow,
     Number(linkWidth) || 0
   );
 
@@ -727,12 +768,12 @@ function CustomLink({
   const effectiveGap = separated
     ? Math.min(
         requestedGap,
-        allocatedLinkWidth * 0.55
+        Math.min(3, allocatedLinkWidth * 0.12)
       )
     : 0;
 
   const safeLinkWidth = Math.max(
-    1.5,
+    payload?.compact ? 3.5 : 5,
     allocatedLinkWidth - effectiveGap
   );
 
@@ -745,12 +786,12 @@ function CustomLink({
 
   const showValueBadge =
     !payload?.hideValueLabels &&
-    safeLinkWidth >= (payload?.compact ? 16 : 13);
+    safeLinkWidth >= (payload?.compact ? 7 : 9);
 
   // Put the value slightly toward the target rather than dead-center, where
   // multiple flows tend to cross and labels become difficult to scan.
   // Calculate the point on the same cubic Bezier curve used by the link.
-  const valueT = 0.68;
+  const valueT = 0.62;
   const inverseT = 1 - valueT;
   const valueX =
     inverseT ** 3 * sourceX +
@@ -765,9 +806,9 @@ function CustomLink({
   const displayText = String(payload?.displayValue || "");
   const valueBadgeWidth = Math.max(
     42,
-    displayText.length * (payload?.compact ? 5.2 : 6) + 14
+    displayText.length * (payload?.compact ? 4.8 : 5.6) + 12
   );
-  const valueBadgeHeight = payload?.compact ? 17 : 20;
+  const valueBadgeHeight = payload?.compact ? 16 : 19;
 
   return (
     <g
@@ -790,12 +831,12 @@ function CustomLink({
           <stop
             offset="0%"
             stopColor={colorSet.start}
-            stopOpacity="0.62"
+            stopOpacity="0.48"
           />
           <stop
             offset="55%"
             stopColor={colorSet.middle}
-            stopOpacity="0.54"
+            stopOpacity="0.58"
           />
           <stop
             offset="100%"
@@ -804,17 +845,6 @@ function CustomLink({
           />
         </linearGradient>
       </defs>
-
-      {separated && safeLinkWidth >= 3 && (
-        <path
-          d={path}
-          fill="none"
-          stroke="rgba(11,19,40,0.20)"
-          strokeWidth={safeLinkWidth + 1.5}
-          strokeLinecap="butt"
-          pointerEvents="none"
-        />
-      )}
 
       <path
         d={path}
@@ -825,11 +855,11 @@ function CustomLink({
         className="sankey-link-path"
       />
 
-      {safeLinkWidth >= 20 && (
+      {safeLinkWidth >= 24 && (
         <path
           d={path}
           fill="none"
-          stroke="rgba(255,255,255,0.09)"
+          stroke="rgba(255,255,255,0.18)"
           strokeWidth={Math.max(
             1,
             safeLinkWidth * 0.045
@@ -848,7 +878,7 @@ function CustomLink({
             y={-valueBadgeHeight / 2}
             width={valueBadgeWidth}
             height={valueBadgeHeight}
-            rx={valueBadgeHeight / 2}
+            rx={6}
             className="sankey-value-badge"
           />
 
@@ -858,7 +888,7 @@ function CustomLink({
             textAnchor="middle"
             dominantBaseline="middle"
             className="sankey-value-label"
-            fontSize={payload?.compact ? 8 : 9.5}
+            fontSize={payload?.compact ? 7.5 : 9}
             fontWeight={800}
           >
             {displayText}
@@ -874,6 +904,11 @@ export default function SankeyWidget({
   item = {},
 }) {
   const generatedId = useId();
+  const rootRef = useRef(null);
+  const size = useWidgetSize(rootRef);
+  const chartWidth = size.width || 480;
+  const short = size.height > 0 && size.height < 280;
+  const narrow = chartWidth < 480;
   const gradientPrefix =
     `sankey-${generatedId.replace(/:/g, "")}`;
 
@@ -1144,20 +1179,74 @@ export default function SankeyWidget({
     )
     .map((node) => node.id);
 
-  const totalValue = visibleLinks
-    .filter((link) =>
-      rootNodeIds.includes(link.source)
-    )
-    .reduce(
-      (sum, link) => sum + Number(link.value || 0),
-      0
-    );
+  const rootNodeValues =
+    rootNodeIds
+      .map((nodeId) => {
+        const node =
+          config.nodes.find(
+            (candidate) =>
+              candidate.id === nodeId
+          );
+
+        const dataKey =
+          node?.dataKey ||
+          node?.dataSource?.field ||
+          node?.dataSource?.channel ||
+          "";
+
+        const numeric =
+          Number(
+            dataKey
+              ? data?.[dataKey]
+              : undefined
+          );
+
+        return Number.isFinite(
+          numeric
+        )
+          ? Math.max(0, numeric)
+          : null;
+      })
+      .filter(
+        (value) =>
+          Number.isFinite(value)
+      );
+
+  const derivedRootTotal =
+    visibleLinks
+      .filter((link) =>
+        rootNodeIds.includes(
+          link.source
+        )
+      )
+      .reduce(
+        (sum, link) =>
+          sum +
+          Number(
+            link.value || 0
+          ),
+        0
+      );
+
+  const totalValue =
+    rootNodeValues.length
+      ? rootNodeValues.reduce(
+          (sum, value) =>
+            sum + value,
+          0
+        )
+      : derivedRootTotal;
+
+  const rootValueIsMapped =
+    rootNodeValues.length > 0;
 
   const nodeCount = visibleNodes.length;
   const renderedNodeCount = expandedNodes.length;
   const linkCount = visibleLinks.length;
   const compact =
-    nodeCount > 10 || linkCount > 12;
+    narrow || short || nodeCount > 10 || linkCount > 12;
+  const sideMargin = Math.max(38, Math.min(108, chartWidth * .17));
+  const labelLimit = Math.max(5, Math.floor((sideMargin - 16) / (compact ? 5.2 : 6.2)));
 
   const nodes = expandedNodes.map((node) => {
     if (node.synthetic) {
@@ -1186,6 +1275,7 @@ export default function SankeyWidget({
       ...node,
       role,
       compact,
+      labelLimit,
     };
   });
 
@@ -1200,7 +1290,7 @@ export default function SankeyWidget({
       flowGap: Number(config.flowGap ?? 7),
       hideValueLabels:
         Boolean(link.hideValueLabels) ||
-        compact ||
+        (compact && chartWidth < 340) ||
         linkCount > 9,
       displayValue: `${formatNumber(
         link.value
@@ -1212,14 +1302,11 @@ export default function SankeyWidget({
         Number.isInteger(link.target)
     );
 
-  const baseNodePadding =
-    nodeCount <= 6
-      ? 38
-      : nodeCount <= 10
-      ? 28
-      : nodeCount <= 16
-      ? 18
-      : 12;
+  const tierSizes = new Map();
+  expandedNodes.forEach((node) => tierSizes.set(node.tier, (tierSizes.get(node.tier) || 0) + 1));
+  const rows = Math.max(1, ...tierSizes.values());
+  const availableHeight = Math.max(70, (size.height || 320) - (short ? 60 : 86));
+  const baseNodePadding = Math.max(6, Math.min(short ? 12 : 28, availableHeight / (rows * 5)));
 
   const dynamicNodePadding =
     config.flowStyle === "continuous"
@@ -1231,10 +1318,10 @@ export default function SankeyWidget({
         );
 
   const dynamicMargin = {
-    top: compact ? 28 : 38,
-    right: compact ? 118 : 150,
-    bottom: compact ? 24 : 32,
-    left: compact ? 112 : 145,
+    top: compact ? 18 : 26,
+    right: sideMargin,
+    bottom: 12,
+    left: sideMargin,
   };
 
   const dynamicIterations = Math.min(
@@ -1244,10 +1331,9 @@ export default function SankeyWidget({
 
   return (
     <div
-      className={`${TECH_SURFACE_CLASS} sankey-widget flex h-full w-full flex-col px-4 py-4`}
+      ref={rootRef}
+      className={`${TECH_SURFACE_CLASS} sankey-widget flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden p-3`}
     >
-      <TechBackdrop />
-
       <div className="relative z-10 flex h-full min-h-0 flex-col">
         <style>{`
           @keyframes sankeyLinkFade {
@@ -1257,7 +1343,7 @@ export default function SankeyWidget({
 
           .sankey-widget .sankey-node-label {
             fill: #334155;
-            stroke: rgba(248, 250, 252, 0.94);
+            stroke: rgba(248, 250, 252, 0.88);
           }
 
           .dark .sankey-widget .sankey-node-label {
@@ -1266,8 +1352,8 @@ export default function SankeyWidget({
           }
 
           .sankey-widget .sankey-value-badge {
-            fill: rgba(255, 255, 255, 0.9);
-            stroke: rgba(148, 163, 184, 0.3);
+            fill: rgba(255, 255, 255, 0.96);
+            stroke: rgba(100, 116, 139, 0.24);
             stroke-width: 1;
           }
 
@@ -1276,7 +1362,7 @@ export default function SankeyWidget({
           }
 
           .dark .sankey-widget .sankey-value-badge {
-            fill: rgba(11, 19, 40, 0.9);
+            fill: rgba(11, 19, 40, 0.96);
             stroke: rgba(88, 215, 255, 0.22);
           }
 
@@ -1300,48 +1386,23 @@ export default function SankeyWidget({
           }
         `}</style>
 
-        <div className="mb-3 flex shrink-0 items-center justify-between gap-4 pr-14">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700 dark:text-[#58D7FF]">
-              Sankey flow
-            </p>
-
-            {item?.label &&
-              item.label !== "Sankey Widget" &&
-              item.label !== "Sankey Flow" && (
-                <h3 className="mt-1 truncate text-base font-black text-slate-900 dark:text-white">
-                  {item.label}
-                </h3>
-              )}
-
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Multi-level flow network across {nodeCount} node{nodeCount === 1 ? "" : "s"} and {linkCount} link{linkCount === 1 ? "" : "s"}.
-            </p>
-
-            <p className="mt-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-              {actualLinkCount > 0
-                ? `${actualLinkCount} live link${actualLinkCount === 1 ? "" : "s"}${derivedLinkCount ? ` · ${derivedLinkCount} derived` : ""}`
-                : previewLinkCount > 0
-                ? "Preview sample values only"
-                : derivedLinkCount > 0
-                ? `${derivedLinkCount} flow link${derivedLinkCount === 1 ? "" : "s"} derived from downstream branches`
-                : "Waiting for actual data"}
-            </p>
+        <div className="mb-1.5 flex shrink-0 items-start justify-between gap-3 border-b border-slate-200/70 pb-2 pr-8 dark:border-slate-700/70">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-[13px] font-black text-slate-900 dark:text-white" title={item.label || config.sourceName}>
+              {item.label || config.sourceName || "Flow"}
+            </h3>
+            {!short && (
+              <p className="mt-0.5 truncate text-[9px] text-slate-500">
+                {actualLinkCount > 0 ? "Live" : previewLinkCount > 0 ? "Preview" : derivedLinkCount > 0 ? "Derived" : "No data"}
+                {" · "}{nodeCount} nodes{" · "}{linkCount} flows
+              </p>
+            )}
           </div>
-
-          <div className="shrink-0 rounded-2xl border border-[#CFE8F4] bg-[#EFF8FD] px-4 py-2.5 text-right shadow-sm dark:border-[#58D7FF]/25 dark:bg-[#58D7FF]/10">
-            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-cyan-700 dark:text-[#FFD66B]">
-              Root flow
-            </p>
-
-            <p className="mt-1 text-lg font-black leading-none text-[#7D75E7] dark:text-[#58D7FF]">
-              {formatNumber(totalValue)}
-              {config.unit && (
-                <span className="ml-1 text-xs font-bold">
-                  {config.unit}
-                </span>
-              )}
-            </p>
+          <div className="min-w-0 max-w-[48%] text-right" title={rootValueIsMapped ? "Root reading" : "Root flow"}>
+            <div className="truncate text-[13px] font-black tabular-nums text-cyan-700 dark:text-cyan-300">
+              {formatNumber(totalValue)} <span className="text-[10px] font-medium">{config.unit}</span>
+            </div>
+            {!short && <div className="text-[9px] text-slate-400">{rootValueIsMapped ? "Root reading" : "Root flow"}</div>}
           </div>
         </div>
 
@@ -1350,16 +1411,19 @@ export default function SankeyWidget({
             No valid Sankey flow links configured
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl bg-transparent">
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-transparent" data-sankey-chart>
+            <div style={{ height: "100%", minHeight: rows * 20 + 30 }}>
             <ResponsiveContainer
               width="100%"
               height="100%"
+              minWidth={0}
+              minHeight={70}
             >
               <Sankey
                 data={{ nodes, links }}
-                nodeWidth={12}
+                nodeWidth={compact ? 9 : 12}
                 nodePadding={dynamicNodePadding}
-                linkCurvature={0.42}
+                linkCurvature={0.5}
                 iterations={dynamicIterations}
                 node={<CustomNode />}
                 link={
@@ -1371,7 +1435,7 @@ export default function SankeyWidget({
               >
                 <Tooltip
                   contentStyle={{
-                    borderRadius: 14,
+                    borderRadius: 8,
                     border:
                       "1px solid rgba(148,163,184,0.28)",
                     background:
@@ -1394,6 +1458,7 @@ export default function SankeyWidget({
                 />
               </Sankey>
             </ResponsiveContainer>
+            </div>
           </div>
         )}
       </div>

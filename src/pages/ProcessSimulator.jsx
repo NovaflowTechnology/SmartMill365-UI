@@ -3,28 +3,32 @@ import { buildPageDraftKey, clearPageDraft, readPageDraft, writePageDraft } from
 import {
   ChevronLeft,
   ChevronRight,
-  Database,
   Factory,
   Layers,
   Plus,
-  RefreshCw,
   Save,
   Search,
   Settings,
   Trash2,
   Workflow,
   ArrowRight,
+  ArrowRightLeft,
+  GitFork,
   Minus,
+  RotateCw,
+  Upload,
   X,
 } from "lucide-react";
-import IndustrialEquipmentIcon from "../process/IndustrialEquipmentIcon";
 import ProcessEquipmentVisual from "../process/ProcessEquipmentVisual";
 import ProcessPipeline, {
   CONNECTION_TYPES,
-  PIPE_DESIGNS,
+  buildPipeNetworkJunctions,
+  ProcessPipeJunctions,
+  resolveDynamicPipeDesign,
 } from "../process/ProcessPipeline";
 import "../process/processVisualization.css";
 import {
+  ASSEMBLY_COMPONENTS,
   EQUIPMENT_BY_TYPE,
   EQUIPMENT_CATEGORIES,
   EQUIPMENT_LIBRARY,
@@ -32,6 +36,13 @@ import {
   makeEquipmentNode,
 } from "../process/equipmentLibrary";
 import { confirmAction, notify } from "../utils/feedback";
+import { reverseConnectionNetwork } from "../process/reverseConnection";
+import {
+  buildConnectionBranchJunctions,
+  canConnectionsBranch,
+  getBranchPlacement,
+  getConnectionKind,
+} from "../process/connectionBranches";
 
 const DEFAULT_NODE_WIDTH = 150;
 const DEFAULT_NODE_HEIGHT = 172;
@@ -40,6 +51,23 @@ const MIN_NODE_WIDTH = 110;
 const MIN_NODE_HEIGHT = 148;
 const MAX_NODE_WIDTH = 360;
 const MAX_NODE_HEIGHT = 320;
+
+const isAssemblyNode = (node = {}) =>
+  EQUIPMENT_BY_TYPE[node?.type]?.libraryGroup === "assembly";
+
+const getNodeConstraints = (node = {}) => {
+  const definition = EQUIPMENT_BY_TYPE[node?.type] || {};
+  const assembly = definition.libraryGroup === "assembly";
+
+  return {
+    minWidth: Number(definition.minWidth || (assembly ? 44 : MIN_NODE_WIDTH)),
+    minHeight: Number(definition.minHeight || (assembly ? 44 : MIN_NODE_HEIGHT)),
+    maxWidth: Number(definition.maxWidth || (assembly ? 460 : MAX_NODE_WIDTH)),
+    maxHeight: Number(definition.maxHeight || (assembly ? 420 : MAX_NODE_HEIGHT)),
+    defaultWidth: Number(definition.defaultWidth || DEFAULT_NODE_WIDTH),
+    defaultHeight: Number(definition.defaultHeight || DEFAULT_NODE_HEIGHT),
+  };
+};
 
 const EQUIPMENT_TOP = 30;
 const NODE_BOTTOM_RESERVE = 48;
@@ -50,21 +78,34 @@ const EQUIPMENT_LABEL_HEIGHT = 26;
 const EQUIPMENT_LABEL_CONNECTOR_GAP = 8;
 const EQUIPMENT_VISUAL_SAFETY_PAD = 4;
 
-const getNodeSize = (node = {}) => ({
-  width: clamp(
-    Number(node?.width || DEFAULT_NODE_WIDTH),
-    MIN_NODE_WIDTH,
-    MAX_NODE_WIDTH
-  ),
-  height: clamp(
-    Number(node?.height || DEFAULT_NODE_HEIGHT),
-    MIN_NODE_HEIGHT,
-    MAX_NODE_HEIGHT
-  ),
-});
+const getNodeSize = (node = {}) => {
+  const constraints = getNodeConstraints(node);
+
+  return {
+    width: clamp(
+      Number(node?.width || constraints.defaultWidth),
+      constraints.minWidth,
+      constraints.maxWidth
+    ),
+    height: clamp(
+      Number(node?.height || constraints.defaultHeight),
+      constraints.minHeight,
+      constraints.maxHeight
+    ),
+  };
+};
 
 const getEquipmentRect = (node = {}) => {
   const { width, height } = getNodeSize(node);
+
+  if (isAssemblyNode(node)) {
+    return {
+      left: 3,
+      top: 3,
+      width: Math.max(1, width - 6),
+      height: Math.max(1, height - 6),
+    };
+  }
 
   /*
    * When the live-data card is hidden, do not keep the large instrument-card
@@ -909,6 +950,80 @@ const distanceToSegment = (
   );
 };
 
+const projectPointToSegment = (
+  point,
+  start,
+  end
+) => {
+  const px =
+    Number(point?.x || 0);
+  const py =
+    Number(point?.y || 0);
+
+  const x1 =
+    Number(start?.x || 0);
+  const y1 =
+    Number(start?.y || 0);
+
+  const x2 =
+    Number(end?.x || 0);
+  const y2 =
+    Number(end?.y || 0);
+
+  const dx =
+    x2 - x1;
+  const dy =
+    y2 - y1;
+
+  const lengthSquared =
+    dx * dx + dy * dy;
+
+  if (
+    lengthSquared <=
+    0.0001
+  ) {
+    return {
+      x: x1,
+      y: y1,
+      t: 0,
+      distance:
+        Math.hypot(
+          px - x1,
+          py - y1
+        ),
+    };
+  }
+
+  const t = clamp(
+    (
+      (px - x1) * dx +
+      (py - y1) * dy
+    ) /
+      lengthSquared,
+    0,
+    1
+  );
+
+  const x =
+    x1 +
+    t * dx;
+
+  const y =
+    y1 +
+    t * dy;
+
+  return {
+    x,
+    y,
+    t,
+    distance:
+      Math.hypot(
+        px - x,
+        py - y
+      ),
+  };
+};
+
 const getPortButtonStyle = (
   node,
   side
@@ -1329,7 +1444,7 @@ const getVisibleMetricIds = (node) => {
 };
 
 const PIPE_COLOR_PRESETS = [
-  { label: "Medium", value: "" },
+  { label: "Default", value: "" },
   { label: "Blue", value: "#3B82F6" },
   { label: "Cyan", value: "#06B6D4" },
   { label: "Red", value: "#EF4444" },
@@ -1931,7 +2046,7 @@ const makeConnection = (
       "left",
 
     connectorType:
-      ["pipeline", "arrow", "line"].includes(
+      ["pipeline", "conveyor", "arrow", "line"].includes(
         connectorType
       )
         ? connectorType
@@ -1949,11 +2064,9 @@ const makeConnection = (
     dataKey: "",
 
     pipeDesign:
-      "industrial",
+      "auto",
     colorOverride: "",
-    animateFlow:
-      connectorType ===
-      "pipeline",
+    animateFlow: true,
 
     // V8 explicit routing bends.
     waypoints:
@@ -2026,7 +2139,6 @@ const makeFreeConnection = (
     routePoint: null,
   };
 };
-
 
 const normalizePolylinePoints = (
   points = []
@@ -2237,7 +2349,7 @@ const getFlexibleAttachedGeometry = (
 const isFlexibleConnector = (
   connection
 ) =>
-  ["arrow", "line"].includes(
+  ["conveyor", "arrow", "line"].includes(
     connection?.connectorType ||
       (
         connection?.connectionStyle ===
@@ -2504,11 +2616,9 @@ const getInitialDemo = () => {
       medium = "fruit",
       label = "",
       colorOverride = "",
-      pipeDesign = "industrial",
+      pipeDesign = "auto",
       waypoints = [],
-      animateFlow =
-        connectorType ===
-        "pipeline",
+      animateFlow = true,
     } = {}
   ) => ({
     ...makeConnection(
@@ -2643,7 +2753,8 @@ const getInitialDemo = () => {
         "sample-ffb",
         "sample-conveyor",
         {
-          connectorType: "arrow",
+          connectorType: "pipeline",
+          pipeDesign: "conveyorTrack",
           medium: "fruit",
           label:
             "Fresh Fruit Bunch",
@@ -2656,7 +2767,8 @@ const getInitialDemo = () => {
         "sample-conveyor",
         "sample-sterilizer",
         {
-          connectorType: "arrow",
+          connectorType: "pipeline",
+          pipeDesign: "conveyorTrack",
           medium: "fruit",
           label:
             "FFB Feed",
@@ -2669,7 +2781,8 @@ const getInitialDemo = () => {
         "sample-sterilizer",
         "sample-thresher",
         {
-          connectorType: "arrow",
+          connectorType: "pipeline",
+          pipeDesign: "conveyorTrack",
           medium: "fruit",
           label:
             "Sterilized Fruit",
@@ -2682,7 +2795,8 @@ const getInitialDemo = () => {
         "sample-thresher",
         "sample-digester",
         {
-          connectorType: "arrow",
+          connectorType: "pipeline",
+          pipeDesign: "conveyorTrack",
           medium: "fruit",
           label:
             "Loose Fruit",
@@ -2695,7 +2809,8 @@ const getInitialDemo = () => {
         "sample-digester",
         "sample-press",
         {
-          connectorType: "arrow",
+          connectorType: "pipeline",
+          pipeDesign: "conveyorTrack",
           medium: "fruit",
           label:
             "Digested Mash",
@@ -2715,7 +2830,7 @@ const getInitialDemo = () => {
           colorOverride:
             "#D97706",
           pipeDesign:
-            "industrial",
+            "realPipe",
         }
       ),
       connect(
@@ -2728,7 +2843,7 @@ const getInitialDemo = () => {
           colorOverride:
             "#D8A444",
           pipeDesign:
-            "classic",
+            "realPipe",
         }
       ),
       connect(
@@ -2741,7 +2856,7 @@ const getInitialDemo = () => {
           colorOverride:
             "#EAB308",
           pipeDesign:
-            "industrial",
+            "realPipe",
         }
       ),
       connect(
@@ -2754,7 +2869,7 @@ const getInitialDemo = () => {
           colorOverride:
             "#D8A444",
           pipeDesign:
-            "neon",
+            "realPipe",
         }
       ),
 
@@ -2771,7 +2886,7 @@ const getInitialDemo = () => {
           colorOverride:
             "#38BDF8",
           pipeDesign:
-            "industrial",
+            "realPipe",
         }
       ),
 
@@ -2839,7 +2954,7 @@ const getInitialDemo = () => {
           colorOverride:
             "#D8A444",
           pipeDesign:
-            "segmented",
+            "realPipe",
         }
       ),
       connect(
@@ -3045,7 +3160,7 @@ export default function ProcessSimulator({
   const [
     connectionToolType,
     setConnectionToolType,
-  ] = useState("pipeline");
+  ] = useState("arrow");
 
   // Simple connection mode is the default interaction.
   // Single: source -> target -> connection tool turns off.
@@ -3073,7 +3188,6 @@ export default function ProcessSimulator({
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [liveData, setLiveData] = useState({});
-  const [liveState, setLiveState] = useState("idle");
   const [lastLiveAt, setLastLiveAt] = useState(null);
   const [dragging, setDragging] = useState(null);
   const [resizing, setResizing] = useState(null);
@@ -3093,6 +3207,7 @@ export default function ProcessSimulator({
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
   const selectedConnection =
     connections.find((connection) => connection.id === selectedConnectionId) || null;
+  const hasLibrarySearch = librarySearch.trim().length > 0;
 
   const getDeviceDataOptions = (deviceId, currentBinding = "") => {
     const filtered = deviceId
@@ -3121,6 +3236,8 @@ export default function ProcessSimulator({
     const keyword = librarySearch.trim().toLowerCase();
 
     return EQUIPMENT_LIBRARY.filter((item) => {
+      if (item.libraryGroup === "assembly") return false;
+      if (item.type === "conveyor") return false;
       if (category !== "All" && item.category !== category) return false;
       if (!keyword) return true;
 
@@ -3129,6 +3246,24 @@ export default function ProcessSimulator({
       );
     });
   }, [category, librarySearch]);
+
+  const filteredAssembly = useMemo(() => {
+    const keyword = librarySearch.trim().toLowerCase();
+    return ASSEMBLY_COMPONENTS.filter((item) =>
+      item.category !== "Conveyor Parts" && [item.label, item.category, item.description, item.type].some((value) =>
+        String(value).toLowerCase().includes(keyword)
+      )
+    );
+  }, [librarySearch]);
+
+  const assemblyGroups = useMemo(() => {
+    const groups = {};
+    filteredAssembly.forEach((item) => {
+      if (!groups[item.category]) groups[item.category] = [];
+      groups[item.category].push(item);
+    });
+    return Object.entries(groups);
+  }, [filteredAssembly]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -3277,12 +3412,10 @@ export default function ProcessSimulator({
 
   useEffect(() => {
     if (mode === "fake") {
-      setLiveState("fake");
       return undefined;
     }
 
     if (Object.keys(runtimeDataSources).length === 0) {
-      setLiveState("unmapped");
       return undefined;
     }
 
@@ -3294,8 +3427,6 @@ export default function ProcessSimulator({
       if (!token || cancelled) return;
 
       try {
-        setLiveState((current) => (current === "connected" ? current : "connecting"));
-
         const response = await fetch("http://localhost:5000/template-live-data", {
           method: "POST",
           headers: {
@@ -3323,12 +3454,10 @@ export default function ProcessSimulator({
           setLiveData((previous) => ({ ...previous, ...result.data }));
         }
 
-        setLiveState("connected");
         setLastLiveAt(new Date().toISOString());
       } catch (error) {
         if (!cancelled) {
           console.warn("Process simulator live-data request failed", error);
-          setLiveState("stale");
         }
       } finally {
         if (!cancelled) {
@@ -3430,9 +3559,9 @@ export default function ProcessSimulator({
       ) {
         nextWidth = clamp(
           resizing.width + dx,
-          MIN_NODE_WIDTH,
+          resizing.minWidth,
           Math.min(
-            MAX_NODE_WIDTH,
+            resizing.maxWidth,
             CANVAS_WIDTH -
               resizing.x -
               8
@@ -3445,9 +3574,9 @@ export default function ProcessSimulator({
       ) {
         nextHeight = clamp(
           resizing.height + dy,
-          MIN_NODE_HEIGHT,
+          resizing.minHeight,
           Math.min(
-            MAX_NODE_HEIGHT,
+            resizing.maxHeight,
             CANVAS_HEIGHT -
               resizing.y -
               8
@@ -3460,8 +3589,8 @@ export default function ProcessSimulator({
       ) {
         nextWidth = clamp(
           resizing.width - dx,
-          MIN_NODE_WIDTH,
-          MAX_NODE_WIDTH
+          resizing.minWidth,
+          resizing.maxWidth
         );
 
         nextX =
@@ -3481,8 +3610,8 @@ export default function ProcessSimulator({
       ) {
         nextHeight = clamp(
           resizing.height - dy,
-          MIN_NODE_HEIGHT,
-          MAX_NODE_HEIGHT
+          resizing.minHeight,
+          resizing.maxHeight
         );
 
         nextY =
@@ -3758,6 +3887,8 @@ export default function ProcessSimulator({
                       ...connection,
                       source: null,
                       sourceAnchor: null,
+                      sourcePipeJoin:
+                        null,
                       freeSource:
                         pointer,
                     }
@@ -3765,6 +3896,8 @@ export default function ProcessSimulator({
                       ...connection,
                       target: null,
                       targetAnchor: null,
+                      targetPipeJoin:
+                        null,
                       freeTarget:
                         pointer,
                     };
@@ -4104,6 +4237,8 @@ export default function ProcessSimulator({
                             anchor,
                           sourcePort:
                             anchor.side,
+                          sourcePipeJoin:
+                            null,
                         }
                       : {
                           ...item,
@@ -4113,10 +4248,76 @@ export default function ProcessSimulator({
                             anchor,
                           targetPort:
                             anchor.side,
+                          targetPipeJoin:
+                            null,
                         };
                   }
                 )
             );
+          } else {
+            const pipeSnap = !event.altKey &&
+              findPipeSnapPoint(
+                pointer,
+                pipelineDragging.id
+              );
+
+            if (pipeSnap) {
+              setConnections(
+                (current) =>
+                  current.map(
+                    (item) => {
+                      if (
+                        item.id !==
+                        pipelineDragging.id
+                      ) {
+                        return item;
+                      }
+
+                      const snapPoint = {
+                        x:
+                          pipeSnap.x,
+                        y:
+                          pipeSnap.y,
+                      };
+
+                      return pipelineDragging.endpoint ===
+                        "source"
+                        ? {
+                            ...item,
+                            source: null,
+                            sourceAnchor: null,
+                            sourcePort: null,
+                            freeSource:
+                              snapPoint,
+                            sourcePipeJoin: {
+                              connectionId:
+                                pipeSnap.connectionId,
+                              segmentIndex:
+                                pipeSnap.segmentIndex,
+                              t:
+                                pipeSnap.t,
+                            },
+                          }
+                        : {
+                            ...item,
+                            target: null,
+                            targetAnchor: null,
+                            targetPort: null,
+                            freeTarget:
+                              snapPoint,
+                            targetPipeJoin: {
+                              connectionId:
+                                pipeSnap.connectionId,
+                              segmentIndex:
+                                pipeSnap.segmentIndex,
+                              t:
+                                pipeSnap.t,
+                            },
+                          };
+                    }
+                  )
+              );
+            }
           }
         }
       }
@@ -4362,6 +4563,8 @@ export default function ProcessSimulator({
 
     const size =
       getNodeSize(node);
+    const constraints =
+      getNodeConstraints(node);
 
     setSelectedNodeId(
       node.id
@@ -4388,6 +4591,10 @@ export default function ProcessSimulator({
         size.width,
       height:
         size.height,
+      minWidth: constraints.minWidth,
+      minHeight: constraints.minHeight,
+      maxWidth: constraints.maxWidth,
+      maxHeight: constraints.maxHeight,
     });
   };
 
@@ -4442,7 +4649,7 @@ export default function ProcessSimulator({
   const activateConnectionTool = (type) => {
     if (readOnly) return;
 
-    const nextType = ["pipeline", "arrow", "line"].includes(type)
+    const nextType = ["pipeline", "conveyor", "arrow", "line"].includes(type)
       ? type
       : "pipeline";
 
@@ -4558,13 +4765,24 @@ export default function ProcessSimulator({
 
     if (!type) return;
 
+    const dropConstraints =
+      getNodeConstraints({
+        type,
+      });
+
+    const dropWidth =
+      dropConstraints.defaultWidth;
+
+    const dropHeight =
+      dropConstraints.defaultHeight;
+
     const x =
       canvasX -
-      DEFAULT_NODE_WIDTH / 2;
+      dropWidth / 2;
 
     const y =
       canvasY -
-      DEFAULT_NODE_HEIGHT / 2;
+      dropHeight / 2;
 
     addNodeAt(
       type,
@@ -4572,14 +4790,14 @@ export default function ProcessSimulator({
         x,
         8,
         CANVAS_WIDTH -
-          DEFAULT_NODE_WIDTH -
+          dropWidth -
           8
       ),
       clamp(
         y,
         8,
         CANVAS_HEIGHT -
-          DEFAULT_NODE_HEIGHT -
+          dropHeight -
           8
       )
     );
@@ -4808,12 +5026,132 @@ export default function ProcessSimulator({
     return true;
   };
 
-
   const updateSelectedNode = (patch) => {
     if (!selectedNode) return;
     setNodes((current) =>
       current.map((node) => (node.id === selectedNode.id ? { ...node, ...patch } : node))
     );
+  };
+
+  const rotateSelectedAssembly = () => {
+    if (!selectedNode || !isAssemblyNode(selectedNode) || readOnly) return;
+
+    const size = getNodeSize(selectedNode);
+    const nextRotation = ((Number(selectedNode.rotation || 0) + 90) % 360 + 360) % 360;
+
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === selectedNode.id
+          ? {
+              ...node,
+              rotation: nextRotation,
+              width: size.height,
+              height: size.width,
+            }
+          : node
+      )
+    );
+  };
+
+  const convertSelectedAssembly = () => {
+    if (!selectedNode || readOnly) return;
+    const { width, height } = getNodeSize(selectedNode);
+    const center = { x: selectedNode.x + width / 2, y: selectedNode.y + height / 2 };
+    const angle = Number(selectedNode.rotation || 0) * Math.PI / 180;
+    const vertical = Math.abs(Math.sin(angle)) > .5;
+    const length = vertical ? height : width;
+    const delta = { x: Math.cos(angle) * length / 2, y: Math.sin(angle) * length / 2 };
+    const conveyor = selectedNode.type.startsWith("conveyor-");
+    const connection = {
+      ...makeFreeConnection(conveyor ? "conveyor" : "pipeline", center.x, center.y),
+      freeSource: { x: center.x - delta.x, y: center.y - delta.y },
+      freeTarget: { x: center.x + delta.x, y: center.y + delta.y },
+      label: selectedNode.showLabel ? selectedNode.label : "",
+    };
+    setConnections((current) => [...current.map((item) => {
+      const patch = {};
+      for (const endpoint of ["source", "target"]) {
+        if (item[endpoint] !== selectedNode.id) continue;
+        const isSource = endpoint === "source";
+        const position = getConnectionGeometry(item)?.[endpoint] || center;
+        const t = Math.hypot(position.x - connection.freeSource.x, position.y - connection.freeSource.y) <
+          Math.hypot(position.x - connection.freeTarget.x, position.y - connection.freeTarget.y) ? 0 : 1;
+        patch[endpoint] = null;
+        patch[`${endpoint}Anchor`] = null;
+        patch[`${endpoint}Port`] = null;
+        patch[isSource ? "freeSource" : "freeTarget"] = t === 0 ? connection.freeSource : connection.freeTarget;
+        patch[`${endpoint}PipeJoin`] = { connectionId: connection.id, segmentIndex: 0, t };
+      }
+      return Object.keys(patch).length ? { ...item, ...patch } : item;
+    }), connection]);
+    setNodes((current) => current.filter((node) => node.id !== selectedNode.id));
+    setSelectedNodeId(null);
+    setSelectedConnectionId(connection.id);
+  };
+
+  const addBranchToSelectedConnection = () => {
+    if (!selectedConnection || readOnly) return;
+
+    const geometry = getConnectionGeometry(selectedConnection);
+    const placement = getBranchPlacement(geometry, {
+      maxX: CANVAS_WIDTH - 12,
+      maxY: CANVAS_HEIGHT - 12,
+    });
+
+    if (!placement) return;
+
+    const { source, target } = placement;
+    const x = source.x;
+    const y = source.y;
+    const kind = getConnectionKind(selectedConnection);
+    const branch = {
+      ...makeFreeConnection(kind, (x + target.x) / 2, (y + target.y) / 2),
+      source: null,
+      target: null,
+      freeSource: { x, y },
+      freeTarget: target,
+      sourcePipeJoin: {
+        connectionId: selectedConnection.id,
+        segmentIndex: placement.segmentIndex,
+        t: placement.t,
+      },
+      targetPipeJoin: null,
+      connectorType: kind,
+      pipeDesign: kind === "conveyor" ? "conveyorTrack" : "realPipe",
+      routingMode: kind === "line" ? "simple" : "diagram",
+      colorOverride: selectedConnection.colorOverride || "",
+      medium: selectedConnection.medium || "steam",
+      animateFlow: selectedConnection.animateFlow !== false,
+    };
+
+    setConnections((current) => [...current, branch]);
+    setSelectedConnectionId(branch.id);
+    setSelectedNodeId(null);
+    setRouteEditConnectionId(branch.id);
+  };
+
+  const handleCustomEquipmentImage = (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedNode || selectedNode.type !== "custom-equipment") return;
+
+    if (!file.type?.startsWith("image/")) {
+      notify("Please choose an image file for the custom equipment.", "error");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateSelectedNode({
+        customImageSrc: String(reader.result || ""),
+        customImageName: file.name,
+        dataDisplayPosition: selectedNode.dataDisplayPosition || "hidden",
+      });
+      notify("Custom equipment image updated.", "success");
+    };
+    reader.onerror = () => notify("Unable to read the selected image.", "error");
+    reader.readAsDataURL(file);
+    event.target.value = "";
   };
 
   const getConnectionGeometry = (
@@ -5079,6 +5417,231 @@ export default function ProcessSimulator({
       )
     );
   };
+
+  const findPipeSnapPoint = (
+    point,
+    ignoreConnectionId
+  ) => {
+    const candidates = [];
+    const draggedConnection = connections.find((item) => item.id === ignoreConnectionId);
+
+    if (!draggedConnection) {
+      return null;
+    }
+
+    connections.forEach(
+      (connection) => {
+        if (
+          connection.id ===
+            ignoreConnectionId
+        ) {
+          return;
+        }
+
+        if (!canConnectionsBranch(draggedConnection, connection)) {
+          return;
+        }
+
+        const geometry =
+          getConnectionGeometry(
+            connection
+          );
+
+        if (!geometry) {
+          return;
+        }
+
+        geometry.segments.forEach(
+          (
+            segment,
+            segmentIndex
+          ) => {
+            const projected =
+              projectPointToSegment(
+                point,
+                segment.start,
+                segment.end
+              );
+
+            candidates.push({
+              ...projected,
+              connectionId:
+                connection.id,
+              segmentIndex,
+            });
+          }
+        );
+      }
+    );
+
+    const nearest =
+      candidates.sort(
+        (left, right) =>
+          left.distance -
+          right.distance
+      )[0];
+
+    if (
+      !nearest ||
+      nearest.distance > 18
+    ) {
+      return null;
+    }
+
+    return nearest;
+  };
+
+  useEffect(() => {
+    if (!connections.length) {
+      return;
+    }
+
+    setConnections(
+      (current) => {
+        let changed = false;
+
+        const byId =
+          new Map(
+            current.map(
+              (connection) => [
+                connection.id,
+                connection,
+              ]
+            )
+          );
+
+        const next =
+          current.map(
+            (connection) => {
+              let patch = null;
+
+              const syncJoin = (
+                join,
+                key
+              ) => {
+                if (
+                  !join?.connectionId
+                ) {
+                  return;
+                }
+
+                const parent =
+                  byId.get(
+                    join.connectionId
+                  );
+
+                if (!parent) {
+                  return;
+                }
+
+                const geometry =
+                  getConnectionGeometry(
+                    parent
+                  );
+
+                const segment =
+                  geometry?.segments?.[
+                    Number(
+                      join.segmentIndex
+                    )
+                  ];
+
+                if (!segment) {
+                  return;
+                }
+
+                const t =
+                  clamp(
+                    Number.isFinite(
+                      Number(
+                        join.t
+                      )
+                    )
+                      ? Number(
+                          join.t
+                        )
+                      : 0.5,
+                    0,
+                    1
+                  );
+
+                const point = {
+                  x:
+                    segment.start.x +
+                    (
+                      segment.end.x -
+                      segment.start.x
+                    ) *
+                      t,
+                  y:
+                    segment.start.y +
+                    (
+                      segment.end.y -
+                      segment.start.y
+                    ) *
+                      t,
+                };
+
+                const existing =
+                  connection[
+                    key
+                  ];
+
+                if (
+                  !existing ||
+                  Math.hypot(
+                    Number(
+                      existing.x || 0
+                    ) -
+                      point.x,
+                    Number(
+                      existing.y || 0
+                    ) -
+                      point.y
+                  ) >
+                    0.5
+                ) {
+                  patch = {
+                    ...(patch ||
+                      {}),
+                    [key]:
+                      point,
+                  };
+                }
+              };
+
+              syncJoin(
+                connection.sourcePipeJoin,
+                "freeSource"
+              );
+
+              syncJoin(
+                connection.targetPipeJoin,
+                "freeTarget"
+              );
+
+              if (!patch) {
+                return connection;
+              }
+
+              changed = true;
+
+              return {
+                ...connection,
+                ...patch,
+              };
+            }
+          );
+
+        return changed
+          ? next
+          : current;
+      }
+    );
+  }, [
+    nodes,
+    connections,
+  ]);
 
   const startPipelineDrag = (
     event,
@@ -6543,6 +7106,10 @@ export default function ProcessSimulator({
       nodes,
       connections,
       mode,
+      canvas: {
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+      },
       dataSources:
         runtimeDataSources || {},
       templateId:
@@ -6628,40 +7195,92 @@ export default function ProcessSimulator({
     }
   };
 
-  const resetTopology = async () => {
-    if (readOnly) return;
+  const pipeNetworkJunctions =
+    buildPipeNetworkJunctions(
+      connections
+        .map(
+          (connection) => {
+            const connectorType =
+              connection.connectorType ||
+              (
+                connection.connectionStyle ===
+                "arrows"
+                  ? "arrow"
+                  : "pipeline"
+              );
 
-    const confirmed = await confirmAction({
-      title: "Load sample process flow?",
-      message:
-        "This replaces the current canvas with a complete palm-oil sample flow using process equipment, Pipeline, Arrow and Line connections.",
-      confirmLabel:
-        "Load Sample",
-      tone: "warning",
-    });
+            if (
+              connectorType !==
+              "pipeline"
+            ) {
+              return null;
+            }
 
-    if (!confirmed) return;
+            const resolvedDesign =
+              resolveDynamicPipeDesign(
+                connection.pipeDesign ||
+                  "auto",
+                connection.medium
+              );
 
-    const nextDemo = getInitialDemo();
-    setNodes(nextDemo.nodes);
-    setConnections(nextDemo.connections);
-    setMode(
-      nextDemo.mode || "fake"
+            if (
+              resolvedDesign !==
+              "realPipe"
+            ) {
+              return null;
+            }
+
+            const geometry =
+              getConnectionGeometry(
+                connection
+              );
+
+            if (!geometry) {
+              return null;
+            }
+
+            return {
+              id:
+                connection.id,
+              path:
+                geometry.path,
+              color:
+                /^#[0-9a-fA-F]{6}$/.test(
+                  String(
+                    connection.colorOverride ||
+                      ""
+                  )
+                )
+                  ? connection.colorOverride
+                  : "#AEB7BC",
+            };
+          }
+        )
+        .filter(Boolean)
     );
-    setSelectedNodeId(null);
-    setSelectedConnectionId(null);
-    setConnectFrom(null);
-    setConnectWaypoints([]);
-    setDraftPointer(null);
-    setPipelineToolActive(false);
-    setRouteEditConnectionId(null);
-    setPipelineDragging(null);
-    setLabelDragging(null);
-    notify(
-      "Sample palm-oil process flow loaded.",
-      "success"
+
+  const connectionBranchJunctions =
+    buildConnectionBranchJunctions(
+      connections.map((connection) => {
+        const geometry = getConnectionGeometry(connection);
+        return {
+          ...connection,
+          path: geometry?.path || "",
+          color: connection.colorOverride ||
+            (["arrow", "line"].includes(getConnectionKind(connection)) ? "#64748B" : "#AEB7BC"),
+        };
+      })
     );
-  };
+
+  const visibleConnectionJunctions = [
+    ...pipeNetworkJunctions,
+    ...connectionBranchJunctions,
+  ].filter((junction, index, all) =>
+    index === all.findIndex((candidate) =>
+      Math.hypot(candidate.x - junction.x, candidate.y - junction.y) < 1 &&
+      (candidate.connectorType || "pipeline") === (junction.connectorType || "pipeline")
+    )
+  );
 
   const renderConnection = (connection) => {
     const geometry =
@@ -6750,7 +7369,7 @@ export default function ProcessSimulator({
           dark={dark}
           pipeDesign={
             connection.pipeDesign ||
-            "industrial"
+            "auto"
           }
           colorOverride={
             connection.colorOverride ||
@@ -6768,6 +7387,16 @@ export default function ProcessSimulator({
           animateFlow={
             connection.animateFlow !==
             false
+          }
+          sourceJoined={
+            Boolean(
+              connection.sourcePipeJoin
+            )
+          }
+          targetJoined={
+            Boolean(
+              connection.targetPipeJoin
+            )
           }
           onSelect={(event) => {
             event.stopPropagation();
@@ -6886,7 +7515,7 @@ export default function ProcessSimulator({
                         key={`${connection.id}-free-waypoint-${index}`}
                         transform={`translate(${point.x}, ${point.y})`}
                         className="cursor-move"
-                        title="Drag bend · double-click to remove"
+                        title="Drag bend · double-click or right-click to remove"
                         onPointerDown={(
                           event
                         ) =>
@@ -6897,6 +7526,16 @@ export default function ProcessSimulator({
                           )
                         }
                         onDoubleClick={(
+                          event
+                        ) =>
+                          removeCornerFromConnection(
+                            event,
+                            connection,
+                            index + 1,
+                            geometry
+                          )
+                        }
+                        onContextMenu={(
                           event
                         ) =>
                           removeCornerFromConnection(
@@ -7005,7 +7644,7 @@ export default function ProcessSimulator({
                           key={`${connection.id}-corner-${vertexIndex}`}
                           transform={`translate(${point.x}, ${point.y})`}
                           className="cursor-move"
-                          title="Drag bend · double-click to remove"
+                          title="Drag bend · double-click or right-click to remove"
                           onPointerDown={(
                             event
                           ) =>
@@ -7017,6 +7656,16 @@ export default function ProcessSimulator({
                             )
                           }
                           onDoubleClick={(
+                            event
+                          ) =>
+                            removeCornerFromConnection(
+                              event,
+                              connection,
+                              vertexIndex,
+                              geometry
+                            )
+                          }
+                          onContextMenu={(
                             event
                           ) =>
                             removeCornerFromConnection(
@@ -7291,7 +7940,6 @@ export default function ProcessSimulator({
     };
   })();
 
-
   return (
     <div className="process-simulator-page min-h-full text-slate-900 dark:text-slate-100">
       <div className="mb-2 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] lg:flex-row lg:items-center lg:justify-between">
@@ -7324,70 +7972,36 @@ export default function ProcessSimulator({
                     : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                 }`}
               >
-                {item}
+                {item === "fake" ? "Simulation" : item}
               </button>
             ))}
-          </div>
-
-          <div className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[10px] font-semibold ${
-            liveState === "connected"
-              ? "border-cyan-300/50 bg-cyan-50 text-cyan-700 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-200"
-              : liveState === "fake"
-              ? "border-violet-300/50 bg-violet-50 text-violet-700 dark:border-violet-400/20 dark:bg-violet-400/10 dark:text-violet-200"
-              : "border-slate-200 bg-slate-50 text-slate-500 dark:border-[#2C3C61] dark:bg-[#15213D] dark:text-slate-300"
-          }`}>
-            <Database size={12} />
-            {liveState === "connected"
-              ? "Live connected"
-              : liveState === "connecting"
-              ? "Connecting"
-              : liveState === "stale"
-              ? "Last-known live data"
-              : liveState === "unmapped"
-              ? "No mapped live data"
-              : "Fake data"}
           </div>
 
           {!readOnly && (
             <button
               type="button"
               onClick={saveTopology}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-cyan-600 px-3 text-[11px] font-semibold text-white transition hover:bg-cyan-500"
+              className="process-save-button inline-flex h-8 items-center gap-1.5 rounded-lg bg-cyan-600 px-3 text-[11px] font-semibold text-white transition hover:bg-cyan-500"
             >
               <Save size={13} /> {processFlow?.id ? "Save Flow" : "Save Layout"}
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={resetTopology}
-            disabled={readOnly}
-            title={
-              readOnly
-                ? "Sample flow cannot be loaded in read-only mode"
-                : "Replace the current canvas with the palm-oil sample flow"
-            }
-            aria-label="Load sample process flow"
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 text-[11px] font-semibold text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15"
-          >
-            <RefreshCw size={13} />
-            Load Sample Flow
-          </button>
         </div>
       </div>
 
       <div
-        className={`grid min-h-[600px] grid-cols-1 gap-2 ${
+        className={`process-simulator-layout grid min-h-[600px] grid-cols-1 gap-2 ${
           libraryCollapsed && inspectorCollapsed
             ? "xl:grid-cols-[46px_minmax(0,1fr)_46px]"
             : libraryCollapsed
             ? "xl:grid-cols-[46px_minmax(0,1fr)_310px]"
             : inspectorCollapsed
-            ? "xl:grid-cols-[250px_minmax(0,1fr)_46px]"
-            : "xl:grid-cols-[250px_minmax(0,1fr)_310px]"
+            ? "xl:grid-cols-[320px_minmax(0,1fr)_46px]"
+            : "xl:grid-cols-[320px_minmax(0,1fr)_310px]"
         }`}
       >
-        <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D]">
+        <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:max-h-[calc(100vh-150px)] xl:min-h-[500px]">
           {libraryCollapsed ? (
             <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:min-h-[600px] xl:flex-col xl:justify-start xl:py-3">
               <button
@@ -7426,18 +8040,201 @@ export default function ProcessSimulator({
               <input
                 value={librarySearch}
                 onChange={(event) => setLibrarySearch(event.target.value)}
-                placeholder="Search equipment..."
-                className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-2 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                placeholder="Search equipment or parts..."
+                className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
               />
+              {hasLibrarySearch && (
+                <button
+                  type="button"
+                  onClick={() => setLibrarySearch("")}
+                  title="Clear search"
+                  className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-[#15213D] dark:hover:text-slate-100"
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
 
-            <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+
+          <div className="border-b border-slate-200 p-2 dark:border-[#263657]">
+            <div className="mb-1.5 flex items-center justify-between">
+              <div>
+                <div className="text-[8px] font-bold uppercase tracking-[0.14em] text-cyan-600 dark:text-cyan-300">
+                  Your Equipment
+                </div>
+                <div className="mt-0.5 text-[7px] text-slate-400">
+                  Need a machine that is not in the library? Add your own image.
+                </div>
+              </div>
+            </div>
+            {(
+              <button
+                type="button"
+                draggable={!readOnly}
+                disabled={readOnly}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData("application/x-process-equipment", "custom-equipment");
+                  event.dataTransfer.effectAllowed = "copy";
+                }}
+                onDoubleClick={() => addNodeAt("custom-equipment", 320, 180)}
+                className="mb-2 w-full rounded-xl border-2 border-dashed border-cyan-300 bg-cyan-50/60 p-2 text-left transition hover:border-cyan-400 hover:bg-cyan-50 disabled:opacity-60 dark:border-cyan-400/30 dark:bg-cyan-400/5 dark:hover:bg-cyan-400/10"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="relative flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-[#081022]">
+                    <ProcessEquipmentVisual
+                      type="custom-equipment"
+                      values={{}}
+                      dark={dark}
+                    />
+                    <span className="absolute bottom-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500 text-white shadow">
+                      <Upload size={11} />
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-black text-cyan-800 dark:text-cyan-200">
+                      + Custom Equipment
+                    </div>
+                    <div className="mt-0.5 text-[8px] leading-3 text-slate-500 dark:text-slate-400">
+                      Place it, then upload your own machine image in the Inspector.
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )}
+
+          </div>
+          <details className="border-b border-slate-200 p-2 dark:border-[#263657]">
+            <summary className="cursor-pointer py-1 text-[11px] font-semibold text-slate-500">
+              Optional Fittings & Valves
+            </summary>
+
+            <div className="max-h-[275px] space-y-2 overflow-y-auto pr-0.5">
+              {assemblyGroups.map(([groupName, items]) => (
+                <div key={groupName}>
+                  <div className="mb-1 text-[7px] font-bold uppercase tracking-wide text-slate-400">
+                    {groupName}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {items.map((item) => (
+                      <button
+                        key={item.type}
+                        type="button"
+                        draggable={!readOnly}
+                        disabled={readOnly}
+                        title={`${item.label} · drag to canvas · double-click to add`}
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("application/x-process-equipment", item.type);
+                          event.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onDoubleClick={() =>
+                          addNodeAt(item.type, 280 + Math.random() * 180, 120 + Math.random() * 260)
+                        }
+                        className="group rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-left transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-60 dark:border-[#2C3C61] dark:bg-[#111B34] dark:hover:border-cyan-400/30 dark:hover:bg-[#15213D]"
+                      >
+                        <div className="flex h-16 w-full items-center justify-center overflow-visible rounded-md bg-white/80 px-1 dark:bg-[#081022]/80">
+                          <ProcessEquipmentVisual
+                            type={item.type}
+                            values={{}}
+                            forceMotion
+                            motionEnabled
+                            medium={item.medium || "steam"}
+                            dark={dark}
+                          />
+                        </div>
+                        <div className="mt-1 truncate text-center text-[7px] font-bold text-slate-700 dark:text-slate-200">
+                          {item.label}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {assemblyGroups.length === 0 && (
+              <div className="rounded-lg border border-dashed border-slate-200 px-2 py-3 text-center text-[8px] text-slate-400 dark:border-[#2C3C61]">
+                <div>No pipe or conveyor parts match this search.</div>
+                {hasLibrarySearch && (
+                  <button
+                    type="button"
+                    onClick={() => setLibrarySearch("")}
+                    className="mt-2 rounded-md bg-slate-100 px-2 py-1 text-[8px] font-bold text-slate-600 transition hover:bg-cyan-50 hover:text-cyan-700 dark:bg-[#15213D] dark:text-slate-200"
+                  >
+                    Show all parts
+                  </button>
+                )}
+              </div>
+            )}
+          </details>
+
+          <div className="border-b border-slate-200 p-2 dark:border-[#263657]">
+            <div className="mb-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              Connections
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {CONNECTION_TYPES.map((tool) => {
+                const active = pipelineToolActive && connectionToolType === tool.value;
+                return (
+                  <button
+                    key={tool.value}
+                    type="button"
+                    draggable={!readOnly}
+                    disabled={readOnly}
+                    onClick={() => activateConnectionTool(tool.value)}
+                    title={`${tool.label}: select two equipment items, or drag onto the canvas`}
+                    aria-pressed={active}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("application/x-process-connection", tool.value);
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    className={`rounded-lg border px-2 py-1.5 transition ${
+                      active
+                        ? "border-cyan-400 bg-cyan-50 ring-2 ring-cyan-400/15 dark:bg-cyan-400/10"
+                        : "border-slate-200 bg-slate-50 hover:border-cyan-300 dark:border-[#2C3C61] dark:bg-[#111B34]"
+                    }`}
+                  >
+                    <div className="relative mx-auto h-10 w-full">
+                      {["pipeline", "conveyor"].includes(tool.value) ? (
+                        <svg viewBox="0 0 140 48" className="h-full w-full" aria-hidden="true">
+                          <ProcessPipeline id={`library-${tool.value}`} path="M 12 24 L 128 24" connectorType={tool.value} animateFlow={false} dark={dark} />
+                        </svg>
+                      ) : <>
+                      <span
+                        className={`absolute left-1 right-1 top-1/2 -translate-y-1/2 border-t-2 ${
+                          tool.value === "line" ? "border-dashed" : ""
+                        } border-slate-500 dark:border-slate-300`}
+                      />
+                      {tool.value === "arrow" && (
+                        <span className="absolute right-0.5 top-1/2 h-0 w-0 -translate-y-1/2 border-y-[4px] border-l-[7px] border-y-transparent border-l-slate-500 dark:border-l-slate-300" />
+                      )}
+                      </>}
+                    </div>
+                    <div className="text-center text-[11px] font-semibold text-slate-600 dark:text-slate-200">
+                      {tool.label}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border-b border-slate-200 p-2 dark:border-[#263657]">
+            <div className="mb-1 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              Plant Equipment
+            </div>
+            <p className="mb-2 text-[7px] leading-3 text-slate-400">
+              Every card previews the same equipment design that will appear on the canvas.
+            </p>
+            <div className="flex gap-1 overflow-x-auto pb-1">
               {EQUIPMENT_CATEGORIES.map((item) => (
                 <button
                   key={item}
                   type="button"
                   onClick={() => setCategory(item)}
-                  className={`whitespace-nowrap rounded-md px-2 py-1 text-[9px] font-semibold ${
+                  className={`whitespace-nowrap rounded-md px-2 py-1 text-[8px] font-semibold ${
                     category === item
                       ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-200"
                       : "bg-slate-100 text-slate-500 dark:bg-[#15213D] dark:text-slate-400"
@@ -7449,111 +8246,51 @@ export default function ProcessSimulator({
             </div>
           </div>
 
-          <div className="border-b border-slate-200 p-2 dark:border-[#263657]">
-            <div className="mb-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-400">
-              Connections
-            </div>
-
-            <div className="grid grid-cols-3 gap-1.5">
-              {CONNECTION_TYPES.map((tool) => {
-                const Icon =
-                  tool.value === "arrow"
-                    ? ArrowRight
-                    : tool.value === "line"
-                    ? Minus
-                    : Workflow;
-
-                const active =
-                  pipelineToolActive &&
-                  connectionToolType === tool.value;
-
-                return (
+          <div className="space-y-1.5 p-2">
+            {filteredLibrary
+              .filter((item) => item.type !== "custom-equipment")
+              .map((item) => (
+                <button
+                  key={item.type}
+                  type="button"
+                  draggable={!readOnly}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData("application/x-process-equipment", item.type);
+                    event.dataTransfer.effectAllowed = "copy";
+                  }}
+                  onDoubleClick={() => addNodeAt(item.type, 280 + Math.random() * 180, 120 + Math.random() * 300)}
+                  className="group flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-left transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:hover:border-cyan-400/30 dark:hover:bg-[#15213D]"
+                >
+                  <div className="flex h-12 w-[70px] shrink-0 items-center justify-center overflow-visible rounded-lg bg-white px-1 dark:bg-[#081022]">
+                    <ProcessEquipmentVisual
+                      type={item.type}
+                      values={{}}
+                      forceMotion
+                      motionEnabled
+                      dark={dark}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[10px] font-bold text-slate-800 dark:text-slate-100">{item.label}</div>
+                    <div className="truncate text-[8px] text-slate-400">{item.category}</div>
+                  </div>
+                </button>
+              ))}
+            {filteredLibrary.filter((item) => item.type !== "custom-equipment").length === 0 && (
+              <div className="rounded-lg border border-dashed border-slate-200 px-2 py-5 text-center text-[8px] text-slate-400 dark:border-[#2C3C61]">
+                <div>No plant equipment matches this search.</div>
+                {hasLibrarySearch && (
                   <button
-                    key={tool.value}
                     type="button"
-                    draggable={!readOnly}
-                    disabled={readOnly}
-                    title={`Click to connect equipment with ${tool.label}`}
-                    onClick={() => activateConnectionTool(tool.value)}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData(
-                        "application/x-process-connection",
-                        tool.value
-                      );
-                      event.dataTransfer.effectAllowed = "copy";
-                    }}
-                    className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl border px-1.5 py-2 text-center transition ${
-                      active
-                        ? "border-cyan-400 bg-cyan-50 text-cyan-700 ring-2 ring-cyan-400/20 dark:border-cyan-400 dark:bg-cyan-400/10 dark:text-cyan-200"
-                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-300 hover:bg-cyan-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:text-slate-200 dark:hover:bg-[#15213D]"
-                    }`}
+                    onClick={() => setLibrarySearch("")}
+                    className="mt-2 rounded-md bg-slate-100 px-2 py-1 text-[8px] font-bold text-slate-600 transition hover:bg-cyan-50 hover:text-cyan-700 dark:bg-[#15213D] dark:text-slate-200"
                   >
-                    <Icon size={18} strokeWidth={2} />
-                    <span className="truncate text-[8px] font-bold">
-                      {tool.label}
-                    </span>
+                    Show all equipment
                   </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 dark:border-[#2C3C61] dark:bg-[#081022]">
-              <div className="min-w-0">
-                <div className="text-[8px] font-bold text-slate-600 dark:text-slate-200">
-                  Chain Connect
-                </div>
-                <div className="text-[7px] leading-3 text-slate-400">
-                  Keep connecting target → next target
-                </div>
+                )}
               </div>
-
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => setChainConnect((value) => !value)}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-                  chainConnect
-                    ? "bg-cyan-500"
-                    : "bg-slate-300 dark:bg-slate-700"
-                }`}
-                aria-pressed={chainConnect}
-                title="Toggle chain connection mode"
-              >
-                <span
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-                    chainConnect ? "left-[18px]" : "left-0.5"
-                  }`}
-                />
-              </button>
-            </div>
-
-            <p className="mt-2 text-[8px] leading-4 text-slate-400">
-              Click a connection type, then click source equipment and target equipment. Pipeline routes automatically. Press Esc to cancel.
-            </p>
+            )}
           </div>
-
-          <div className="max-h-[530px] space-y-1.5 overflow-y-auto p-2">
-            {filteredLibrary.map((item) => (
-              <button
-                key={item.type}
-                type="button"
-                draggable={!readOnly}
-                onDragStart={(event) => {
-                  event.dataTransfer.setData("application/x-process-equipment", item.type);
-                  event.dataTransfer.effectAllowed = "copy";
-                }}
-                onDoubleClick={() => addNodeAt(item.type, 280 + Math.random() * 180, 120 + Math.random() * 300)}
-                className="group flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-left transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:hover:border-cyan-400/30 dark:hover:bg-[#15213D]"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-300">
-                  <IndustrialEquipmentIcon type={item.type} className="h-8 w-8" />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-[11px] font-bold text-slate-800 dark:text-slate-100">{item.label}</div>
-                  <div className="truncate text-[9px] text-slate-400">{item.category}</div>
-                </div>
-              </button>
-            ))}
           </div>
             </>
           )}
@@ -7567,7 +8304,7 @@ export default function ProcessSimulator({
                 ? connectFrom
                   ? `Select target equipment · ${chainConnect ? "Chain mode ON" : "one connection"}`
                   : `Select source equipment · ${connectionToolType}`
-                : "Select a connection type, then click source → target"}
+                : "Plant Canvas"}
             </span>
             {(connectFrom || pipelineToolActive) && (
               <button
@@ -7669,9 +8406,9 @@ export default function ProcessSimulator({
                       connectorType={
                         connectionToolType
                       }
-                      pipeDesign="industrial"
+                      pipeDesign="auto"
                       colorOverride=""
-                      animateFlow={false}
+                      animateFlow
                     />
                   )}
 
@@ -7682,6 +8419,13 @@ export default function ProcessSimulator({
                   {connections
                     .filter((connection) => connection.id !== selectedConnectionId)
                     .map(renderConnection)}
+
+                  <ProcessPipeJunctions
+                    junctions={
+                      visibleConnectionJunctions
+                    }
+                    dark={dark}
+                  />
                 </svg>
 
                 {nodes.map((node) => {
@@ -7772,7 +8516,7 @@ export default function ProcessSimulator({
                         setSelectedNodeId(node.id);
                         setSelectedConnectionId(null);
                       }}
-                      className="group absolute select-none cursor-grab active:cursor-grabbing"
+                      className="process-simulator-node group absolute select-none cursor-grab active:cursor-grabbing"
                       style={{
                         width:
                           nodeSize.width,
@@ -7781,13 +8525,10 @@ export default function ProcessSimulator({
                         left: node.x,
                         top: node.y,
 
-                        // Selected equipment sits above other equipment. A selected
-                        // connection is rendered in an even higher foreground layer,
-                        // so its endpoint can always be grabbed when it overlaps a node.
-                        zIndex: selected ? 70 : 10,
+                        zIndex: selected ? 70 : isAssemblyNode(node) ? 6 : 10,
                       }}
                     >
-                      {/* Equipment name — independently draggable. */}
+                      {node.showLabel !== false && (
                       <div
                         onPointerDown={(
                           event
@@ -7841,6 +8582,7 @@ export default function ProcessSimulator({
                       >
                         {node.label}
                       </div>
+                      )}
 
                       {isJunction ? (
                         <>
@@ -7889,8 +8631,6 @@ export default function ProcessSimulator({
                         </>
                       ) : null}
 
-                      {/* Actual equipment visual.
-                          The pipeline enters/exits this area directly. */}
                       <div
                         onPointerDown={(event) => {
                           if (
@@ -7932,12 +8672,13 @@ export default function ProcessSimulator({
                             type={node.type}
                             values={visualValues}
                             selected={selected}
-
-                            // Animation is data-driven inside the visual.
-                            // If any default/custom metric has a value,
-                            // the machine animates.
                             motionEnabled
-
+                            forceMotion={
+                              mode !== "live"
+                            }
+                            rotation={node.rotation || 0}
+                            medium={node.medium || definition.medium || "steam"}
+                            customImageSrc={node.customImageSrc || ""}
                             dark={dark}
                           />
                         </div>
@@ -8131,7 +8872,7 @@ export default function ProcessSimulator({
           </div>
         </section>
 
-        <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D]">
+        <aside className="process-simulator-side-panel overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D]">
           {inspectorCollapsed ? (
             <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:min-h-[600px] xl:flex-col xl:justify-start xl:py-3">
               <button
@@ -8179,8 +8920,17 @@ export default function ProcessSimulator({
             ) : selectedNode ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 rounded-xl bg-slate-50 p-2.5 dark:bg-[#111B34]">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-500">
-                    <IndustrialEquipmentIcon type={selectedNode.type} className="h-8 w-8" />
+                  <div className="flex h-12 w-[76px] shrink-0 items-center justify-center overflow-visible rounded-lg bg-white px-1 dark:bg-[#081022]">
+                    <ProcessEquipmentVisual
+                      type={selectedNode.type}
+                      values={{}}
+                      forceMotion
+                      motionEnabled
+                      rotation={selectedNode.rotation || 0}
+                      medium={selectedNode.medium || EQUIPMENT_BY_TYPE[selectedNode.type]?.medium || "steam"}
+                      customImageSrc={selectedNode.customImageSrc || ""}
+                      dark={dark}
+                    />
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-[11px] font-bold">{EQUIPMENT_BY_TYPE[selectedNode.type]?.label}</div>
@@ -8197,6 +8947,87 @@ export default function ProcessSimulator({
                     className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[11px] outline-none focus:border-cyan-400 disabled:opacity-60 dark:border-[#2C3C61] dark:bg-[#081022]"
                   />
                 </label>
+
+                {isAssemblyNode(selectedNode) ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-3 dark:border-cyan-400/20 dark:bg-cyan-400/5">
+                      <div className="text-[9px] font-black uppercase tracking-wide text-cyan-700 dark:text-cyan-200">
+                        Assembly Component
+                      </div>
+                      <p className="mt-1 text-[8px] leading-4 text-slate-500 dark:text-slate-400">
+                        This is a physical layout piece, not an automatic connector. Position it beside other parts to build the pipe or conveyor route yourself.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={readOnly}
+                        onClick={rotateSelectedAssembly}
+                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 text-[9px] font-semibold text-slate-600 transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-60 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-slate-200"
+                      >
+                        <RotateCw size={13} /> Rotate 90°
+                      </button>
+
+                      <label className="flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[9px] font-semibold text-slate-600 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={selectedNode.showLabel !== false}
+                          disabled={readOnly}
+                          onChange={(event) => updateSelectedNode({ showLabel: event.target.checked })}
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                        />
+                        Show label
+                      </label>
+                    </div>
+
+                    {(selectedNode.type === "pipe-straight" || selectedNode.type.startsWith("conveyor-")) && (
+                      <button type="button" disabled={readOnly} onClick={convertSelectedAssembly}
+                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-cyan-300 bg-cyan-50 text-[11px] font-semibold text-cyan-800 dark:bg-cyan-400/10 dark:text-cyan-200">
+                        <ArrowRight size={14} /> Convert to Connection
+                      </button>
+                    )}
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[8px] text-slate-500 dark:border-[#2C3C61] dark:bg-[#111B34] dark:text-slate-400">
+                      Size: {Math.round(getNodeSize(selectedNode).width)} × {Math.round(getNodeSize(selectedNode).height)} · Rotation: {Number(selectedNode.rotation || 0)}°
+                      <div className="mt-1">Use the handles around the selected part to resize it.</div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {selectedNode.type === "custom-equipment" && (
+                      <div className="rounded-xl border-2 border-dashed border-cyan-300 bg-cyan-50/60 p-3 dark:border-cyan-400/25 dark:bg-cyan-400/5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-1 dark:bg-[#081022]">
+                            <ProcessEquipmentVisual
+                              type="custom-equipment"
+                              values={{}}
+                              customImageSrc={selectedNode.customImageSrc || ""}
+                              dark={dark}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[10px] font-black text-cyan-800 dark:text-cyan-200">
+                              Custom Equipment Image
+                            </div>
+                            <div className="mt-0.5 truncate text-[8px] text-slate-400">
+                              {selectedNode.customImageName || "No image uploaded yet"}
+                            </div>
+                            {!readOnly && (
+                              <label className="mt-2 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-cyan-600 px-3 text-[8px] font-bold text-white transition hover:bg-cyan-500">
+                                <Upload size={11} /> {selectedNode.customImageSrc ? "Replace Image" : "Upload Image"}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={handleCustomEquipmentImage}
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-[#2C3C61] dark:bg-[#111B34]">
                   <div className="flex items-center justify-between gap-2">
@@ -8816,6 +9647,8 @@ export default function ProcessSimulator({
                     Up to {MAX_VISIBLE_METRICS} selected measurements can appear on the compact equipment data card. Default fields are presets, not restrictions.
                   </div>
                 </div>
+                  </>
+                )}
 
                 {!readOnly && (
                   <button
@@ -8823,7 +9656,7 @@ export default function ProcessSimulator({
                     onClick={deleteSelectedNode}
                     className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-rose-400/20 bg-rose-400/10 text-[11px] font-semibold text-rose-500 transition hover:bg-rose-400/15 dark:text-rose-300"
                   >
-                    <Trash2 size={13} /> Delete Equipment
+                    <Trash2 size={13} /> {isAssemblyNode(selectedNode) ? "Delete Component" : "Delete Equipment"}
                   </button>
                 )}
               </div>
@@ -8881,9 +9714,10 @@ export default function ProcessSimulator({
                       updateSelectedConnection({
                         connectorType:
                           nextType,
+                        pipeDesign: nextType === "conveyor" ? "conveyorTrack" : "realPipe",
+                        routingMode: nextType === "line" ? "simple" : "diagram",
                         animateFlow:
-                          nextType ===
-                          "pipeline"
+                          ["pipeline", "conveyor"].includes(nextType)
                             ? selectedConnection.animateFlow !==
                               false
                             : false,
@@ -9076,6 +9910,27 @@ export default function ProcessSimulator({
                   </label>
                 </div>
 
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" disabled={readOnly}
+                    onClick={addBranchToSelectedConnection}
+                    title="Create a connected fork from the middle of this connection"
+                    className="flex h-9 items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 text-[10px] font-semibold text-cyan-700 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-200">
+                    <GitFork size={14} /> Add Branch
+                  </button>
+                  <button type="button" disabled={readOnly}
+                    onClick={() => {
+                      const segmentCount = getConnectionGeometry(selectedConnection)?.segments.length || 1;
+                      setConnections((current) => reverseConnectionNetwork(current, selectedConnection.id, segmentCount));
+                    }}
+                    className="flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-slate-200">
+                    <ArrowRightLeft size={14} /> Reverse Flow
+                  </button>
+                </div>
+
+                <p className="text-[8px] leading-4 text-slate-400">
+                  Add Branch creates a connected fork. Drag its free endpoint onto equipment or another matching connection.
+                </p>
+
                 <label className="block">
                   <span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">Label</span>
                   <input
@@ -9087,75 +9942,6 @@ export default function ProcessSimulator({
                   />
                 </label>
 
-                {(
-                  selectedConnection.connectorType ||
-                  (
-                    selectedConnection.connectionStyle ===
-                    "arrows"
-                      ? "arrow"
-                      : "pipeline"
-                  )
-                ) === "pipeline" && (
-                  <>
-                <label className="block">
-                  <span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">Medium</span>
-                  <select
-                    value={selectedConnection.medium}
-                    disabled={readOnly}
-                    onChange={(event) => updateSelectedConnection({ medium: event.target.value })}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022]"
-                  >
-                    {Object.entries(PROCESS_MEDIA).map(([key, media]) => (
-                      <option key={key} value={key}>{media.label}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
-                    Pipe Design
-                  </span>
-
-                  <select
-                    value={
-                      selectedConnection.pipeDesign ||
-                      "industrial"
-                    }
-                    disabled={readOnly}
-                    onChange={(event) =>
-                      updateSelectedConnection({
-                        pipeDesign:
-                          event.target.value,
-                      })
-                    }
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[10px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022]"
-                  >
-                    {PIPE_DESIGNS.map(
-                      (design) => (
-                        <option
-                          key={design.value}
-                          value={design.value}
-                        >
-                          {design.label}
-                        </option>
-                      )
-                    )}
-                  </select>
-
-                  <p className="mt-1 text-[8px] leading-relaxed text-slate-400">
-                    {
-                      PIPE_DESIGNS.find(
-                        (item) =>
-                          item.value ===
-                          (selectedConnection.pipeDesign ||
-                            "industrial")
-                      )?.description
-                    }
-                  </p>
-                </label>
-
-                  </>
-                )}
 
                 <div>
                   <div className="mb-1 flex items-center justify-between">
@@ -9174,7 +9960,7 @@ export default function ProcessSimulator({
                         }
                         className="text-[8px] font-semibold text-cyan-600 hover:underline dark:text-cyan-300"
                       >
-                        Use medium color
+                        Reset color
                       </button>
                     )}
                   </div>
@@ -9187,20 +9973,13 @@ export default function ProcessSimulator({
                             "") ===
                           preset.value;
 
-                        const previewColor =
-                          preset.value ||
-                          (
-                            PROCESS_MEDIA[
-                              selectedConnection.medium
-                            ] ||
-                            PROCESS_MEDIA.steam
-                          ).color;
+                        const previewColor = preset.value || "#BFC6CA";
 
                         return (
                           <button
                             key={
                               preset.value ||
-                              "medium"
+                              "default"
                             }
                             type="button"
                             disabled={readOnly}
@@ -9235,13 +10014,7 @@ export default function ProcessSimulator({
                     <input
                       type="color"
                       value={
-                        selectedConnection.colorOverride ||
-                        (
-                          PROCESS_MEDIA[
-                            selectedConnection.medium
-                          ] ||
-                          PROCESS_MEDIA.steam
-                        ).color
+                        selectedConnection.colorOverride || "#BFC6CA"
                       }
                       disabled={readOnly}
                       onChange={(event) =>
@@ -9317,7 +10090,7 @@ export default function ProcessSimulator({
                       </span>
 
                       <span className="mt-0.5 block text-[8px] leading-4 text-slate-400">
-                        Diagram is recommended: click a connector, drag the line itself to reshape it, drag either endpoint to reconnect, and drag bend points directly. Shift + drag moves the route body.
+                        Diagram is recommended: click a connector, drag the line itself to reshape it, drag either endpoint to reconnect, and drag bend points directly. Double-click or right-click a bend to remove it.
                       </span>
                     </div>
 
@@ -9414,7 +10187,7 @@ export default function ProcessSimulator({
                       <span className="block font-bold text-slate-700 dark:text-slate-100">
                         Route shaping
                       </span>
-                      Diagram: drag the connector itself to pull out a bend. Drag visible bend points freely. Drag either endpoint directly onto another equipment item. Shift + drag moves the route body. Double-click adds another bend.
+                      Diagram: drag the connector itself to pull out a bend. Drag visible bend points freely, then double-click or right-click one to remove it. Drag either endpoint directly onto another equipment item. Double-click the route adds another bend.
                     </div>
                   </div>
 
@@ -9444,9 +10217,31 @@ export default function ProcessSimulator({
                     selectedConnection
                   ).length > 0 &&
                     !readOnly &&
-                    (routeEditConnectionId === selectedConnection.id ||
-                      isCircuitRoutingConnection(selectedConnection)) && (
-                      <div className="mt-2 flex gap-1.5">
+                    (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="flex flex-wrap gap-1">
+                          {getConnectionWaypoints(
+                            selectedConnection
+                          ).map((point, index) => (
+                            <button
+                              key={`${selectedConnection.id}-remove-bend-${index}`}
+                              type="button"
+                              onClick={() =>
+                                removeWaypoint(
+                                  selectedConnection.id,
+                                  index
+                                )
+                              }
+                              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[8px] font-semibold text-slate-600 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-slate-200 dark:hover:border-rose-400/40 dark:hover:bg-rose-400/10 dark:hover:text-rose-200"
+                              title={`Remove bend ${index + 1} at ${Math.round(point.x)}, ${Math.round(point.y)}`}
+                            >
+                              <Trash2 size={10} />
+                              Bend {index + 1}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex gap-1.5">
                         <button
                           type="button"
                           onClick={() => {
@@ -9481,11 +10276,49 @@ export default function ProcessSimulator({
                         >
                           Reset Auto Route
                         </button>
+                        </div>
                       </div>
                     )}
                     </>
                   )}
                 </div>
+
+                {(
+                  selectedConnection.connectorType ||
+                  (
+                    selectedConnection.connectionStyle ===
+                    "arrows"
+                      ? "arrow"
+                      : "pipeline"
+                  )
+                ) !== "pipeline" && (
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-[#2C3C61] dark:bg-[#111B34]">
+                    <div>
+                      <span className="block text-[9px] font-bold text-slate-600 dark:text-slate-200">
+                        Animate Direction
+                      </span>
+                      <span className="mt-0.5 block text-[8px] text-slate-400">
+                        Show travelling direction markers along this connector.
+                      </span>
+                    </div>
+
+                    <input
+                      type="checkbox"
+                      checked={
+                        selectedConnection.animateFlow !==
+                        false
+                      }
+                      disabled={readOnly}
+                      onChange={(event) =>
+                        updateSelectedConnection({
+                          animateFlow:
+                            event.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                  </label>
+                )}
 
                 {(
                   selectedConnection.connectorType ||

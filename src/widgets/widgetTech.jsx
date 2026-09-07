@@ -1,33 +1,29 @@
 import { useEffect, useState } from "react";
 
-// Visualization palette derived from the supplied dark analytics reference:
-// electric cyan, indigo, violet, coral, amber and steel blue on deep navy surfaces.
 export const TECH_SERIES = [
-  "#58D7FF", // electric cyan
-  "#7D75E7", // indigo
-  "#A86BDF", // violet
-  "#FF6F88", // coral pink
-  "#FF9C63", // coral orange
-  "#FFD66B", // warm amber
-  "#4D91C9", // steel blue
-  "#8DA2FF", // periwinkle
+  "#35C9F4", // cyan
+  "#2F79D3", // process blue
+  "#536ED8", // indigo blue
+  "#26B6B0", // teal
+  "#F2B33D", // amber
+  "#EF4653", // brand / critical red
+  "#5E91B8", // steel blue
+  "#8AA7C2", // cool slate
 ];
 
-// Keep the legacy property names so existing widgets do not need a large API
-// refactor; the values now point to the new visual system.
 export const TECH_ACCENT = {
-  lime: "#58D7FF",
-  forest: "#7D75E7",
-  olive: "#A86BDF",
-  plum: "#FF6F88",
-  berry: "#A86BDF",
-  sage: "#4D91C9",
-  pale: "#FFD66B",
-  ink: "#101A31",
+  lime: "#35C9F4",
+  forest: "#2F79D3",
+  olive: "#536ED8",
+  plum: "#EF4653",
+  berry: "#C63E69",
+  sage: "#5E91B8",
+  pale: "#F2B33D",
+  ink: "#09264A",
   paper: "#FFFFFF",
-  canvas: "#F2F4F8",
-  darkPaper: "#0E172D",
-  darkCanvas: "#081022",
+  canvas: "#EDF3F8",
+  darkPaper: "#0B1F38",
+  darkCanvas: "#061426",
 };
 
 export const TECH_SURFACE_CLASS = `
@@ -35,7 +31,7 @@ export const TECH_SURFACE_CLASS = `
   rounded-[11px]
   bg-white text-slate-950
   shadow-[0_4px_14px_rgba(30,41,35,0.10)]
-  dark:bg-[#0E172D] dark:text-slate-100
+  dark:bg-[#0B1F38] dark:text-slate-100
   dark:shadow-[0_8px_24px_rgba(2,7,22,0.38)]
 `;
 
@@ -91,12 +87,12 @@ export const formatCompactValue = (value, decimals = 1) => {
 
 export const botanicalTooltipStyle = {
   background: "rgba(13, 22, 44, 0.97)",
-  border: "1px solid rgba(88, 215, 255, 0.28)",
+  border: "1px solid rgba(53, 201, 244, 0.28)",
   borderRadius: "12px",
   color: "#F5F7FF",
   fontSize: "11px",
   boxShadow:
-    "0 14px 34px rgba(2,7,22,0.42), 0 0 22px rgba(88,215,255,0.06)",
+    "0 14px 34px rgba(2,7,22,0.42), 0 0 22px rgba(53,201,244,0.06)",
 };
 
 export function useWidgetSize(ref) {
@@ -144,9 +140,6 @@ export function useWidgetSize(ref) {
   };
 }
 
-// Three tiny accent LEDs echo the supplied reference and provide a subtle
-// shared signature across widget cards. The animation is defined globally and
-// automatically respects prefers-reduced-motion.
 export function TechBackdrop() {
   return (
     <>
@@ -158,9 +151,9 @@ export function TechBackdrop() {
         "
         aria-hidden="true"
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-[#58D7FF] shadow-[0_0_8px_rgba(88,215,255,0.45)]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-[#A86BDF] shadow-[0_0_8px_rgba(168,107,223,0.38)]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-[#FF6F88] shadow-[0_0_8px_rgba(255,111,136,0.34)]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#35C9F4] shadow-[0_0_8px_rgba(53,201,244,0.45)]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#2F79D3] shadow-[0_0_8px_rgba(47,121,211,0.38)]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#EF4653] shadow-[0_0_8px_rgba(239,70,83,0.32)]" />
       </div>
     </>
   );

@@ -1,5 +1,7 @@
 import { useId } from "react";
 import IndustrialEquipmentIcon from "./IndustrialEquipmentIcon";
+import ProcessAssemblyVisual from "./ProcessAssemblyVisual";
+import { isAssemblyComponentType } from "./equipmentLibrary";
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -28,7 +30,10 @@ const isEquipmentActive = (
   type,
   values = {}
 ) => {
-  // Raw material and final product visuals are intentionally static.
+  if (isAssemblyComponentType(type)) {
+    return false;
+  }
+
   if (
     [
       "palm-fruit-bunch",
@@ -42,16 +47,6 @@ const isEquipmentActive = (
     return false;
   }
 
-  // Animation is intentionally data-driven:
-  // ANY valid incoming value activates the equipment.
-  //
-  // Examples that all count as incoming data:
-  //   { pressure: 5.2 }
-  //   { temperature: 0 }
-  //   { customFlow: 42.8 }
-  //   { status: 0 }
-  //
-  // Only null, undefined, and "" mean "no data".
   return hasIncomingData(values);
 };
 
@@ -60,7 +55,6 @@ const spinDuration = (speed, fallback = 1.1, minimum = 0.24, maximum = 2.4) => {
 
   if (numeric <= 0) return fallback;
 
-  // Faster process speed -> shorter animation duration.
   return clamp(2.2 - numeric / 900, minimum, maximum);
 };
 
@@ -123,7 +117,6 @@ const MetallicDefs = ({ idBase, dark = false }) => {
     </defs>
   );
 };
-
 
 const BoilerVisual = ({ values, dark = false }) => {
   const p = palette(dark);
@@ -280,7 +273,6 @@ const ValveVisual = ({ values, dark = false }) => {
     </SvgShell>
   );
 };
-
 
 const SterilizerVisual = ({ values, dark = false }) => {
   const p = palette(dark);
@@ -446,7 +438,6 @@ const HeatExchangerVisual = ({ values, dark = false }) => {
   );
 };
 
-
 const DigesterVisual = ({ values, dark = false }) => {
   const p = palette(dark);
   const running =
@@ -488,8 +479,6 @@ const DigesterVisual = ({ values, dark = false }) => {
     </SvgShell>
   );
 };
-
-
 
 const ScrewPressVisual = ({ values, dark = false }) => {
   const p = palette(dark);
@@ -545,8 +534,6 @@ const ScrewPressVisual = ({ values, dark = false }) => {
     </SvgShell>
   );
 };
-
-
 
 const ClarifierVisual = ({ values, dark = false }) => {
   const p = palette(dark);
@@ -606,8 +593,6 @@ const ClarifierVisual = ({ values, dark = false }) => {
   );
 };
 
-
-
 const OilSeparatorVisual = ({ values, dark = false }) => {
   const p = palette(dark);
   const running =
@@ -657,8 +642,6 @@ const OilSeparatorVisual = ({ values, dark = false }) => {
   );
 };
 
-
-
 const DecanterVisual = ({ values, dark = false }) => {
   const p = palette(dark);
   const running =
@@ -703,8 +686,6 @@ const DecanterVisual = ({ values, dark = false }) => {
     </SvgShell>
   );
 };
-
-
 
 const FilterPressVisual = ({ values, dark = false }) => {
   const p = palette(dark);
@@ -782,6 +763,249 @@ const PalmOilProductVisual = ({ dark = false }) => {
       <circle cx="82" cy="56" r="5" fill={p.oil} className="equipment-product-glow" />
     </SvgShell>
   );
+};
+
+const ExtendedPalmEquipmentVisual = ({ type, values = {}, dark = false }) => {
+  const p = palette(dark);
+  const active = hasIncomingData(values);
+  const stroke = active ? p.cyan : p.line;
+
+  if (type === "fruit-cage") {
+    return (
+      <SvgShell>
+        <path d="M18 21h72l7 39H25z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        {[30, 45, 60, 75, 90].map((x) => (
+          <path key={x} d={`M${x} 25l5 31`} stroke={p.line} strokeWidth="1.4" opacity=".75" />
+        ))}
+        <path d="M27 33h65M30 45h64" stroke={p.line} strokeWidth="1.4" opacity=".65" />
+        {[39, 51, 63, 75].map((x, index) => (
+          <circle key={x} cx={x} cy={index % 2 ? 41 : 36} r="5" fill={index % 2 ? p.orange : p.rose} opacity=".9" />
+        ))}
+        <circle cx="35" cy="67" r="6" fill={p.body2} stroke={stroke} strokeWidth="2" />
+        <circle cx="87" cy="67" r="6" fill={p.body2} stroke={stroke} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "stripper") {
+    return (
+      <SvgShell>
+        <path d="M18 24h78l7 34H25z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <circle cx="60" cy="41" r="17" fill={p.body2} stroke={stroke} strokeWidth="2.5" />
+        <path d="M60 25v32M44 41h32M49 30l22 22M71 30L49 52" stroke={p.line} strokeWidth="1.5" />
+        <path d="M16 32H6M103 48h11" stroke={p.line} strokeWidth="4" strokeLinecap="round" />
+        <path d="M28 60v10M91 60v10" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "vibrating-screen") {
+    return (
+      <SvgShell>
+        <path d="M20 27h76l-11 30H31z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        {[35, 47, 59, 71, 83].map((x) => (
+          <path key={x} d={`M${x} 31l-7 21`} stroke={p.cyan} strokeWidth="1.2" opacity=".75" />
+        ))}
+        <path d="M28 57l-6 12M84 57l6 12M23 69h13M82 69h13" stroke={p.line} strokeWidth="2" />
+        <circle cx="101" cy="42" r="8" fill={p.body2} stroke={stroke} strokeWidth="2" />
+        <path d="M101 36v12M95 42h12" stroke={p.line} strokeWidth="1.5" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "nut-fibre-separator") {
+    return (
+      <SvgShell>
+        <path d="M37 13h46l12 18-10 35H35L25 31z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <path d="M43 28h34M40 39h40M38 50h43" stroke={p.line} strokeWidth="1.4" opacity=".75" />
+        <path d="M23 29H8M96 30h15" stroke={p.line} strokeWidth="4" strokeLinecap="round" />
+        <path d="M48 66v9M73 66v9" stroke={p.line} strokeWidth="2" />
+        <circle cx="49" cy="35" r="4" fill={p.orange} />
+        <path d="M68 33c7 3 10 8 10 14-8-1-14-4-18-10z" fill={p.amber} opacity=".75" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "nut-cracker") {
+    return (
+      <SvgShell>
+        <path d="M25 22h70v34H25z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <circle cx="49" cy="39" r="13" fill={p.body2} stroke={stroke} strokeWidth="2" />
+        <circle cx="72" cy="39" r="13" fill={p.body2} stroke={stroke} strokeWidth="2" />
+        <path d="M49 29v20M39 39h20M72 29v20M62 39h20" stroke={p.line} strokeWidth="1.5" />
+        <path d="M57 14h8l6 8H51zM45 56v12M77 56v12" stroke={p.line} strokeWidth="2" fill="none" />
+      </SvgShell>
+    );
+  }
+
+  if (["fibre-cyclone", "shell-cyclone"].includes(type)) {
+    const materialColor = type === "fibre-cyclone" ? p.orange : p.steelDark;
+    return (
+      <SvgShell>
+        <path d="M41 10h38l8 11-13 33-12 17-12-17-13-33z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <path d="M79 20h25M41 20H19" stroke={p.line} strokeWidth="4" strokeLinecap="round" />
+        <path d="M50 28c10-8 22-4 22 5 0 8-9 9-14 5-5-4-3-10 3-11" fill="none" stroke={active ? materialColor : p.muted} strokeWidth="2" strokeLinecap="round" />
+        <path d="M62 71v7" stroke={p.line} strokeWidth="3" />
+        <circle cx="62" cy="48" r="3.5" fill={materialColor} opacity=".9" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "winnower") {
+    return (
+      <SvgShell>
+        <path d="M23 18h74v45H23z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <circle cx="47" cy="40" r="14" fill={p.body2} stroke={stroke} strokeWidth="2" />
+        <path d="M47 27l4 10-4 3-4-3zM60 40l-10 4-3-4 3-4zM47 53l-4-10 4-3 4 3zM34 40l10-4 3 4-3 4z" fill={p.cyan} opacity=".75" />
+        <path d="M65 28h21M65 39h26M65 50h17" stroke={p.line} strokeWidth="2" />
+        <path d="M31 63v9M88 63v9" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "claybath-separator") {
+    const level = pct(values.level ?? 58, 0, 100);
+    const liquidY = 62 - level * 0.34;
+    return (
+      <SvgShell>
+        <path d="M22 19h76v43H22z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <rect x="26" y={liquidY} width="68" height={62 - liquidY} fill="rgba(154,116,100,.38)" />
+        <path d="M28 33h64M28 45h64" stroke={p.line} strokeWidth="1.2" opacity=".6" />
+        <circle cx="43" cy="38" r="4" fill={p.amber} />
+        <circle cx="72" cy="49" r="4" fill={p.steelDark} />
+        <path d="M39 62v10M81 62v10" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "oil-purifier") {
+    return (
+      <SvgShell>
+        <path d="M42 11h36l10 14-9 42H41l-9-42z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <path d="M48 27h24M51 36h18M54 45h12" stroke={p.oil} strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx="60" cy="52" r="9" fill={p.body2} stroke={stroke} strokeWidth="2" />
+        <path d="M60 46v12M54 52h12" stroke={p.line} strokeWidth="1.5" />
+        <path d="M42 31H22M78 31h20M51 67v9M69 67v9" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "tray-dryer") {
+    return (
+      <SvgShell>
+        <rect x="24" y="11" width="72" height="58" rx="5" fill={p.body} stroke={p.line} strokeWidth="2" />
+        {[22, 33, 44, 55].map((y) => (
+          <g key={y}>
+            <path d={`M34 ${y}h51`} stroke={p.line} strokeWidth="1.4" />
+            {[42, 55, 68, 80].map((x) => (
+              <circle key={`${x}-${y}`} cx={x} cy={y - 3} r="2.3" fill={p.amber} opacity=".8" />
+            ))}
+          </g>
+        ))}
+        <path d="M18 36h6M96 36h10M36 69v7M84 69v7" stroke={p.line} strokeWidth="2" />
+        <path d="M101 20c6 5 6 11 0 16" fill="none" stroke={p.orange} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (["kernel-silo", "crude-oil-tank", "sludge-tank"].includes(type)) {
+    const fillColor = type === "kernel-silo" ? p.amber : type === "crude-oil-tank" ? p.oil : p.sludge;
+    const level = pct(values.level ?? 62, 0, 100);
+    const y = 59 - level * 0.34;
+    return (
+      <SvgShell>
+        <ellipse cx="60" cy="15" rx="25" ry="8" fill={p.body2} stroke={p.line} strokeWidth="2" />
+        <path d="M35 15v43c0 7 50 7 50 0V15" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <path d={`M39 ${y}v${59 - y}c0 5 42 5 42 0V${y}`} fill={fillColor} opacity=".48" />
+        <ellipse cx="60" cy={y} rx="21" ry="5" fill={fillColor} opacity=".66" />
+        <path d="M47 66v10M73 66v10M60 7V2" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "empty-bunch-hopper") {
+    return (
+      <SvgShell>
+        <path d="M28 17h64L82 55H38z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <path d="M38 55l8 16M82 55l-8 16M46 71h28" stroke={p.line} strokeWidth="2" />
+        <path d="M42 29h36M39 39h42" stroke={p.line} strokeWidth="1.4" opacity=".65" />
+        {[49, 60, 71].map((x) => (
+          <path key={x} d={`M${x} 31l-6 -5M${x} 31l6 -5`} stroke={p.orange} strokeWidth="2" strokeLinecap="round" />
+        ))}
+      </SvgShell>
+    );
+  }
+
+  if (type === "kernel") {
+    return (
+      <SvgShell>
+        {[42, 55, 68, 50, 63, 76].map((x, index) => (
+          <ellipse key={x} cx={x} cy={index < 3 ? 34 : 48} rx="8" ry="6" fill={p.amber} stroke={p.line} strokeWidth="1.2" opacity=".9" />
+        ))}
+        <path d="M36 59h48" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "shell") {
+    return (
+      <SvgShell>
+        {[43, 57, 71, 50, 64, 78].map((x, index) => (
+          <path key={x} d={`M${x - 7} ${index < 3 ? 31 : 46}q7-10 14 0q-3 10-14 0z`} fill={p.steelDark} stroke={p.line} strokeWidth="1.1" />
+        ))}
+        <path d="M35 59h51" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "fibre") {
+    return (
+      <SvgShell>
+        {[27, 35, 43, 51, 59, 67, 75, 83].map((x, index) => (
+          <path key={x} d={`M${x} 55q${index % 2 ? 8 : -8}-18 ${index % 2 ? -1 : 2}-34`} fill="none" stroke={index % 3 === 0 ? p.orange : p.amber} strokeWidth="2.4" strokeLinecap="round" />
+        ))}
+        <path d="M25 59h66" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "press-liquor") {
+    return (
+      <SvgShell>
+        <path d="M43 13h34l7 11v37l-7 9H43l-7-9V24z" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <path d="M40 43h40v18H40z" fill={p.oil} opacity=".55" />
+        <path d="M42 51h36" stroke={p.sludge} strokeWidth="5" opacity=".8" />
+        <ellipse cx="60" cy="43" rx="19" ry="4" fill={p.oil} opacity=".7" />
+        <path d="M36 32H20M84 32h16M50 70v7M70 70v7" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "condensate") {
+    return (
+      <SvgShell>
+        <path d="M60 12c17 22 22 31 22 42 0 13-10 22-22 22s-22-9-22-22c0-11 5-20 22-42z" fill="rgba(74,145,208,.35)" stroke={p.blue} strokeWidth="2" />
+        <path d="M48 52c5 7 19 9 25-1" fill="none" stroke={p.cyan} strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx="54" cy="43" r="2.5" fill={p.cyan} opacity=".85" />
+      </SvgShell>
+    );
+  }
+
+  if (type === "custom-equipment") {
+    return (
+      <SvgShell>
+        <rect x="23" y="22" width="74" height="42" rx="7" fill={p.body} stroke={p.line} strokeWidth="2" />
+        <circle cx="45" cy="43" r="12" fill={p.body2} stroke={p.cyan} strokeWidth="2.5" />
+        <path d="M45 33v20M35 43h20" stroke={p.cyan} strokeWidth="2" opacity=".55" />
+        <rect x="65" y="31" width="20" height="5" rx="2" fill={p.steelDark} />
+        <rect x="65" y="41" width="20" height="5" rx="2" fill={p.steelDark} />
+        <rect x="65" y="51" width="14" height="5" rx="2" fill={p.steelDark} />
+        <path d="M31 64v8M89 64v8M23 35H13M107 50H97" stroke={p.line} strokeWidth="2" />
+      </SvgShell>
+    );
+  }
+
+  return null;
 };
 
 const VacuumDryerVisual = ({ values, dark = false }) => {
@@ -987,41 +1211,104 @@ export default function ProcessEquipmentVisual({
   monitoring = false,
   selected = false,
 
-  // Explicit application-level animation switch.
-  // Defaults ON so process motion remains visible even when
-  // the browser/OS has reduced-motion enabled.
   motionEnabled = true,
+  forceMotion = false,
+
+  rotation = 0,
+  medium = "steam",
+  customImageSrc = "",
 
   dark = false,
 }) {
   let visual = null;
+
+  const effectiveValues =
+    forceMotion &&
+    !hasIncomingData(values)
+      ? {
+          ...values,
+          __motion: 1,
+        }
+      : values;
+
   const active =
     motionEnabled &&
-    isEquipmentActive(type, values);
+    isEquipmentActive(
+      type,
+      effectiveValues
+    );
 
-  if (type === "boiler") visual = <BoilerVisual values={values} dark={dark} />;
-  else if (type === "sterilizer") visual = <SterilizerVisual values={values} dark={dark} />;
-  else if (["oil-tank", "process-tank", "tank"].includes(type)) visual = <ProcessTankVisual values={values} dark={dark} />;
-  else if (type === "pump") visual = <PumpVisual values={values} dark={dark} />;
-  else if (type === "valve") visual = <ValveVisual values={values} dark={dark} />;
-  else if (["heat-exchanger", "heatExchanger"].includes(type)) visual = <HeatExchangerVisual values={values} dark={dark} />;
-  else if (["thresher", "fruit-thresher"].includes(type)) visual = <ThresherVisual values={values} dark={dark} />;
-  else if (type === "digester") visual = <DigesterVisual values={values} dark={dark} />;
-  else if (["screw-press", "screwPress", "oil-press", "press"].includes(type)) visual = <ScrewPressVisual values={values} dark={dark} />;
-  else if (type === "clarifier") visual = <ClarifierVisual values={values} dark={dark} />;
-  else if (["oil-separator", "separator", "purifier"].includes(type)) visual = <OilSeparatorVisual values={values} dark={dark} />;
-  else if (type === "decanter") visual = <DecanterVisual values={values} dark={dark} />;
-  else if (["filter", "filter-press", "filterPress", "oil-filter"].includes(type)) visual = <FilterPressVisual values={values} dark={dark} />;
-  else if (["vacuum-dryer", "vacuumDryer"].includes(type)) visual = <VacuumDryerVisual values={values} dark={dark} />;
-  else if (type === "turbine") visual = <TurbineVisual values={values} dark={dark} />;
-  else if (["genset", "generator"].includes(type)) visual = <GensetVisual values={values} dark={dark} />;
-  else if (type === "conveyor") visual = <ConveyorVisual values={values} dark={dark} />;
+  if (isAssemblyComponentType(type)) {
+    visual = (
+      <ProcessAssemblyVisual
+        type={type}
+        rotation={rotation}
+        medium={medium}
+        dark={dark}
+        animate={motionEnabled && (forceMotion || hasIncomingData(effectiveValues))}
+      />
+    );
+  }
+  else if (type === "custom-equipment" && customImageSrc) {
+    visual = (
+      <div className="flex h-full w-full items-center justify-center p-1">
+        <img
+          src={customImageSrc}
+          alt="Custom equipment"
+          className="max-h-full max-w-full object-contain drop-shadow-md"
+          draggable={false}
+        />
+      </div>
+    );
+  }
+  else if (type === "boiler") visual = <BoilerVisual values={effectiveValues} dark={dark} />;
+  else if (type === "sterilizer") visual = <SterilizerVisual values={effectiveValues} dark={dark} />;
+  else if (["oil-tank", "process-tank", "tank"].includes(type)) visual = <ProcessTankVisual values={effectiveValues} dark={dark} />;
+  else if (type === "pump") visual = <PumpVisual values={effectiveValues} dark={dark} />;
+  else if (type === "valve") visual = <ValveVisual values={effectiveValues} dark={dark} />;
+  else if (["heat-exchanger", "heatExchanger"].includes(type)) visual = <HeatExchangerVisual values={effectiveValues} dark={dark} />;
+  else if (["thresher", "fruit-thresher"].includes(type)) visual = <ThresherVisual values={effectiveValues} dark={dark} />;
+  else if (type === "digester") visual = <DigesterVisual values={effectiveValues} dark={dark} />;
+  else if (["screw-press", "screwPress", "oil-press", "press"].includes(type)) visual = <ScrewPressVisual values={effectiveValues} dark={dark} />;
+  else if (type === "clarifier") visual = <ClarifierVisual values={effectiveValues} dark={dark} />;
+  else if (["oil-separator", "separator", "purifier"].includes(type)) visual = <OilSeparatorVisual values={effectiveValues} dark={dark} />;
+  else if (type === "decanter") visual = <DecanterVisual values={effectiveValues} dark={dark} />;
+  else if (["filter", "filter-press", "filterPress", "oil-filter"].includes(type)) visual = <FilterPressVisual values={effectiveValues} dark={dark} />;
+  else if (["vacuum-dryer", "vacuumDryer"].includes(type)) visual = <VacuumDryerVisual values={effectiveValues} dark={dark} />;
+  else if (type === "turbine") visual = <TurbineVisual values={effectiveValues} dark={dark} />;
+  else if (["genset", "generator"].includes(type)) visual = <GensetVisual values={effectiveValues} dark={dark} />;
+  else if (type === "conveyor") visual = <ConveyorVisual values={effectiveValues} dark={dark} />;
   else if (["palm-fruit-bunch", "fruit-bunch", "ffb"].includes(type)) visual = <PalmFruitBunchVisual dark={dark} />;
   else if (["palm-oil", "oil-output", "product-oil"].includes(type)) visual = <PalmOilProductVisual dark={dark} />;
-  else if (["junction", "pipeline-junction", "steam-header"].includes(type)) visual = <JunctionVisual values={values} dark={dark} />;
+  else if ([
+    "fruit-cage",
+    "stripper",
+    "vibrating-screen",
+    "nut-fibre-separator",
+    "nut-cracker",
+    "fibre-cyclone",
+    "shell-cyclone",
+    "winnower",
+    "claybath-separator",
+    "oil-purifier",
+    "tray-dryer",
+    "kernel-silo",
+    "crude-oil-tank",
+    "sludge-tank",
+    "empty-bunch-hopper",
+    "kernel",
+    "shell",
+    "fibre",
+    "press-liquor",
+    "condensate",
+    "custom-equipment",
+  ].includes(type)) visual = <ExtendedPalmEquipmentVisual type={type} values={effectiveValues} dark={dark} />;
+  else if (["junction", "pipeline-junction", "steam-header"].includes(type)) visual = <JunctionVisual values={effectiveValues} dark={dark} />;
   else {
     const active =
-      hasIncomingData(values);
+      hasIncomingData(
+        effectiveValues
+      );
 
     visual = (
       <div className="flex h-full w-full items-center justify-center">

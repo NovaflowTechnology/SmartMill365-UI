@@ -6,6 +6,10 @@ import {
 
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
+  LayoutGrid,
+  List,
   Plus,
   RefreshCw,
   Search,
@@ -156,6 +160,23 @@ export default function DeviceManagement({
   const isSuperadmin =
     role === "superadmin";
 
+  const isAdmin =
+    role === "admin";
+
+  const isEditor =
+    role === "editor";
+
+  const canViewDevices =
+    isSuperadmin ||
+    isAdmin ||
+    isEditor;
+
+  const currentOrgId =
+    localStorage.getItem("org_id");
+
+  const currentOrgName =
+    localStorage.getItem("org_name");
+
   const token =
     localStorage.getItem("token");
 
@@ -197,10 +218,34 @@ export default function DeviceManagement({
     useState("");
   const [assignmentSearch, setAssignmentSearch] =
     useState("");
+  const [viewMode, setViewMode] = useState(
+    () =>
+      localStorage.getItem("device_management_view") ||
+      "grid"
+  );
   const [discoverySearch, setDiscoverySearch] =
     useState("");
   const [error, setError] =
     useState("");
+
+  const [
+    channelsByDevice,
+    setChannelsByDevice,
+  ] = useState({});
+
+  const [
+    expandedChannelDevices,
+    setExpandedChannelDevices,
+  ] = useState({});
+
+  const toggleDeviceChannels = (key) => {
+    setExpandedChannelDevices(
+      (current) => ({
+        ...current,
+        [key]: !current[key],
+      })
+    );
+  };
 
   const headers = (
     json = false
@@ -236,7 +281,7 @@ export default function DeviceManagement({
   };
 
   const loadPage = async () => {
-    if (!isSuperadmin) {
+    if (!canViewDevices) {
       setLoading(false);
       return;
     }
@@ -245,49 +290,84 @@ export default function DeviceManagement({
     setError("");
 
     try {
-      const [
-        orgResponse,
-        assignmentResponse,
-      ] = await Promise.all([
-        fetch(
-          `${API_BASE_URL}/organizations`,
-          {
-            headers: headers(),
-          }
-        ),
-        fetch(
-          `${API_BASE_URL}/organization-influx-devices`,
-          {
-            headers: headers(),
-          }
-        ),
-      ]);
-
-      const [
-        orgData,
-        assignmentData,
-      ] = await Promise.all([
-        readPayload(
+      if (isSuperadmin) {
+        const [
           orgResponse,
-          "Failed to load organizations"
-        ),
-        readPayload(
           assignmentResponse,
-          "Failed to load device assignments"
-        ),
-      ]);
+        ] = await Promise.all([
+          fetch(
+            `${API_BASE_URL}/organizations`,
+            {
+              headers: headers(),
+            }
+          ),
+          fetch(
+            `${API_BASE_URL}/organization-influx-devices`,
+            {
+              headers: headers(),
+            }
+          ),
+        ]);
 
-      setOrganizations(
-        Array.isArray(orgData)
-          ? orgData
-          : []
-      );
+        const [
+          orgData,
+          assignmentData,
+        ] = await Promise.all([
+          readPayload(
+            orgResponse,
+            "Failed to load organizations"
+          ),
+          readPayload(
+            assignmentResponse,
+            "Failed to load device assignments"
+          ),
+        ]);
 
-      setAssignments(
-        Array.isArray(assignmentData)
-          ? assignmentData
-          : []
-      );
+        setOrganizations(
+          Array.isArray(orgData)
+            ? orgData
+            : []
+        );
+
+        setAssignments(
+          Array.isArray(assignmentData)
+            ? assignmentData
+            : []
+        );
+      } else {
+        const response = await fetch(
+          `${API_BASE_URL}/influx/allowed-devices`,
+          {
+            headers: headers(),
+          }
+        );
+
+        const assignmentData =
+          await readPayload(
+            response,
+            "Failed to load assigned devices"
+          );
+
+        setAssignments(
+          Array.isArray(assignmentData)
+            ? assignmentData
+            : []
+        );
+
+        setOrganizations(
+          currentOrgId
+            ? [
+                {
+                  id: Number(currentOrgId),
+                  name:
+                    currentOrgName ||
+                    assignmentData?.[0]?.org_name ||
+                    "My Organization",
+                },
+              ]
+            : []
+        );
+      }
     } catch (requestError) {
       setError(
         requestError.message ||
@@ -300,12 +380,158 @@ export default function DeviceManagement({
 
   useEffect(() => {
     loadPage();
-  }, [isSuperadmin]);
+  }, [
+    canViewDevices,
+    isSuperadmin,
+    currentOrgId,
+    currentOrgName,
+  ]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "device_management_view",
+      viewMode
+    );
+  }, [viewMode]);
 
   const deviceAssignments = useMemo(
     () => groupAssignmentRows(assignments),
     [assignments]
   );
+
+  useEffect(() => {
+    if (
+      !canViewDevices ||
+      deviceAssignments.length === 0
+    ) {
+      setChannelsByDevice({});
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    setChannelsByDevice((current) =>
+      Object.fromEntries(
+        deviceAssignments.map((item) => [
+          item.key,
+          {
+            loading: true,
+            channels:
+              current[item.key]?.channels ||
+              [],
+            error: "",
+          },
+        ])
+      )
+    );
+
+    const loadChannels = async () => {
+      const entries = await Promise.all(
+        deviceAssignments.map(
+          async (item) => {
+            try {
+              const responses =
+                await Promise.all(
+                  (
+                    item.measurement_names ||
+                    []
+                  ).map(
+                    async (
+                      measurement
+                    ) => {
+                      const params =
+                        new URLSearchParams({
+                          bucket:
+                            item.bucket_name ||
+                            "",
+                          measurement,
+                          tagKey:
+                            item.tag_key ||
+                            "id",
+                          tagValue:
+                            item.tag_value ||
+                            "",
+                        });
+
+                      const response =
+                        await fetch(
+                          `${API_BASE_URL}/influx/channels?${params.toString()}`,
+                          {
+                            headers: {
+                              Authorization:
+                                token,
+                            },
+                          }
+                        );
+
+                      const payload =
+                        await readPayload(
+                          response,
+                          "Failed to load channels"
+                        );
+
+                      return Array.isArray(
+                        payload?.channels
+                      )
+                        ? payload.channels
+                        : Array.isArray(
+                            payload?.fields
+                          )
+                        ? payload.fields
+                        : [];
+                    }
+                  )
+                );
+
+              const channels = [
+                ...new Set(
+                  responses
+                    .flat()
+                    .filter(Boolean)
+                ),
+              ].sort();
+
+              return [
+                item.key,
+                {
+                  loading: false,
+                  channels,
+                  error: "",
+                },
+              ];
+            } catch (requestError) {
+              return [
+                item.key,
+                {
+                  loading: false,
+                  channels: [],
+                  error:
+                    requestError.message ||
+                    "Channels unavailable",
+                },
+              ];
+            }
+          }
+        )
+      );
+
+      if (!cancelled) {
+        setChannelsByDevice(
+          Object.fromEntries(entries)
+        );
+      }
+    };
+
+    loadChannels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    canViewDevices,
+    deviceAssignments,
+    token,
+  ]);
 
   const filteredAssignments = useMemo(() => {
     const query = assignmentSearch
@@ -328,7 +554,9 @@ export default function DeviceManagement({
           item.org_name,
           item.tag_value,
           item.measurement_names?.join(" "),
-          item.bucket_name,
+          channelsByDevice[
+            item.key
+          ]?.channels?.join(" "),
         ]
           .filter(Boolean)
           .join(" ")
@@ -340,6 +568,7 @@ export default function DeviceManagement({
     deviceAssignments,
     assignmentOrgFilter,
     assignmentSearch,
+    channelsByDevice,
   ]);
 
   const groupedAssignments = useMemo(() => {
@@ -706,6 +935,8 @@ export default function DeviceManagement({
   const removeDeviceAssignment = async (
     item
   ) => {
+    if (!isSuperadmin) return;
+
     const confirmed = await confirmAction({
       title: "Remove device assignment?",
       message: `Remove Device ID ${item.tag_value} from ${item.org_name}?`,
@@ -756,11 +987,11 @@ export default function DeviceManagement({
     }
   };
 
-  if (!isSuperadmin) {
+  if (!canViewDevices) {
     return (
       <div className="p-3">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
-          Device Management is available to Superadmin.
+          Device Management is available to Superadmin, Admin, and Editor.
         </div>
       </div>
     );
@@ -768,7 +999,7 @@ export default function DeviceManagement({
 
   return (
     <div
-      className={`min-h-full w-full overflow-auto p-3 ${
+      className={`flex h-[calc(100vh-1.25rem)] min-h-0 w-full flex-col overflow-hidden p-3 ${
         dark
           ? "text-slate-100"
           : "text-slate-900"
@@ -801,37 +1032,47 @@ export default function DeviceManagement({
       <PageHeader
         icon={ServerCog}
         title="Device Management"
-        description="Follow the Influx source path to select the exact Device ID source and assign it to an organization."
-        className="mb-3"
+        description={
+          isSuperadmin
+            ? "View and assign industrial Device IDs to organizations."
+            : `View devices available to ${
+                currentOrgName ||
+                "your organization"
+              }.`
+        }
+        className="mb-3 shrink-0"
         actions={
-          <button
-            type="button"
-            onClick={openAssignModal}
-            className={
-              controlClasses.primary
-            }
-          >
-            <Plus size={14} />
-            Assign Device ID
-          </button>
+          isSuperadmin ? (
+            <button
+              type="button"
+              onClick={openAssignModal}
+              className={
+                controlClasses.primary
+              }
+            >
+              <Plus size={14} />
+              Assign Device ID
+            </button>
+          ) : null
         }
       />
 
       {error && (
-        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        <div className="mb-3 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           {error}
         </div>
       )}
 
       <div
-        className={`mb-4 rounded-2xl border px-4 py-4 shadow-sm ${
+        className={`mb-4 shrink-0 rounded-2xl border px-4 py-4 shadow-sm ${
           dark
             ? "border-slate-700 bg-slate-900"
             : "border-slate-200 bg-white"
         }`}
       >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-          <div className="w-full lg:w-[240px]">
+          {isSuperadmin ? (
+            <div className="w-full lg:w-[240px]">
             <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.08em] text-slate-400">
               Organization
             </label>
@@ -865,32 +1106,75 @@ export default function DeviceManagement({
               )}
             </select>
           </div>
+          ) : null}
 
           <div className="min-w-0 flex-1">
             <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.08em] text-slate-400">
               Search
             </label>
 
-            <div className="relative">
-              <Search
-                size={15}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
+            <div className="flex min-w-0 gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search
+                  size={15}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
 
-              <input
-                value={assignmentSearch}
-                onChange={(event) =>
-                  setAssignmentSearch(
-                    event.target.value
-                  )
-                }
-                placeholder="Search organization, Device ID, measurement, or bucket..."
-                className={`h-10 w-full rounded-xl border pl-10 pr-3 text-xs outline-none transition ${
+                <input
+                  value={assignmentSearch}
+                  onChange={(event) =>
+                    setAssignmentSearch(
+                      event.target.value
+                    )
+                  }
+                  placeholder={
+                    isSuperadmin
+                      ? "Search organization, Device ID, measurement, or channel..."
+                      : "Search Device ID, measurement, or channel..."
+                  }
+                  className={`h-10 w-full rounded-xl border pl-10 pr-3 text-xs outline-none transition ${
+                    dark
+                      ? "border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400"
+                      : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500"
+                  }`}
+                />
+              </div>
+
+              <div
+                className={`flex h-10 shrink-0 items-center rounded-xl border p-1 ${
                   dark
-                    ? "border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400"
-                    : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500"
+                    ? "border-slate-700 bg-slate-950"
+                    : "border-slate-300 bg-white"
                 }`}
-              />
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-bold transition ${
+                    viewMode === "grid"
+                      ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-300"
+                      : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  }`}
+                  title="Grid view"
+                >
+                  <LayoutGrid size={13} />
+                  <span className="hidden sm:inline">Grid</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-bold transition ${
+                    viewMode === "list"
+                      ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-300"
+                      : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  }`}
+                  title="List view"
+                >
+                  <List size={13} />
+                  <span className="hidden sm:inline">List</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -898,7 +1182,7 @@ export default function DeviceManagement({
 
       {loading ? (
         <div
-          className={`rounded-xl border p-8 text-center text-xs text-slate-400 ${
+          className={`flex min-h-0 flex-1 items-center justify-center rounded-xl border p-8 text-center text-xs text-slate-400 ${
             dark
               ? "border-slate-700 bg-slate-900"
               : "border-slate-200 bg-white"
@@ -908,7 +1192,7 @@ export default function DeviceManagement({
         </div>
       ) : groupedAssignments.length === 0 ? (
         <div
-          className={`rounded-xl border p-8 text-center text-xs text-slate-400 ${
+          className={`flex min-h-0 flex-1 items-center justify-center rounded-xl border p-8 text-center text-xs text-slate-400 ${
             dark
               ? "border-slate-700 bg-slate-900"
               : "border-slate-200 bg-white"
@@ -917,7 +1201,16 @@ export default function DeviceManagement({
           No Device ID assignments found.
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div
+            className={
+              viewMode === "grid"
+                ? isSuperadmin
+                  ? "grid gap-4 lg:grid-cols-2"
+                  : "grid grid-cols-1 gap-4"
+                : "grid grid-cols-1 gap-3"
+            }
+          >
           {groupedAssignments.map(
             (group, groupIndex) => {
 
@@ -926,29 +1219,17 @@ export default function DeviceManagement({
                   groupIndex
                 );
 
-              const uniqueBuckets = [
-                ...new Set(
-                  group.devices
-                    .map(
-                      (item) =>
-                        item.bucket_name
-                    )
-                    .filter(Boolean)
-                ),
-              ];
-
               return (
                 <section
                   key={group.key}
-                  className={`overflow-hidden rounded-2xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                  className={`overflow-hidden rounded-2xl border shadow-sm ${
                     dark
                       ? "border-slate-700 bg-slate-900"
                       : "border-slate-200 bg-white"
                   }`}
                 >
-                  {/* Colored organization header — always visible, never collapses */}
                   <div
-                    className={`flex w-full items-start justify-between gap-3 border-b bg-gradient-to-r px-4 py-3 text-left ${
+                    className={`flex w-full items-center justify-between gap-3 border-b bg-gradient-to-r px-4 py-3.5 text-left ${
                       dark
                         ? `${palette.dark} border-slate-700/80`
                         : `${palette.light} border-slate-200`
@@ -981,15 +1262,6 @@ export default function DeviceManagement({
                             {group.devices.length} {group.devices.length === 1 ? "Device" : "Devices"}
                           </span>
 
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
-                              dark
-                                ? "bg-slate-800/70 text-slate-300"
-                                : "bg-white/80 text-slate-600"
-                            }`}
-                          >
-                            {uniqueBuckets.length} {uniqueBuckets.length === 1 ? "Bucket" : "Buckets"}
-                          </span>
                         </div>
 
                         <p className="mt-1 text-[9px] text-slate-500 dark:text-slate-400">
@@ -999,13 +1271,12 @@ export default function DeviceManagement({
                     </div>
                   </div>
 
-                  {/* Device IDs are shown directly. Up to 6 are visible; extra devices scroll inside the organization card. */}
                   <div className="p-2.5">
                     <div
-                      className={`grid gap-1.5 sm:grid-cols-2 ${
-                        group.devices.length > 6
-                          ? "max-h-[382px] overflow-y-auto overscroll-contain pr-1 sm:max-h-[190px] device-group-scroll"
-                          : ""
+                      className={`grid items-start gap-3 ${
+                        viewMode === "list"
+                          ? "grid-cols-1"
+                          : "grid-cols-1 xl:grid-cols-2"
                       }`}
                     >
                       {group.devices.map((item) => {
@@ -1015,54 +1286,227 @@ export default function DeviceManagement({
                           (item.measurement_names?.length || 0) - 1
                         );
 
+                        const deviceType =
+                          primaryMeasurement
+                            ? getMeasurementGroup(
+                                primaryMeasurement
+                              )?.label ||
+                              "Unclassified"
+                            : "Unclassified";
+
+                        const channelState =
+                          channelsByDevice[
+                            item.key
+                          ] || {
+                            loading: true,
+                            channels: [],
+                            error: "",
+                          };
+
+                        const channelsExpanded =
+                          !isSuperadmin ||
+                          Boolean(
+                            expandedChannelDevices[
+                              item.key
+                            ]
+                          );
+
                         return (
                           <div
                             key={item.key}
-                            className={`group flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 transition ${
+                            className={`group relative flex min-h-[128px] min-w-0 flex-col rounded-xl border p-3 transition ${
                               dark
-                                ? "border-slate-800 bg-slate-950/55 hover:border-cyan-400/25 hover:bg-[#0E172D]"
+                                ? "border-slate-800 bg-slate-950/55 hover:border-cyan-400/25"
                                 : "border-slate-200 bg-slate-50/70 hover:border-cyan-200 hover:bg-white"
                             }`}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex min-w-0 items-center gap-1.5">
+                            <div className="flex min-h-0 flex-1 flex-col">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 pr-8">
                                 <p
-                                  className="min-w-0 truncate font-mono text-[10px] font-black text-cyan-700 dark:text-cyan-300"
+                                  className="min-w-0 truncate font-mono text-[11px] font-black text-cyan-700 dark:text-cyan-300"
                                   title={item.tag_value}
                                 >
                                   {item.tag_value}
                                 </p>
 
-                                {primaryMeasurement && (
+                                <span
+                                  className="
+                                    shrink-0 rounded-md
+                                    bg-sky-50 px-2 py-1
+                                    text-[8px] font-black
+                                    text-sky-700
+                                    dark:bg-sky-400/10
+                                    dark:text-sky-200
+                                  "
+                                  title="Detected device type"
+                                >
+                                  {deviceType}
+                                </span>
+                              </div>
+
+                              <div className="mt-2 flex min-h-[24px] items-center">
+                                {primaryMeasurement ? (
                                   <span
-                                    className="max-w-[42%] shrink-0 truncate rounded-md bg-violet-50 px-1.5 py-0.5 text-[7px] font-bold text-violet-700 dark:bg-violet-400/10 dark:text-violet-200"
+                                    className="max-w-full truncate rounded-md bg-violet-50 px-2 py-1 text-[8px] font-bold text-violet-700 dark:bg-violet-400/10 dark:text-violet-200"
                                     title={`Measurements: ${item.measurement_names.join(", ")}`}
                                   >
                                     {primaryMeasurement}
-                                    {extraMeasurementCount > 0 ? ` +${extraMeasurementCount}` : ""}
+                                    {extraMeasurementCount > 0
+                                      ? ` +${extraMeasurementCount}`
+                                      : ""}
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] text-slate-400">
+                                    No measurement
                                   </span>
                                 )}
                               </div>
 
-                              <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[7px] text-slate-400">
-                                <span className="min-w-0 truncate font-mono text-slate-500 dark:text-slate-400" title={item.bucket_name}>
-                                  {item.bucket_name}
-                                </span>
-                                <span>•</span>
-                                <span className="inline-flex shrink-0 items-center gap-1 font-bold text-cyan-700 dark:text-cyan-300">
-                                  <Check size={8} /> Assigned
-                                </span>
+                              <div className="mt-auto flex min-w-0 items-center justify-between gap-3 pt-2">
+                                <div className="flex min-w-0 items-center gap-2 text-[8px] text-slate-400">
+                                  <span className="inline-flex shrink-0 items-center gap-1 font-bold text-cyan-700 dark:text-cyan-300">
+                                    <Check size={8} />
+                                    Assigned
+                                  </span>
+
+                                  {!isSuperadmin && (
+                                    <>
+                                      <span>•</span>
+                                      <span>
+                                        {channelState.loading
+                                          ? "Loading channels..."
+                                          : `${channelState.channels.length} ${
+                                              channelState.channels.length === 1
+                                                ? "channel"
+                                                : "channels"
+                                            }`}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+
+                                {isSuperadmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      toggleDeviceChannels(
+                                        item.key
+                                      )
+                                    }
+                                    className="
+                                      inline-flex h-7 shrink-0
+                                      items-center gap-1.5
+                                      rounded-lg border
+                                      border-cyan-100
+                                      bg-cyan-50 px-2.5
+                                      text-[8px] font-bold
+                                      text-cyan-700
+                                      transition
+                                      hover:bg-cyan-100
+                                      dark:border-cyan-400/10
+                                      dark:bg-cyan-400/10
+                                      dark:text-cyan-200
+                                      dark:hover:bg-cyan-400/15
+                                    "
+                                    title={
+                                      channelsExpanded
+                                        ? "Hide channels"
+                                        : "Show channels"
+                                    }
+                                  >
+                                    {channelState.loading
+                                      ? "Loading..."
+                                      : `${channelState.channels.length} ${
+                                          channelState.channels.length === 1
+                                            ? "Channel"
+                                            : "Channels"
+                                        }`}
+
+                                    {channelsExpanded ? (
+                                      <ChevronUp size={11} />
+                                    ) : (
+                                      <ChevronDown size={11} />
+                                    )}
+                                  </button>
+                                )}
                               </div>
+
+                              {channelsExpanded && (
+                                <div className="mt-3 border-t border-slate-200 pt-2.5 dark:border-slate-800">
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <span className="text-[8px] font-black uppercase tracking-[0.08em] text-slate-400">
+                                      Channels
+                                    </span>
+
+                                    <span className="text-[8px] font-semibold text-slate-400">
+                                      {channelState.loading
+                                        ? "Loading..."
+                                        : `${channelState.channels.length} available`}
+                                    </span>
+                                  </div>
+
+                                  <div
+                                    className="grid grid-cols-2 gap-1.5"
+                                    title={
+                                      channelState.channels.join(
+                                        ", "
+                                      ) || undefined
+                                    }
+                                  >
+                                    {channelState.loading ? (
+                                      <span className="col-span-2 text-[8px] text-slate-400">
+                                        Discovering available channels…
+                                      </span>
+                                    ) : channelState.channels.length > 0 ? (
+                                      channelState.channels.map(
+                                        (channel) => (
+                                          <span
+                                            key={channel}
+                                            className="
+                                              min-w-0 truncate
+                                              rounded-lg
+                                              border border-cyan-100
+                                              bg-cyan-50
+                                              px-2 py-1.5
+                                              font-mono text-[8px]
+                                              font-semibold
+                                              text-cyan-700
+                                              dark:border-cyan-400/10
+                                              dark:bg-cyan-400/10
+                                              dark:text-cyan-200
+                                            "
+                                            title={channel}
+                                          >
+                                            {channel}
+                                          </span>
+                                        )
+                                      )
+                                    ) : (
+                                      <span className="col-span-2 text-[8px] text-slate-400">
+                                        {channelState.error
+                                          ? "Channels unavailable"
+                                          : "No channels found"}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => removeDeviceAssignment(item)}
-                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-65 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-500/10"
-                              title={`Remove ${item.tag_value} from ${group.org_name}`}
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                            {isSuperadmin ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removeDeviceAssignment(
+                                    item
+                                  )
+                                }
+                                className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 opacity-65 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-500/10"
+                                title={`Remove ${item.tag_value} from ${group.org_name}`}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            ) : null}
                           </div>
                         );
                       })}
@@ -1072,10 +1516,11 @@ export default function DeviceManagement({
               );
             }
           )}
+          </div>
         </div>
       )}
 
-      {showAssignModal && (
+      {isSuperadmin && showAssignModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3"
           onClick={() =>

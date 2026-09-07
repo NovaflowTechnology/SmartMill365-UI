@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Wand2 } from "lucide-react";
+import { Image as ImageIcon, Upload, Wand2, X } from "lucide-react";
 import ProcessEquipmentVisual from "../process/ProcessEquipmentVisual";
 import {
   EQUIPMENT_BY_TYPE,
@@ -73,6 +73,17 @@ const metricLabel = (metric) =>
       character.toUpperCase()
     );
 
+const MAX_EQUIPMENT_IMAGE_SIZE = 4 * 1024 * 1024;
+
+const readImageFile = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () =>
+      reject(reader.error || new Error("Unable to read image."));
+    reader.readAsDataURL(file);
+  });
+
 export default function ProcessEquipmentSettings({
   config = DEFAULT_PROCESS_EQUIPMENT_CONFIG,
   onChange = () => {},
@@ -87,9 +98,6 @@ export default function ProcessEquipmentSettings({
   const [equipmentCategory, setEquipmentCategory] =
     useState("all");
 
-  // The settings sidebar can be resized by the Widget Studio divider.
-  // Observe the real available width so the equipment chooser never
-  // squeezes labels into one-character-per-line columns.
   const equipmentPickerRef = useRef(null);
   const [equipmentPickerWidth, setEquipmentPickerWidth] = useState(0);
 
@@ -208,6 +216,8 @@ export default function ProcessEquipmentSettings({
     patch({
       equipmentType,
       metricBindings,
+      customImageSrc: "",
+      customImageName: "",
       primaryMetricId: validIds.has(
         normalized.primaryMetricId
       )
@@ -337,6 +347,38 @@ export default function ProcessEquipmentSettings({
     patch({
       statusMetricId: metricId,
       metricBindings,
+    });
+  };
+
+  const handleEquipmentImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type?.startsWith("image/")) {
+      return;
+    }
+
+    if (file.size > MAX_EQUIPMENT_IMAGE_SIZE) {
+      return;
+    }
+
+    try {
+      const customImageSrc = await readImageFile(file);
+      patch({
+        customImageSrc,
+        customImageName: file.name,
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const clearEquipmentImage = () => {
+    patch({
+      customImageSrc: "",
+      customImageName: "",
     });
   };
 
@@ -471,6 +513,73 @@ export default function ProcessEquipmentSettings({
               </button>
             );
           })}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-[#0B1328]">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h4 className="text-xs font-black text-slate-900 dark:text-white">
+              Equipment Skin
+            </h4>
+            <p className="mt-0.5 text-[9px] leading-4 text-slate-400">
+              Upload a skin for the selected built-in equipment, or choose Custom Image Equipment above to create a fully custom visual.
+            </p>
+          </div>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-300">
+            <ImageIcon size={16} />
+          </div>
+        </div>
+
+        {normalized.customImageSrc ? (
+          <div className="mb-3 flex min-h-[108px] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+            <img
+              src={normalized.customImageSrc}
+              alt={normalized.customImageName || definition.label || "Equipment skin"}
+              className="max-h-28 w-full object-contain"
+              draggable={false}
+            />
+          </div>
+        ) : (
+          <div className="mb-3 flex min-h-[108px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+            <div className="h-24 w-32">
+              <ProcessEquipmentVisual
+                type={normalized.equipmentType}
+                values={{}}
+                monitoring={false}
+                dark={
+                  typeof document !== "undefined" &&
+                  document.documentElement.classList.contains("dark")
+                }
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-[9px] font-bold text-cyan-700 transition hover:bg-cyan-100 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-200">
+            <Upload size={12} />
+            {normalized.customImageSrc ? "Replace skin" : "Upload skin"}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleEquipmentImageUpload}
+              className="hidden"
+            />
+          </label>
+
+          {normalized.customImageSrc ? (
+            <button
+              type="button"
+              onClick={clearEquipmentImage}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[9px] font-bold text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            >
+              <X size={12} />
+              Use built-in visual
+            </button>
+          ) : null}
+
+          <span className="text-[8px] text-slate-400">PNG / JPG / WEBP · max 4 MB</span>
         </div>
       </div>
 

@@ -931,7 +931,7 @@ export default function TemplateList({
   if (loading) {
     return (
       <div
-        className={`h-full flex items-center justify-center ${isDark ? "bg-[#081022] text-slate-100" : ""}`}
+        className={`h-full flex items-center justify-center ${isDark ? "text-slate-100" : ""}`}
       >
         <div className="text-center">
           <div
@@ -960,8 +960,8 @@ export default function TemplateList({
   // =====================================
   return (
     <div
-      className={`template-list-page min-h-full w-full overflow-auto p-3 ${
-        isDark ? "template-list-dark bg-[#081022] text-slate-100" : "bg-transparent"
+      className={`template-list-page flex h-[calc(100vh-1.25rem)] min-h-0 w-full flex-col overflow-hidden p-3 ${
+        isDark ? "template-list-dark text-slate-100" : ""
       }`}
     >
       {isDark && (
@@ -1073,7 +1073,7 @@ export default function TemplateList({
 
           /* Template cards: real dark surfaces, not dimmed light surfaces */
           .template-list-dark .template-library-grid {
-            background: #050C1A !important;
+            background: transparent !important;
           }
 
           .template-list-dark .template-card {
@@ -1202,7 +1202,7 @@ export default function TemplateList({
             ? "Manage templates, organization assignments, and favourite dashboards."
             : "Choose from assigned templates and set your favourite default dashboard."
         }
-        className="mb-3"
+        className="mb-3 shrink-0"
         actions={
           canCreateOrEdit ? (
             <button
@@ -1223,7 +1223,7 @@ export default function TemplateList({
       {isSuperadmin ? (
         <div
           className="
-            mb-3 grid grid-cols-1
+            mb-3 grid shrink-0 grid-cols-1
             gap-2 md:grid-cols-3
           "
         >
@@ -1251,7 +1251,7 @@ export default function TemplateList({
       ) : (
         <div
           className="
-            mb-3 grid grid-cols-1
+            mb-3 grid shrink-0 grid-cols-1
             gap-2 md:grid-cols-2
           "
         >
@@ -1283,7 +1283,7 @@ export default function TemplateList({
       {/* TEMPLATE LIBRARY TOOLBAR */}
       <div
         className="
-          mb-3 rounded-xl
+          mb-3 shrink-0 rounded-xl
           border border-slate-200
           bg-white p-3 shadow-sm
           dark:border-slate-700
@@ -1428,10 +1428,12 @@ export default function TemplateList({
       {!filteredTemplates.length ? (
         <div
           className="
+            flex min-h-0 flex-1
+            flex-col items-center
+            justify-center
             bg-white dark:bg-gray-800
             rounded-xl
             p-12
-            shadow-xl
             text-center
             border border-gray-200
             dark:border-gray-700
@@ -1465,27 +1467,27 @@ export default function TemplateList({
           </p>
         </div>
       ) : (
-        <div
-          className={
-            viewMode === "grid"
-              ? `
-                  template-library-grid
-                  mx-auto grid w-full
-                  max-w-[1380px]
-                  grid-cols-1
-                  xl:grid-cols-2
-                  gap-3
-                  rounded-xl
-                  bg-[#DCE8F5]
-                  p-2.5
-                  dark:bg-[#050C1A]
-                `
-              : `
-                  flex flex-col
-                  gap-3
-                `
-          }
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pb-2 pt-1">
+          <div
+            className={
+              viewMode === "grid"
+                ? `
+                    template-library-grid
+                    grid w-full
+                    max-w-none
+                    grid-cols-1
+                    xl:grid-cols-2
+                    gap-4
+                    bg-transparent
+                    p-0
+                    dark:bg-transparent
+                  `
+                : `
+                    flex flex-col
+                    gap-3
+                  `
+            }
+          >
           {filteredTemplates.map((t) => {
             let layout = {};
 
@@ -1625,7 +1627,7 @@ export default function TemplateList({
                   group relative
                   rounded-xl
                   shadow-[0_8px_24px_rgba(2,12,27,0.16)]
-                  p-2.5
+                  p-3
                   transition-all duration-200
                   hover:-translate-y-0.5
                   hover:shadow-[0_12px_28px_rgba(2,12,27,0.22)]
@@ -1652,7 +1654,7 @@ export default function TemplateList({
                 <div
                   className={`
                     template-card-header
-                    -mx-2.5 -mt-2.5
+                    -mx-3 -mt-3
                     flex items-start
                     justify-between gap-4
                     rounded-t-xl border-b
@@ -2543,6 +2545,7 @@ export default function TemplateList({
               </div>
             );
           })}
+          </div>
         </div>
       )}
 

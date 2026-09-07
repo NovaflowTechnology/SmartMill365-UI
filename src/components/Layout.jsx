@@ -12,7 +12,6 @@ import {
   Sun,
   Monitor,
   ShieldCheck,
-  Leaf,
   Settings,
   ChevronDown,
   ServerCog,
@@ -91,12 +90,14 @@ export default function Layout({
       description: "Manage dashboards",
       icon: Folder,
     },
-    ...(isSuperadmin
+    ...(isSuperadmin || isAdmin || isEditor
       ? [
           {
             key: "device-management",
             label: "Device Management",
-            description: "Assign device access",
+            description: isSuperadmin
+              ? "Assign device access"
+              : "View assigned devices",
             icon: ServerCog,
           },
         ]
@@ -141,13 +142,13 @@ export default function Layout({
 
           ${
             isActive
-              ? "bg-[#13213b] text-white"
+              ? "bg-[#0D2A49] text-white"
               : `
                   text-slate-300
                   hover:bg-gradient-to-r
-                  hover:from-cyan-500/20
-                  hover:via-blue-500/15
-                  hover:to-violet-500/15
+                  hover:from-cyan-400/18
+                  hover:via-blue-500/16
+                  hover:to-blue-600/10
                   hover:text-white
                 `
           }
@@ -190,21 +191,21 @@ export default function Layout({
     <div
       className={`
         app-shell flex h-screen
-        ${dark ? "bg-[#0B1328]" : "bg-[#eef1f5]"}
+        ${dark ? "bg-[#061426]" : "bg-[#edf3f8]"}
       `}
     >
       {showSidebar && !fullscreen && (
         <aside
           className={`
             app-sidebar relative flex flex-col overflow-hidden
-            border-r border-[#2c3c61] bg-[#081022]
+            border-r border-[#24435f] bg-[#061426]
             transition-[width] duration-300 ease-out
             ${collapsed ? "w-14" : "w-[14.5rem]"}
           `}
         >
           <div
             className={`
-              relative z-10 border-b border-[#2c3c61]
+              relative z-10 border-b border-[#24435f]
               ${
                 collapsed
                   ? "flex flex-col items-center gap-2 px-0 py-3"
@@ -218,7 +219,7 @@ export default function Layout({
                   <div
                     className="
                       flex h-9 w-9 shrink-0 items-center justify-center
-                      rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-sm
+                      rounded-xl bg-gradient-to-br from-[#245EC5] to-[#35C9F4] shadow-sm
                     "
                   >
                     <Monitor size={15} strokeWidth={2} className="text-white" />
@@ -247,7 +248,7 @@ export default function Layout({
               <div
                 className="
                   flex h-9 w-9 items-center justify-center
-                  rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 shadow-sm
+                  rounded-xl bg-gradient-to-br from-[#245EC5] to-[#35C9F4] shadow-sm
                 "
                 title="UI Template System"
               >
@@ -260,7 +261,7 @@ export default function Layout({
               className="
                 flex h-8 w-8 shrink-0 items-center justify-center
                 rounded-lg text-slate-400
-                transition-colors hover:bg-[#182641] hover:text-white
+                transition-colors hover:bg-[#102B49] hover:text-white
               "
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -277,17 +278,17 @@ export default function Layout({
               className="
                 relative z-10 mx-3 mt-3
                 flex items-center gap-2.5
-                rounded-xl border border-[#2c3c61]
-                bg-[#111b34] px-3 py-2.5
+                rounded-xl border border-[#24435f]
+                bg-[#0B1F38] px-3 py-2.5
               "
             >
               <div
                 className="
                   flex h-8 w-8 shrink-0 items-center justify-center
-                  rounded-lg bg-[#182641] text-cyan-300
+                  rounded-lg bg-[#102B49] text-cyan-300
                 "
               >
-                <Leaf size={14} strokeWidth={2} />
+                <Factory size={14} strokeWidth={2} />
               </div>
 
               <div className="min-w-0 flex-1">
@@ -326,13 +327,13 @@ export default function Layout({
                     text-[12px] font-semibold transition-colors
                     ${
                       isSettingActive
-                        ? "bg-[#13213b] text-white"
+                        ? "bg-[#0D2A49] text-white"
                         : `
                             text-slate-300
                             hover:bg-gradient-to-r
                             hover:from-cyan-500/20
                             hover:via-blue-500/15
-                            hover:to-violet-500/15
+                            hover:to-blue-600/10
                             hover:text-white
                           `
                     }
@@ -378,8 +379,8 @@ export default function Layout({
                     rounded-xl transition-colors
                     ${
                       isSettingActive
-                        ? "bg-[#182641] text-cyan-300"
-                        : "text-slate-400 hover:bg-[#182641] hover:text-white"
+                        ? "bg-[#102B49] text-cyan-300"
+                        : "text-slate-400 hover:bg-[#102B49] hover:text-white"
                     }
                   `}
                   title="Setting"
@@ -392,10 +393,10 @@ export default function Layout({
             )}
           </nav>
 
-          <div className="relative z-10 mt-auto border-t border-[#2c3c61] p-2.5">
+          <div className="relative z-10 mt-auto border-t border-[#24435f] p-2.5">
             {!collapsed && (
               <div className="mb-2 flex items-center gap-2.5 px-1 py-1">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#182641]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#102B49]">
                   <ShieldCheck
                     size={14}
                     strokeWidth={2}
@@ -418,9 +419,9 @@ export default function Layout({
               onClick={toggleTheme}
               className={`
                 flex items-center justify-center gap-2
-                rounded-xl border border-[#2c3c61]
-                bg-[#111b34] text-[11px] text-slate-200
-                transition-colors hover:bg-[#182641]
+                rounded-xl border border-[#24435f]
+                bg-[#0B1F38] text-[11px] text-slate-200
+                transition-colors hover:bg-[#102B49]
                 ${
                   collapsed
                     ? "mx-auto mb-2 h-9 w-9 p-0"
@@ -442,8 +443,8 @@ export default function Layout({
               onClick={handleLogout}
               className={`
                 flex items-center justify-center gap-2
-                rounded-xl bg-[#ff6f88] text-[11px] text-white
-                shadow-sm transition-colors hover:bg-[#ff5c77]
+                rounded-xl bg-[#E93F4B] text-[11px] text-white
+                shadow-sm transition-colors hover:bg-[#D9323E]
                 ${
                   collapsed
                     ? "mx-auto h-9 w-9 p-0"
@@ -462,7 +463,7 @@ export default function Layout({
       <main
         className={`
           app-main min-w-0 flex-1 overflow-auto transition-colors duration-150
-          ${dark ? "bg-[#0b1328]" : "bg-[#eef1f5]"}
+          ${dark ? "bg-[#061426]" : "bg-[#edf3f8]"}
         `}
       >
         <div className="min-h-full p-2.5">

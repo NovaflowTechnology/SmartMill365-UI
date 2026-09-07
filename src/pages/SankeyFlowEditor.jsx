@@ -13,6 +13,9 @@ import {
   Copy,
   Database,
   Eye,
+  Maximize2,
+  ZoomIn,
+  ZoomOut,
   GitBranch,
   Link2,
   Moon,
@@ -668,20 +671,71 @@ export default function SankeyFlowEditor({
       unit:
         normalized.unit || "psi",
       nodes: normalized.nodes.map(
-        (node, index) => ({
-          ...node,
-          color: normalizeHexColor(
-            node.color,
-            SANKEY_COLOR_PRESETS[
-              index %
-                SANKEY_COLOR_PRESETS.length
-            ]
-          ),
-          tier: normalizeTier(node.tier, 1),
-          editorPosition:
-            rawPositions.get(node.id) ||
-            null,
-        })
+        (node, index) => {
+          const existingChannel =
+            node.dataSource
+              ?.field ||
+            node.dataSource
+              ?.channel ||
+            "";
+
+          const matchedSource =
+            initialManagedDataOptions.find(
+              (option) =>
+                option.key ===
+                  node.dataKey ||
+                (
+                  existingChannel &&
+                  (
+                    option.source
+                      ?.field ||
+                    option.source
+                      ?.channel
+                  ) ===
+                    existingChannel &&
+                  (
+                    !node.dataSource
+                      ?.tagValue ||
+                    option.source
+                      ?.tagValue ===
+                      node.dataSource
+                        ?.tagValue
+                  )
+                )
+            );
+
+          return {
+            ...node,
+            dataKey:
+              matchedSource?.key ||
+              node.dataKey ||
+              "",
+            dataSource:
+              matchedSource?.source
+                ? {
+                    ...matchedSource.source,
+                  }
+                : {
+                    ...(node.dataSource ||
+                      {}),
+                  },
+            color: normalizeHexColor(
+              node.color,
+              SANKEY_COLOR_PRESETS[
+                index %
+                  SANKEY_COLOR_PRESETS.length
+              ]
+            ),
+            tier: normalizeTier(
+              node.tier,
+              1
+            ),
+            editorPosition:
+              rawPositions.get(
+                node.id
+              ) || null,
+          };
+        }
       ),
       links: normalized.links.map(
         (link, index) => {
@@ -820,6 +874,13 @@ export default function SankeyFlowEditor({
     setSourceEditorError,
   ] = useState("");
 
+  // When a source is created from a specific terminal flow, remember that
+  // flow so the newly created source can be assigned automatically.
+  const [
+    pendingSourceAssignmentLinkId,
+    setPendingSourceAssignmentLinkId,
+  ] = useState("");
+
   const safeNodes = Array.isArray(
     config.nodes
   )
@@ -908,6 +969,34 @@ export default function SankeyFlowEditor({
 
   const [viewMode, setViewMode] =
     useState("graph");
+  const [graphZoom, setGraphZoom] = useState(1);
+  const [previewSize, setPreviewSize] = useState("fit");
+  const previewDimensions = { "1x1": [360, 240], "2x1": [720, 240], "2x2": [720, 480] }[previewSize];
+
+  const changeGraphZoom = (next) => {
+    const viewport = canvasViewportRef.current;
+    const zoom = clamp(next, .25, 1.5);
+    const centerX = viewport ? (viewport.scrollLeft + viewport.clientWidth / 2) / graphZoom : 0;
+    const centerY = viewport ? (viewport.scrollTop + viewport.clientHeight / 2) / graphZoom : 0;
+    setGraphZoom(zoom);
+    window.requestAnimationFrame(() => viewport?.scrollTo({
+      left: centerX * zoom - viewport.clientWidth / 2,
+      top: centerY * zoom - viewport.clientHeight / 2,
+    }));
+  };
+
+  const fitGraph = () => {
+    const viewport = canvasViewportRef.current;
+    const points = Object.values(positions);
+    if (!viewport || !points.length) return;
+    const left = Math.max(0, Math.min(...points.map((point) => point.x)) - 32);
+    const top = Math.max(0, Math.min(...points.map((point) => point.y)) - 64);
+    const width = Math.max(...points.map((point) => point.x)) + NODE_WIDTH + 32 - left;
+    const height = Math.max(...points.map((point) => point.y)) + NODE_HEIGHT + 32 - top;
+    const zoom = clamp(Math.min(viewport.clientWidth / width, viewport.clientHeight / height), .25, 1.25);
+    setGraphZoom(zoom);
+    window.requestAnimationFrame(() => viewport.scrollTo({ left: left * zoom, top: top * zoom }));
+  };
 
   const [availableChannels, setAvailableChannels] =
     useState([]);
@@ -939,6 +1028,15 @@ export default function SankeyFlowEditor({
         safeLinks
       ),
     [safeNodes, safeLinks]
+  );
+
+  const terminalLinks = useMemo(
+    () =>
+      safeLinks.filter(
+        (link) =>
+          (outgoingCounts.get(link.target) || 0) === 0
+      ),
+    [safeLinks, outgoingCounts]
   );
 
   const selectedNode =
@@ -1421,6 +1519,7 @@ export default function SankeyFlowEditor({
   };
 
   const openAddSource = () => {
+    setPendingSourceAssignmentLinkId("");
     setSourceEditorMode(
       "add"
     );
@@ -1428,6 +1527,16 @@ export default function SankeyFlowEditor({
     setSourceDraft(
       makeEmptySourceDraft()
     );
+    setSourceChannels([]);
+    setSourceEditorError("");
+    setShowSourceEditor(true);
+  };
+
+  const openAddSourceForLink = (linkId) => {
+    setPendingSourceAssignmentLinkId(linkId || "");
+    setSourceEditorMode("add");
+    setEditingSourceKey("");
+    setSourceDraft(makeEmptySourceDraft());
     setSourceChannels([]);
     setSourceEditorError("");
     setShowSourceEditor(true);
@@ -1799,9 +1908,25 @@ export default function SankeyFlowEditor({
         ]
       );
 
+      // If this source was added from a terminal-flow assignment row,
+      // connect it immediately so the user does not need to find the flow
+      // again and select the source manually.
+      if (pendingSourceAssignmentLinkId) {
+        updateLink(
+          pendingSourceAssignmentLinkId,
+          {
+            dataKey: created.key,
+            dataSource: {
+              ...created.source,
+            },
+          }
+        );
+      }
+
       notify(
-        sourceEditorMode ===
-          "copy"
+        pendingSourceAssignmentLinkId
+          ? "Data source added and assigned to the terminal flow."
+          : sourceEditorMode === "copy"
           ? "Data source copied."
           : "Data source added.",
         "success"
@@ -1811,6 +1936,7 @@ export default function SankeyFlowEditor({
     setShowSourceEditor(
       false
     );
+    setPendingSourceAssignmentLinkId("");
     setSourceEditorMode(
       "add"
     );
@@ -1882,6 +2008,43 @@ export default function SankeyFlowEditor({
 
     updateLink(
       linkId,
+      {
+        dataKey:
+          option.key,
+        dataSource: {
+          ...option.source,
+        },
+      }
+    );
+  };
+
+  const setNodeDataSourceKey = (
+    nodeId,
+    key
+  ) => {
+    if (!key) {
+      updateNode(
+        nodeId,
+        {
+          dataKey: "",
+          dataSource: {},
+        }
+      );
+      return;
+    }
+
+    const option =
+      managedDataOptions.find(
+        (item) =>
+          item.key === key
+      );
+
+    if (!option) {
+      return;
+    }
+
+    updateNode(
+      nodeId,
       {
         dataKey:
           option.key,
@@ -1989,14 +2152,14 @@ export default function SankeyFlowEditor({
         ...current,
         [dragging.nodeId]: {
           x: clamp(
-            dragging.startX + dx,
+            dragging.startX + dx / graphZoom,
             20,
             GRAPH_WIDTH -
               NODE_WIDTH -
               20
           ),
           y: clamp(
-            dragging.startY + dy,
+            dragging.startY + dy / graphZoom,
             20,
             GRAPH_HEIGHT -
               NODE_HEIGHT -
@@ -2031,7 +2194,7 @@ export default function SankeyFlowEditor({
         handleUp
       );
     };
-  }, [dragging]);
+  }, [dragging, graphZoom]);
 
   const handlePortClick = (
     nodeId,
@@ -2203,27 +2366,53 @@ export default function SankeyFlowEditor({
   const handleSave = () => {
     const cleanNodes =
       safeNodes.map(
-        (node, index) => ({
-          id:
-            node.id ||
-            createId(
-              `node-${index + 1}`
-            ),
-          name:
-            String(
-              node.name || ""
-            ).trim() ||
-            `Node ${index + 1}`,
-          color:
-            normalizeHexColor(
-              node.color,
-              SANKEY_COLOR_PRESETS[
-                index %
-                  SANKEY_COLOR_PRESETS.length
-              ]
-            ),
-          tier: normalizeTier(node.tier, 1),
-        })
+        (node, index) => {
+          const connectedSource =
+            managedDataOptions.find(
+              (option) =>
+                option.key ===
+                node.dataKey
+            );
+
+          return {
+            id:
+              node.id ||
+              createId(
+                `node-${index + 1}`
+              ),
+            name:
+              String(
+                node.name || ""
+              ).trim() ||
+              `Node ${index + 1}`,
+            color:
+              normalizeHexColor(
+                node.color,
+                SANKEY_COLOR_PRESETS[
+                  index %
+                    SANKEY_COLOR_PRESETS.length
+                ]
+              ),
+            tier:
+              normalizeTier(
+                node.tier,
+                1
+              ),
+            dataKey:
+              connectedSource?.key ||
+              node.dataKey ||
+              "",
+            dataSource:
+              connectedSource?.source
+                ? {
+                    ...connectedSource.source,
+                  }
+                : {
+                    ...(node.dataSource ||
+                      {}),
+                  },
+          };
+        }
       );
 
     const validNodeIds =
@@ -2320,33 +2509,9 @@ export default function SankeyFlowEditor({
       }
     }
 
-    const terminalNodeIds =
-      new Set(
-        cleanNodes
-          .filter(
-            (node) =>
-              !cleanLinks.some(
-                (link) =>
-                  link.source ===
-                  node.id
-              )
-          )
-          .map(
-            (node) => node.id
-          )
-      );
-
-    const unmappedTerminalLinks =
+    const mappedFlowCount =
       cleanLinks.filter(
         (link) => {
-          if (
-            !terminalNodeIds.has(
-              link.target
-            )
-          ) {
-            return false;
-          }
-
           const connectedOption =
             managedDataOptions.find(
               (option) =>
@@ -2359,35 +2524,27 @@ export default function SankeyFlowEditor({
             link.dataSource ||
             {};
 
-          const hasCompleteSource =
-            Boolean(
+          return Boolean(
+            link.dataKey ||
+            (
               source.bucket &&
-                source.measurement &&
-                (
-                  source.tagValue ||
-                  source.id
-                ) &&
-                (
-                  source.field ||
-                  source.channel
-                )
-            );
-
-          return !hasCompleteSource;
+              source.measurement &&
+              (
+                source.tagValue ||
+                source.id
+              ) &&
+              (
+                source.field ||
+                source.channel
+              )
+            )
+          );
         }
-      );
+      ).length;
 
-    if (
-      unmappedTerminalLinks.length >
-      0
-    ) {
+    if (mappedFlowCount === 0) {
       notify(
-        `${unmappedTerminalLinks.length} terminal flow${
-          unmappedTerminalLinks.length ===
-          1
-            ? " still needs"
-            : "s still need"
-        } a connected data source. Assign a source before saving the Sankey.`,
+        "Assign at least one connected data source to a Sankey flow before saving.",
         "warning"
       );
       return;
@@ -2537,9 +2694,9 @@ export default function SankeyFlowEditor({
         }
       `}</style>
 
-      <div className="grid h-full min-h-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(360px,1fr)_minmax(220px,0.6fr)] lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
         <main className="flex min-h-0 flex-col border-r border-slate-200 bg-slate-50 p-3 dark:border-[#2C3C61] dark:bg-[#081022]">
-          <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-[#2C3C61] dark:bg-[#111B34]">
+          <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2 dark:border-[#2C3C61] dark:bg-[#111B34]">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 type="button"
@@ -2568,7 +2725,7 @@ export default function SankeyFlowEditor({
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden rounded-xl border border-slate-200 bg-slate-50 p-1 md:flex dark:border-[#2C3C61] dark:bg-[#0B1328]">
+              <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-[#2C3C61] dark:bg-[#0B1328]">
                 <button
                   type="button"
                   onClick={() =>
@@ -2638,7 +2795,17 @@ export default function SankeyFlowEditor({
           </div>
 
           {viewMode === "preview" ? (
-            <div className="min-h-0 flex-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <div className="flex shrink-0 gap-1" role="group" aria-label="Preview size">
+                {["fit", "1x1", "2x1", "2x2"].map((value) => (
+                  <button key={value} type="button" aria-pressed={previewSize === value} onClick={() => setPreviewSize(value)}
+                    className={`rounded-md border px-3 py-1.5 text-xs ${previewSize === value ? "border-cyan-500 bg-cyan-50 text-cyan-800" : "border-slate-300 text-slate-500"}`}>
+                    {value === "fit" ? "Fit" : value}
+                  </button>
+                ))}
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto">
+              <div style={{ width: previewDimensions?.[0] || "100%", height: previewDimensions?.[1] || "100%", maxWidth: "100%" }}>
               <SankeyWidget
                 data={previewValues}
                 item={{
@@ -2651,9 +2818,17 @@ export default function SankeyFlowEditor({
                   isBuilderPreview: true,
                 }}
               />
+              </div>
+              </div>
             </div>
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-[#2C3C61] dark:bg-[#0B1328]">
+              <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-[#2C3C61] dark:bg-[#111B34]">
+                <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => changeGraphZoom(graphZoom - .1)} className="p-2"><ZoomOut size={15} /></button>
+                <span className="w-10 text-center text-[11px] tabular-nums">{Math.round(graphZoom * 100)}%</span>
+                <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => changeGraphZoom(graphZoom + .1)} className="p-2"><ZoomIn size={15} /></button>
+                <button type="button" title="Fit graph" aria-label="Fit graph" onClick={fitGraph} className="p-2"><Maximize2 size={15} /></button>
+              </div>
               <div className="absolute left-3 top-3 z-30 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -2739,11 +2914,14 @@ export default function SankeyFlowEditor({
                 ref={canvasViewportRef}
                 className="h-full overflow-auto"
               >
+                <div style={{ width: GRAPH_WIDTH * graphZoom, height: GRAPH_HEIGHT * graphZoom }}>
                 <div
                   className="sankey-editor-grid relative"
                   style={{
                     width: GRAPH_WIDTH,
                     height: GRAPH_HEIGHT,
+                    transform: `scale(${graphZoom})`,
+                    transformOrigin: "top left",
                   }}
                   onPointerDown={() => {
                     setSelectedNodeId(null);
@@ -3033,6 +3211,7 @@ export default function SankeyFlowEditor({
                     }
                   )}
                 </div>
+                </div>
               </div>
             </div>
           )}
@@ -3050,6 +3229,8 @@ export default function SankeyFlowEditor({
           </div>
 
           <div className="space-y-3 p-4">
+            <details>
+              <summary className="cursor-pointer py-2 text-xs font-semibold">Data Sources</summary>
             <div
               className={`rounded-xl border p-3 ${
                 mappingReady
@@ -3136,56 +3317,40 @@ export default function SankeyFlowEditor({
             </div>
 
             <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[#2C3C61] dark:bg-[#111B34]">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Connected Data Sources
-                  </p>
-                  <p className="mt-1 text-[9px] leading-4 text-slate-400">
-                    These sources are shared with Template Designer and can be assigned to Sankey terminal flows.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={openAddSource}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-cyan-500 px-2.5 text-[9px] font-black text-white hover:bg-cyan-400"
-                >
-                  <Plus size={11} />
-                  Add Source
-                </button>
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Connected Data Sources
+                </p>
               </div>
 
-              <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-1">
-                {managedDataOptions.length ? (
-                  managedDataOptions.map(
-                    (option) => (
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2 dark:border-[#2C3C61] dark:bg-[#081022]">
+                <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
+                  {managedDataOptions.length ? (
+                    managedDataOptions.map((option) => (
                       <div
                         key={option.key}
-                        className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-[#2C3C61] dark:bg-[#081022]"
+                        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 dark:border-[#2C3C61] dark:bg-[#111B34]"
                       >
                         <Database
                           size={12}
-                          className="mt-0.5 shrink-0 text-cyan-500"
+                          className="shrink-0 text-cyan-500"
                         />
 
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[9px] font-black text-slate-800 dark:text-slate-100">
-                            {option.label}
+                            {option.label || option.key}
                           </p>
-                          <p className="mt-0.5 truncate font-mono text-[8px] text-slate-400">
-                            {option.key} · {option.source?.measurement || "—"} · {option.source?.field || option.source?.channel || "—"}
-                          </p>
+                          {(option.source?.field || option.source?.channel) && (
+                            <p className="mt-0.5 truncate text-[8px] text-slate-400">
+                              {option.source?.field || option.source?.channel}
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex shrink-0 items-center gap-0.5">
                           <button
                             type="button"
-                            onClick={() =>
-                              openCopySource(
-                                option
-                              )
-                            }
+                            onClick={() => openCopySource(option)}
                             className="rounded-md p-1.5 text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-400/10"
                             title="Copy data source"
                           >
@@ -3194,11 +3359,7 @@ export default function SankeyFlowEditor({
 
                           <button
                             type="button"
-                            onClick={() =>
-                              openEditSource(
-                                option
-                              )
-                            }
+                            onClick={() => openEditSource(option)}
                             className="rounded-md p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-400/10"
                             title="Edit data source"
                           >
@@ -3207,11 +3368,7 @@ export default function SankeyFlowEditor({
 
                           <button
                             type="button"
-                            onClick={() =>
-                              deleteManagedSource(
-                                option
-                              )
-                            }
+                            onClick={() => deleteManagedSource(option)}
                             className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-400/10"
                             title="Delete data source"
                           >
@@ -3219,14 +3376,23 @@ export default function SankeyFlowEditor({
                           </button>
                         </div>
                       </div>
-                    )
-                  )
-                ) : (
-                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-2.5 text-[9px] leading-4 text-amber-700 dark:border-amber-400/25 dark:bg-amber-400/5 dark:text-amber-200">
-                    No connected data source yet. Add one before saving terminal Sankey flows.
-                  </div>
-                )}
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-2.5 text-center text-[9px] text-slate-400 dark:border-[#2C3C61] dark:bg-[#111B34]">
+                      No data sources yet.
+                    </div>
+                  )}
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={openAddSource}
+                className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 text-[9px] font-black text-cyan-700 hover:bg-cyan-100 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-200"
+              >
+                <Plus size={11} />
+                Add Data Source
+              </button>
 
               {showSourceEditor && (
                 <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-400/20 dark:bg-cyan-400/5">
@@ -3467,8 +3633,105 @@ export default function SankeyFlowEditor({
                   </button>
                 </div>
               )}
+
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 dark:border-[#2C3C61] dark:bg-[#081022]">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[9px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                    Flow Data Assignment
+                  </p>
+
+                  <span className={`shrink-0 rounded-full px-2 py-1 text-[8px] font-black ${
+                    terminalLinks.every((link) =>
+                      managedDataOptions.some((option) => option.key === link.dataKey)
+                    )
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300"
+                  }`}>
+                    {terminalLinks.filter((link) =>
+                      managedDataOptions.some((option) => option.key === link.dataKey)
+                    ).length}/{terminalLinks.length}
+                  </span>
+                </div>
+
+                <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-[#2C3C61] dark:bg-[#111B34]">
+                  {terminalLinks.length ? (
+                    terminalLinks.map((link, index) => {
+                      const fromNode = nodeMap.get(link.source);
+                      const toNode = nodeMap.get(link.target);
+                      const assigned = managedDataOptions.some(
+                        (option) => option.key === link.dataKey
+                      );
+
+                      return (
+                        <div
+                          key={link.id}
+                          className={`p-2 ${
+                            index > 0
+                              ? "border-t border-slate-200 dark:border-[#2C3C61]"
+                              : ""
+                          }`}
+                        >
+                          <div className="mb-1.5 flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedNodeId(null);
+                                setSelectedLinkId(link.id);
+                              }}
+                              className="min-w-0 truncate text-left text-[9px] font-black text-slate-800 hover:text-cyan-600 dark:text-slate-100 dark:hover:text-cyan-300"
+                              title="Select this flow on the canvas"
+                            >
+                              {fromNode?.name || "Source"} → {toNode?.name || "End"}
+                            </button>
+
+                            <span
+                              className={`h-2 w-2 shrink-0 rounded-full ${
+                                assigned ? "bg-emerald-500" : "bg-amber-400"
+                              }`}
+                              title={assigned ? "Connected" : "Not mapped"}
+                            />
+                          </div>
+
+                          <select
+                            value={assigned ? link.dataKey : ""}
+                            onChange={(event) =>
+                              setLinkDataSourceKey(link.id, event.target.value)
+                            }
+                            className={`w-full rounded-lg border bg-white px-2 py-2 text-[9px] font-semibold outline-none focus:border-cyan-500 dark:bg-[#081022] dark:text-white ${
+                              assigned
+                                ? "border-slate-300 dark:border-[#2C3C61]"
+                                : "border-amber-300 dark:border-amber-400/30"
+                            }`}
+                          >
+                            <option value="">Select data source</option>
+                            {managedDataOptions.map((option) => (
+                              <option key={option.key} value={option.key}>
+                                {option.label || option.key}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="p-2.5 text-center text-[9px] text-slate-400">
+                      No terminal flows yet.
+                    </div>
+                  )}
+                </div>
+
+                {!managedDataOptions.length && (
+                  <p className="mt-2 text-[8px] font-semibold text-amber-600 dark:text-amber-300">
+                    Add a data source above, then map it to any flow you want to monitor.
+                  </p>
+                )}
+              </div>
+
             </section>
 
+            </details>
+            <details>
+              <summary className="cursor-pointer py-2 text-xs font-semibold">Chart Settings</summary>
             <div className="grid grid-cols-4 gap-2">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-center dark:border-[#2C3C61] dark:bg-[#111B34]">
                 <p className="text-[8px] font-black uppercase text-slate-400">
@@ -3617,6 +3880,7 @@ export default function SankeyFlowEditor({
               </datalist>
             </div>
 
+            </details>
             {selectedNode && (
               <section className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-400/20 dark:bg-cyan-400/5">
                 <div className="flex items-start justify-between gap-2">
@@ -3737,6 +4001,63 @@ export default function SankeyFlowEditor({
                       )
                     )}
                   </div>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-2.5 dark:border-[#2C3C61] dark:bg-[#111B34]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Node Data Source
+                      </span>
+
+                      <p className="mt-0.5 text-[8px] leading-4 text-slate-400">
+                        Optional node reading. For a root node such as Boiler, this value is used for the Root Reading display.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={openAddSource}
+                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-cyan-200 bg-cyan-50 px-2 text-[8px] font-black text-cyan-700 hover:bg-cyan-100 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-200"
+                    >
+                      <Plus size={10} />
+                      Add
+                    </button>
+                  </div>
+
+                  <select
+                    value={
+                      managedDataOptions.some(
+                        (option) =>
+                          option.key ===
+                          selectedNode.dataKey
+                      )
+                        ? selectedNode.dataKey
+                        : ""
+                    }
+                    onChange={(event) =>
+                      setNodeDataSourceKey(
+                        selectedNode.id,
+                        event.target.value
+                      )
+                    }
+                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[10px] outline-none focus:border-cyan-500 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                  >
+                    <option value="">
+                      No node-level data
+                    </option>
+
+                    {managedDataOptions.map(
+                      (option) => (
+                        <option
+                          key={option.key}
+                          value={option.key}
+                        >
+                          {option.label} · {option.source?.field || option.source?.channel || option.key}
+                        </option>
+                      )
+                    )}
+                  </select>
                 </div>
 
                 <div className="mt-3 rounded-lg border border-slate-200 bg-white/70 p-2.5 text-[9px] text-slate-500 dark:border-[#263657] dark:bg-[#111B34] dark:text-slate-400">
@@ -4028,66 +4349,6 @@ export default function SankeyFlowEditor({
                 </section>
               )}
 
-            <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[#2C3C61] dark:bg-[#111B34]">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black text-slate-800 dark:text-slate-100">
-                  Quick Navigator
-                </p>
-
-                <span className="text-[8px] text-slate-400">
-                  {configuredLinks.length} mapped · {derivedLinks.length} derived
-                </span>
-              </div>
-
-              <div className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-1">
-                {safeNodes.map((node) => (
-                  <button
-                    key={node.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedNodeId(
-                        node.id
-                      );
-                      setSelectedLinkId(
-                        null
-                      );
-                    }}
-                    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[9px] transition ${
-                      selectedNodeId ===
-                      node.id
-                        ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200"
-                        : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-[#17233F]"
-                    }`}
-                  >
-                    <span className="truncate">
-                      {node.name}
-                    </span>
-
-                    <span className="shrink-0 text-[8px] text-slate-400">
-                      T{normalizeTier(node.tier, 1)} · {getNodeRole(
-                        node.id,
-                        incomingCounts,
-                        outgoingCounts
-                      )}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={addDefaultLink}
-                disabled={
-                  safeNodes.length < 2 ||
-                  safeLinks.length >=
-                    MAX_SANKEY_LINKS
-                }
-                className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-[9px] font-black text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-40 dark:border-indigo-400/20 dark:bg-indigo-400/10 dark:text-indigo-200"
-              >
-                <Plus size={12} />
-                Add Flow Using Dropdowns
-              </button>
-            </section>
           </div>
         </aside>
       </div>

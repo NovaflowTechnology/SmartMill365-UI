@@ -6,31 +6,54 @@ import {
   Database,
   Factory,
   RefreshCw,
-  ChevronRight,
 } from "lucide-react";
 import ProcessEquipmentVisual from "../process/ProcessEquipmentVisual";
-import ProcessPipeline from "../process/ProcessPipeline";
+import ProcessPipeline, {
+  buildPipeNetworkJunctions,
+  ProcessPipeJunctions,
+  resolveDynamicPipeDesign,
+} from "../process/ProcessPipeline";
 import {
   EQUIPMENT_BY_TYPE,
   PROCESS_MEDIA,
 } from "../process/equipmentLibrary";
+import { getProcessFlow } from "../process/processFlowApi";
+import {
+  buildConnectionBranchJunctions,
+  getConnectionKind,
+} from "../process/connectionBranches";
 import "../process/processVisualization.css";
 
-const DEFAULT_NODE_WIDTH = 196;
-const DEFAULT_NODE_HEIGHT = 126;
+const DEFAULT_NODE_WIDTH = 150;
+const DEFAULT_NODE_HEIGHT = 172;
+
+const MIN_NODE_WIDTH = 110;
+const MIN_NODE_HEIGHT = 148;
+const MAX_NODE_WIDTH = 360;
+const MAX_NODE_HEIGHT = 320;
+
+const EQUIPMENT_TOP = 30;
+const NODE_BOTTOM_RESERVE = 48;
 
 export const DEFAULT_PROCESS_VIEW_CONFIG = {
+  processFlowId: null,
   templateId: null,
   mode: "inherit",
   showLabels: true,
   showMetrics: true,
   showFlowLabels: true,
   showInspector: true,
+  preserveCanvasLayout: true,
 };
 
 export const normalizeProcessViewConfig = (config = {}) => ({
   ...DEFAULT_PROCESS_VIEW_CONFIG,
   ...(config || {}),
+  processFlowId:
+    Number.isFinite(Number(config?.processFlowId)) &&
+    Number(config?.processFlowId) > 0
+      ? Number(config.processFlowId)
+      : null,
   mode: ["inherit", "live", "hybrid", "fake"].includes(config?.mode)
     ? config.mode
     : "inherit",
@@ -38,15 +61,246 @@ export const normalizeProcessViewConfig = (config = {}) => ({
   showMetrics: config?.showMetrics !== false,
   showFlowLabels: config?.showFlowLabels !== false,
   showInspector: config?.showInspector !== false,
+  preserveCanvasLayout:
+    config?.preserveCanvasLayout !== false,
 });
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-const getNodeWidth = (node) =>
-  clamp(Number(node?.width) || DEFAULT_NODE_WIDTH, 120, 480);
+const getNodeConstraints = (node = {}) => {
+  const definition = EQUIPMENT_BY_TYPE?.[node?.type] || {};
+  const assembly = definition.libraryGroup === "assembly";
 
-const getNodeHeight = (node) =>
-  clamp(Number(node?.height) || DEFAULT_NODE_HEIGHT, 90, 340);
+  return {
+    minWidth: Number(definition.minWidth || (assembly ? 44 : MIN_NODE_WIDTH)),
+    minHeight: Number(definition.minHeight || (assembly ? 44 : MIN_NODE_HEIGHT)),
+    maxWidth: Number(definition.maxWidth || (assembly ? 460 : MAX_NODE_WIDTH)),
+    maxHeight: Number(definition.maxHeight || (assembly ? 420 : MAX_NODE_HEIGHT)),
+    defaultWidth: Number(definition.defaultWidth || DEFAULT_NODE_WIDTH),
+    defaultHeight: Number(definition.defaultHeight || DEFAULT_NODE_HEIGHT),
+    assembly,
+  };
+};
+
+const getNodeWidth = (node) => {
+  const constraints = getNodeConstraints(node);
+  return clamp(
+    Number(node?.width) || constraints.defaultWidth,
+    constraints.minWidth,
+    constraints.maxWidth
+  );
+};
+
+const getNodeHeight = (node) => {
+  const constraints = getNodeConstraints(node);
+  return clamp(
+    Number(node?.height) || constraints.defaultHeight,
+    constraints.minHeight,
+    constraints.maxHeight
+  );
+};
+
+const getEquipmentRect = (node = {}) => {
+  const width = getNodeWidth(node);
+  const height = getNodeHeight(node);
+  const constraints = getNodeConstraints(node);
+
+  if (constraints.assembly) {
+    return {
+      left: 3,
+      top: 3,
+      width: Math.max(1, width - 6),
+      height: Math.max(1, height - 6),
+    };
+  }
+
+  const compactVisual =
+    node?.dataDisplayPosition === "hidden";
+
+  if (compactVisual) {
+    const equipmentWidth = clamp(
+      width * 0.78,
+      82,
+      270
+    );
+
+    const equipmentHeight = clamp(
+      height * 0.58,
+      62,
+      190
+    );
+
+    return {
+      left:
+        (width - equipmentWidth) / 2,
+      top: Math.max(
+        EQUIPMENT_TOP,
+        (height - equipmentHeight) / 2
+      ),
+      width: equipmentWidth,
+      height: equipmentHeight,
+    };
+  }
+
+  const horizontalPadding = clamp(
+    width * 0.1533,
+    14,
+    34
+  );
+
+  const equipmentWidth = Math.max(
+    72,
+    width - horizontalPadding * 2
+  );
+
+  const equipmentHeight = Math.max(
+    58,
+    height -
+      EQUIPMENT_TOP -
+      NODE_BOTTOM_RESERVE
+  );
+
+  return {
+    left: horizontalPadding,
+    top: EQUIPMENT_TOP,
+    width: equipmentWidth,
+    height: equipmentHeight,
+  };
+};
+
+const getLabelOffset = (node = {}) => ({
+  x: Number.isFinite(
+    Number(node?.labelOffset?.x)
+  )
+    ? Number(node.labelOffset.x)
+    : 0,
+  y: Number.isFinite(
+    Number(node?.labelOffset?.y)
+  )
+    ? Number(node.labelOffset.y)
+    : 0,
+});
+
+const getEquipmentLabelStyle = (
+  node = {}
+) => {
+  const width = getNodeWidth(node);
+  const offset = getLabelOffset(node);
+
+  return {
+    left:
+      width / 2 +
+      offset.x,
+    top: offset.y,
+    transform: "translateX(-50%)",
+  };
+};
+
+const normalizeDataDisplayPosition = (
+  value
+) =>
+  [
+    "bottom",
+    "top",
+    "left",
+    "right",
+    "hidden",
+  ].includes(value)
+    ? value
+    : "bottom";
+
+const getDataDisplayStyle = (
+  position,
+  node = {}
+) => {
+  const width = getNodeWidth(node);
+  const equipment =
+    getEquipmentRect(node);
+
+  switch (
+    normalizeDataDisplayPosition(
+      position
+    )
+  ) {
+    case "top":
+      return {
+        left: "50%",
+        top: -58,
+        transform:
+          "translateX(-50%)",
+      };
+
+    case "left":
+      return {
+        left: -154,
+        top: 42,
+      };
+
+    case "right":
+      return {
+        left: width + 8,
+        top: 42,
+      };
+
+    case "hidden":
+      return {
+        display: "none",
+      };
+
+    case "bottom":
+    default:
+      return {
+        left: "50%",
+        top:
+          equipment.top +
+          equipment.height +
+          6,
+        transform:
+          "translateX(-50%)",
+      };
+  }
+};
+
+const renderEquipmentVisualContent = ({
+  node,
+  visualValues,
+  dark,
+  forceMotion = false,
+}) => {
+  if (node?.customImageSrc) {
+    return (
+      <img
+        src={node.customImageSrc}
+        alt={
+          node?.customImageName ||
+          node?.label ||
+          "Equipment"
+        }
+        className="h-full w-full object-contain"
+        draggable={false}
+      />
+    );
+  }
+
+  return (
+    <ProcessEquipmentVisual
+      type={node?.type}
+      values={visualValues}
+      monitoring
+      motionEnabled
+      forceMotion={
+        forceMotion
+      }
+      rotation={node?.rotation || 0}
+      medium={
+        node?.medium ||
+        EQUIPMENT_BY_TYPE?.[node?.type]?.medium ||
+        "steam"
+      }
+      dark={dark}
+    />
+  );
+};
 
 const getStoredTopologyKey = (templateId) =>
   `palm-oil-process-simulator:${String(templateId || "standalone")}`;
@@ -142,27 +396,804 @@ const formatMetricValue = (value, metric) => {
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
 };
 
-const getEdgeGeometry = (sourceNode, targetNode, minX, minY) => {
-  const sourceX = Number(sourceNode.x || 0) - minX + getNodeWidth(sourceNode);
-  const sourceY =
-    Number(sourceNode.y || 0) - minY + getNodeHeight(sourceNode) / 2;
+const PORT_SIDES = [
+  "top",
+  "right",
+  "bottom",
+  "left",
+];
 
-  const targetX = Number(targetNode.x || 0) - minX;
-  const targetY =
-    Number(targetNode.y || 0) - minY + getNodeHeight(targetNode) / 2;
+const normalizeAnchor = (
+  anchor,
+  fallbackSide = "right"
+) => {
+  const side =
+    PORT_SIDES.includes(anchor?.side)
+      ? anchor.side
+      : PORT_SIDES.includes(anchor)
+      ? anchor
+      : fallbackSide;
 
-  const distance = Math.max(70, Math.abs(targetX - sourceX) * 0.48);
+  const rawOffset =
+    typeof anchor === "object"
+      ? Number(anchor?.offset)
+      : 0.5;
 
   return {
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    midX: (sourceX + targetX) / 2,
-    midY: (sourceY + targetY) / 2,
-    path: `M ${sourceX} ${sourceY} C ${sourceX + distance} ${sourceY}, ${
-      targetX - distance
-    } ${targetY}, ${targetX} ${targetY}`,
+    side,
+    offset: clamp(
+      Number.isFinite(rawOffset)
+        ? rawOffset
+        : 0.5,
+      0.04,
+      0.96
+    ),
+  };
+};
+
+const isAutoAnchor = (anchor) =>
+  !anchor ||
+  anchor?.mode === "auto";
+
+const getEquipmentBounds = (node) => {
+  const equipment = getEquipmentRect(node);
+  const left =
+    Number(node?.x || 0) +
+    equipment.left;
+  const top =
+    Number(node?.y || 0) +
+    equipment.top;
+
+  return {
+    left,
+    top,
+    right:
+      left + equipment.width,
+    bottom:
+      top + equipment.height,
+    width: equipment.width,
+    height: equipment.height,
+    centerX:
+      left + equipment.width / 2,
+    centerY:
+      top + equipment.height / 2,
+  };
+};
+
+const getSmartAnchorTowardPoint = (
+  node,
+  targetPoint,
+  fallbackSide = "right"
+) => {
+  const bounds =
+    getEquipmentBounds(node);
+
+  const dx =
+    Number(
+      targetPoint?.x ??
+        bounds.centerX
+    ) -
+    bounds.centerX;
+
+  const dy =
+    Number(
+      targetPoint?.y ??
+        bounds.centerY
+    ) -
+    bounds.centerY;
+
+  if (
+    Math.abs(dx) < 0.001 &&
+    Math.abs(dy) < 0.001
+  ) {
+    return {
+      mode: "auto",
+      side: fallbackSide,
+      offset: 0.5,
+    };
+  }
+
+  const halfWidth =
+    Math.max(
+      1,
+      bounds.width / 2
+    );
+
+  const halfHeight =
+    Math.max(
+      1,
+      bounds.height / 2
+    );
+
+  const tx =
+    Math.abs(dx) > 0.001
+      ? halfWidth /
+        Math.abs(dx)
+      : Number.POSITIVE_INFINITY;
+
+  const ty =
+    Math.abs(dy) > 0.001
+      ? halfHeight /
+        Math.abs(dy)
+      : Number.POSITIVE_INFINITY;
+
+  if (tx <= ty) {
+    const side =
+      dx >= 0
+        ? "right"
+        : "left";
+
+    const hitY =
+      bounds.centerY +
+      dy * tx;
+
+    return {
+      mode: "auto",
+      side,
+      offset: clamp(
+        (
+          hitY -
+          bounds.top
+        ) /
+          Math.max(
+            1,
+            bounds.height
+          ),
+        0.08,
+        0.92
+      ),
+    };
+  }
+
+  const side =
+    dy >= 0
+      ? "bottom"
+      : "top";
+
+  const hitX =
+    bounds.centerX +
+    dx * ty;
+
+  return {
+    mode: "auto",
+    side,
+    offset: clamp(
+      (
+        hitX -
+        bounds.left
+      ) /
+        Math.max(
+          1,
+          bounds.width
+        ),
+      0.08,
+      0.92
+    ),
+  };
+};
+
+const resolveConnectionAnchor = (
+  node,
+  otherNode,
+  anchorInput,
+  fallbackSide
+) => {
+  if (isAutoAnchor(anchorInput)) {
+    const otherBounds =
+      getEquipmentBounds(otherNode);
+
+    return getSmartAnchorTowardPoint(
+      node,
+      {
+        x: otherBounds.centerX,
+        y: otherBounds.centerY,
+      },
+      fallbackSide
+    );
+  }
+
+  return normalizeAnchor(
+    anchorInput,
+    fallbackSide
+  );
+};
+
+const getAnchorPoint = (
+  node,
+  anchorInput,
+  fallbackSide = "right"
+) => {
+  const anchor =
+    normalizeAnchor(
+      anchorInput,
+      fallbackSide
+    );
+
+  const equipment =
+    getEquipmentRect(node);
+
+  const x =
+    Number(node?.x || 0) +
+    equipment.left;
+
+  const y =
+    Number(node?.y || 0) +
+    equipment.top;
+
+  switch (anchor.side) {
+    case "top":
+      return {
+        x:
+          x +
+          equipment.width *
+            anchor.offset,
+        y,
+      };
+
+    case "bottom":
+      return {
+        x:
+          x +
+          equipment.width *
+            anchor.offset,
+        y:
+          y + equipment.height,
+      };
+
+    case "left":
+      return {
+        x,
+        y:
+          y +
+          equipment.height *
+            anchor.offset,
+      };
+
+    case "right":
+    default:
+      return {
+        x:
+          x + equipment.width,
+        y:
+          y +
+          equipment.height *
+            anchor.offset,
+      };
+  }
+};
+
+const getAnchorDirection = (
+  side = "right"
+) =>
+  ({
+    top: {
+      x: 0,
+      y: -1,
+    },
+    right: {
+      x: 1,
+      y: 0,
+    },
+    bottom: {
+      x: 0,
+      y: 1,
+    },
+    left: {
+      x: -1,
+      y: 0,
+    },
+  }[side] || {
+    x: 1,
+    y: 0,
+  });
+
+const normalizePoints = (
+  points = []
+) => {
+  const result = [];
+
+  points.forEach((point) => {
+    if (
+      !point ||
+      !Number.isFinite(
+        Number(point.x)
+      ) ||
+      !Number.isFinite(
+        Number(point.y)
+      )
+    ) {
+      return;
+    }
+
+    const normalized = {
+      x: Number(point.x),
+      y: Number(point.y),
+    };
+
+    const previous =
+      result[result.length - 1];
+
+    if (
+      previous &&
+      Math.abs(
+        previous.x -
+          normalized.x
+      ) < 0.5 &&
+      Math.abs(
+        previous.y -
+          normalized.y
+      ) < 0.5
+    ) {
+      return;
+    }
+
+    result.push(normalized);
+  });
+
+  return result;
+};
+
+const verticesToPath = (
+  vertices = []
+) =>
+  vertices.length
+    ? [
+        `M ${vertices[0].x} ${vertices[0].y}`,
+        ...vertices
+          .slice(1)
+          .map(
+            (point) =>
+              `L ${point.x} ${point.y}`
+          ),
+      ].join(" ")
+    : "";
+
+const getConnectionWaypoints = (
+  connection,
+  minX,
+  minY
+) => {
+  const source =
+    Array.isArray(
+      connection?.waypoints
+    )
+      ? connection.waypoints
+      : connection?.routePoint
+      ? [connection.routePoint]
+      : [];
+
+  return normalizePoints(
+    source.map((point) => ({
+      x:
+        Number(point.x) -
+        minX,
+      y:
+        Number(point.y) -
+        minY,
+    }))
+  );
+};
+
+const makeViewNode = (
+  node,
+  minX,
+  minY
+) => ({
+  ...node,
+  x:
+    Number(node?.x || 0) -
+    minX,
+  y:
+    Number(node?.y || 0) -
+    minY,
+});
+
+const getConnectionRoutingMode = (
+  connection = {}
+) => {
+  const connectorType =
+    connection.connectorType ||
+    (
+      connection.connectionStyle ===
+      "arrows"
+        ? "arrow"
+        : "pipeline"
+    );
+
+  if (connectorType === "line") {
+    return "simple";
+  }
+
+  const saved = String(
+    connection.routingMode ||
+      ""
+  ).toLowerCase();
+
+  if (
+    [
+      "diagram",
+      "auto",
+      "circuit",
+      "flexible",
+      "free",
+    ].includes(saved)
+  ) {
+    return saved;
+  }
+
+  return ["arrow", "conveyor"].includes(connectorType)
+    ? "free"
+    : "auto";
+};
+
+const getConnectionGeometry = (
+  connection,
+  sourceNode,
+  targetNode,
+  minX,
+  minY
+) => {
+  const source =
+    sourceNode
+      ? makeViewNode(
+          sourceNode,
+          minX,
+          minY
+        )
+      : null;
+
+  const target =
+    targetNode
+      ? makeViewNode(
+          targetNode,
+          minX,
+          minY
+        )
+      : null;
+
+  const freeSource =
+    connection?.freeSource
+      ? {
+          x:
+            Number(
+              connection.freeSource.x
+            ) -
+            minX,
+          y:
+            Number(
+              connection.freeSource.y
+            ) -
+            minY,
+        }
+      : null;
+
+  const freeTarget =
+    connection?.freeTarget
+      ? {
+          x:
+            Number(
+              connection.freeTarget.x
+            ) -
+            minX,
+          y:
+            Number(
+              connection.freeTarget.y
+            ) -
+            minY,
+        }
+      : null;
+
+  if (
+    !source &&
+    !freeSource
+  ) {
+    return null;
+  }
+
+  if (
+    !target &&
+    !freeTarget
+  ) {
+    return null;
+  }
+
+  let sourcePoint =
+    freeSource;
+
+  let targetPoint =
+    freeTarget;
+
+  let sourceAnchor =
+    null;
+
+  let targetAnchor =
+    null;
+
+  if (source) {
+    if (target) {
+      sourceAnchor =
+        resolveConnectionAnchor(
+          source,
+          target,
+          connection.sourceAnchor,
+          "right"
+        );
+    } else {
+      sourceAnchor =
+        isAutoAnchor(
+          connection.sourceAnchor
+        )
+          ? getSmartAnchorTowardPoint(
+              source,
+              targetPoint,
+              "right"
+            )
+          : normalizeAnchor(
+              connection.sourceAnchor,
+              "right"
+            );
+    }
+
+    sourcePoint =
+      getAnchorPoint(
+        source,
+        sourceAnchor,
+        sourceAnchor.side
+      );
+  }
+
+  if (target) {
+    if (source) {
+      targetAnchor =
+        resolveConnectionAnchor(
+          target,
+          source,
+          connection.targetAnchor,
+          "left"
+        );
+    } else {
+      targetAnchor =
+        isAutoAnchor(
+          connection.targetAnchor
+        )
+          ? getSmartAnchorTowardPoint(
+              target,
+              sourcePoint,
+              "left"
+            )
+          : normalizeAnchor(
+              connection.targetAnchor,
+              "left"
+            );
+    }
+
+    targetPoint =
+      getAnchorPoint(
+        target,
+        targetAnchor,
+        targetAnchor.side
+      );
+  }
+
+  const waypoints =
+    getConnectionWaypoints(
+      connection,
+      minX,
+      minY
+    );
+
+  const routingMode =
+    getConnectionRoutingMode(
+      connection
+    );
+
+  if (
+    !source ||
+    !target ||
+    [
+      "free",
+      "diagram",
+      "flexible",
+      "simple",
+    ].includes(routingMode)
+  ) {
+    const vertices =
+      normalizePoints([
+        sourcePoint,
+        ...waypoints,
+        targetPoint,
+      ]);
+
+    return {
+      path:
+        verticesToPath(vertices),
+      labelPoint:
+        vertices[
+          Math.floor(
+            vertices.length / 2
+          )
+        ] || {
+          x:
+            (
+              sourcePoint.x +
+              targetPoint.x
+            ) /
+            2,
+          y:
+            (
+              sourcePoint.y +
+              targetPoint.y
+            ) /
+            2,
+        },
+    };
+  }
+
+  const sourceDirection =
+    getAnchorDirection(
+      sourceAnchor.side
+    );
+
+  const targetDirection =
+    getAnchorDirection(
+      targetAnchor.side
+    );
+
+  const offset = 28;
+
+  const sourceOuter = {
+    x:
+      sourcePoint.x +
+      sourceDirection.x *
+        offset,
+    y:
+      sourcePoint.y +
+      sourceDirection.y *
+        offset,
+  };
+
+  const targetOuter = {
+    x:
+      targetPoint.x +
+      targetDirection.x *
+        offset,
+    y:
+      targetPoint.y +
+      targetDirection.y *
+        offset,
+  };
+
+  let internal;
+
+  if (waypoints.length) {
+    internal = waypoints;
+  } else {
+    const sourceHorizontal =
+      [
+        "left",
+        "right",
+      ].includes(
+        sourceAnchor.side
+      );
+
+    const targetHorizontal =
+      [
+        "left",
+        "right",
+      ].includes(
+        targetAnchor.side
+      );
+
+    if (
+      sourceHorizontal &&
+      targetHorizontal
+    ) {
+      const midX =
+        (
+          sourceOuter.x +
+          targetOuter.x
+        ) /
+        2;
+
+      internal = [
+        sourceOuter,
+        {
+          x:
+            midX,
+          y:
+            sourceOuter.y,
+        },
+        {
+          x:
+            midX,
+          y:
+            targetOuter.y,
+        },
+        targetOuter,
+      ];
+    } else if (
+      !sourceHorizontal &&
+      !targetHorizontal
+    ) {
+      const midY =
+        (
+          sourceOuter.y +
+          targetOuter.y
+        ) /
+        2;
+
+      internal = [
+        sourceOuter,
+        {
+          x:
+            sourceOuter.x,
+          y:
+            midY,
+        },
+        {
+          x:
+            targetOuter.x,
+          y:
+            midY,
+        },
+        targetOuter,
+      ];
+    } else if (
+      sourceHorizontal
+    ) {
+      internal = [
+        sourceOuter,
+        {
+          x:
+            sourceOuter.x,
+          y:
+            targetOuter.y,
+        },
+        targetOuter,
+      ];
+    } else {
+      internal = [
+        sourceOuter,
+        {
+          x:
+            targetOuter.x,
+          y:
+            sourceOuter.y,
+        },
+        targetOuter,
+      ];
+    }
+  }
+
+  const vertices =
+    normalizePoints([
+      sourcePoint,
+      ...internal,
+      targetPoint,
+    ]);
+
+  return {
+    path:
+      verticesToPath(vertices),
+    labelPoint:
+      vertices[
+        Math.floor(
+          vertices.length / 2
+        )
+      ] || {
+        x:
+          (
+            sourcePoint.x +
+            targetPoint.x
+          ) /
+          2,
+        y:
+          (
+            sourcePoint.y +
+            targetPoint.y
+          ) /
+          2,
+      },
   };
 };
 
@@ -196,14 +1227,39 @@ const useDarkMode = () => {
   return dark;
 };
 
-export default function ProcessViewWidget({ data = {}, item = {} }) {
+export default function ProcessViewWidget({
+  data = {},
+  item = {},
+  canvasOnly = false,
+  highlightNodeId = null,
+  onNodeHover,
+  onNodeMove,
+  onNodeLeave,
+  onNodeClick,
+  onBackgroundClick,
+}) {
   const rootRef = useRef(null);
   const lastTopologyTextRef = useRef("");
 
-  const config = useMemo(
-    () => normalizeProcessViewConfig(item?.processViewConfig || {}),
-    [item?.processViewConfig]
-  );
+  const config = useMemo(() => {
+    const normalized =
+      normalizeProcessViewConfig(
+        item?.processViewConfig ||
+          {}
+      );
+
+    if (!canvasOnly) {
+      return normalized;
+    }
+
+    return {
+      ...normalized,
+      showInspector: false,
+    };
+  }, [
+    item?.processViewConfig,
+    canvasOnly,
+  ]);
 
   const candidateStorageKeys = useMemo(
     () =>
@@ -224,62 +1280,217 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
     [candidateStorageKeys]
   );
 
-  const [topology, setTopology] = useState(() => initialStoredTopology.topology);
-  const [activeStorageKey, setActiveStorageKey] = useState(
-    () => initialStoredTopology.storageKey
+  const [topology, setTopology] = useState(() =>
+    config.processFlowId
+      ? null
+      : initialStoredTopology.topology
   );
+  const [activeStorageKey, setActiveStorageKey] = useState(
+    () =>
+      config.processFlowId
+        ? `process-flow:${config.processFlowId}`
+        : initialStoredTopology.storageKey
+  );
+  const [processFlowName, setProcessFlowName] = useState("");
+  const [topologyError, setTopologyError] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [size, setSize] = useState({ width: 800, height: 420 });
   const [clock, setClock] = useState(Date.now());
   const dark = useDarkMode();
 
-  const refreshTopology = () => {
-    if (typeof window === "undefined") return;
+  const refreshTopology = async () => {
+    if (config.processFlowId) {
+      try {
+        const flow = await getProcessFlow(
+          config.processFlowId
+        );
 
-    const fingerprint = candidateStorageKeys
-      .map((key) => `${key}:${window.localStorage.getItem(key) || ""}`)
-      .join("\n");
+        const nextTopology =
+          flow?.topology &&
+          Array.isArray(flow.topology.nodes) &&
+          Array.isArray(flow.topology.connections)
+            ? flow.topology
+            : null;
 
-    if (fingerprint === lastTopologyTextRef.current) {
+        const fallback = nextTopology
+          ? null
+          : readFirstStoredTopology(
+              candidateStorageKeys
+            );
+        const topologyToDisplay =
+          nextTopology ||
+          fallback?.topology ||
+          null;
+
+        const fingerprint = JSON.stringify({
+          id: flow?.id,
+          updatedAt: flow?.updated_at,
+          topology: topologyToDisplay,
+        });
+
+        if (
+          fingerprint !==
+          lastTopologyTextRef.current
+        ) {
+          lastTopologyTextRef.current =
+            fingerprint;
+          setTopology(topologyToDisplay);
+        }
+
+        setProcessFlowName(
+          flow?.name ||
+            `Process Flow ${config.processFlowId}`
+        );
+        setActiveStorageKey(
+          nextTopology
+            ? `process-flow:${config.processFlowId}`
+            : fallback?.storageKey ||
+              `process-flow:${config.processFlowId}`
+        );
+        setTopologyError(
+          nextTopology
+            ? ""
+            : fallback?.topology
+            ? "Selected flow unavailable; showing the latest saved layout."
+            : ""
+        );
+      } catch (error) {
+        const fallback =
+          readFirstStoredTopology(
+            candidateStorageKeys
+          );
+
+        if (fallback.topology) {
+          setTopology(fallback.topology);
+          setActiveStorageKey(
+            fallback.storageKey || ""
+          );
+          setTopologyError(
+            "Selected flow unavailable; showing the latest saved layout."
+          );
+        } else {
+          setTopologyError(
+            error?.message ||
+              "Unable to load process flow"
+          );
+        }
+      }
+
       return;
     }
 
-    lastTopologyTextRef.current = fingerprint;
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const next = readFirstStoredTopology(candidateStorageKeys);
+    const fingerprint = candidateStorageKeys
+      .map(
+        (key) =>
+          `${key}:${
+            window.localStorage.getItem(key) ||
+            ""
+          }`
+      )
+      .join("\n");
+
+    if (
+      fingerprint ===
+      lastTopologyTextRef.current
+    ) {
+      return;
+    }
+
+    lastTopologyTextRef.current =
+      fingerprint;
+
+    const next =
+      readFirstStoredTopology(
+        candidateStorageKeys
+      );
+
     setTopology(next.topology);
-    setActiveStorageKey(next.storageKey || "");
+    setActiveStorageKey(
+      next.storageKey || ""
+    );
+    setProcessFlowName("");
+    setTopologyError("");
   };
 
   useEffect(() => {
     lastTopologyTextRef.current = "";
+
+    if (config.processFlowId) {
+      setTopology(null);
+      setProcessFlowName("");
+    }
+
     refreshTopology();
 
-    const timer = window.setInterval(refreshTopology, 900);
+    const timer = window.setInterval(
+      refreshTopology,
+      config.processFlowId ? 5000 : 900
+    );
 
     const handleStorage = (event) => {
-      if (candidateStorageKeys.includes(event.key)) {
+      if (
+        !config.processFlowId &&
+        candidateStorageKeys.includes(event.key)
+      ) {
         refreshTopology();
       }
     };
 
-    const handleProcessSaved = () => {
-      lastTopologyTextRef.current = "";
-      refreshTopology();
+    const handleProcessSaved = (event) => {
+      const savedProcessFlowId =
+        Number(
+          event?.detail?.processFlowId ||
+            0
+        ) || null;
+
+      if (
+        !config.processFlowId ||
+        !savedProcessFlowId ||
+        savedProcessFlowId ===
+          config.processFlowId
+      ) {
+        lastTopologyTextRef.current = "";
+        refreshTopology();
+      }
     };
 
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("palm-oil-process-topology-saved", handleProcessSaved);
+    window.addEventListener(
+      "storage",
+      handleStorage
+    );
+    window.addEventListener(
+      "process-flow-saved",
+      handleProcessSaved
+    );
+
+    window.addEventListener(
+      "palm-oil-process-topology-saved",
+      handleProcessSaved
+    );
 
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(
+        "storage",
+        handleStorage
+      );
+      window.removeEventListener(
+        "process-flow-saved",
+        handleProcessSaved
+      );
       window.removeEventListener(
         "palm-oil-process-topology-saved",
         handleProcessSaved
       );
     };
-  }, [candidateStorageKeys]);
+  }, [
+    config.processFlowId,
+    candidateStorageKeys,
+  ]);
 
   useEffect(() => {
     const element = rootRef.current;
@@ -287,9 +1498,19 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
 
     const update = () => {
       const rect = element.getBoundingClientRect();
+      const parentRect =
+        element.parentElement?.getBoundingClientRect();
       setSize({
-        width: Math.max(260, rect.width),
-        height: Math.max(160, rect.height),
+        width: Math.max(
+          260,
+          rect.width,
+          parentRect?.width || 0
+        ),
+        height: Math.max(
+          160,
+          rect.height,
+          parentRect?.height || 0
+        ),
       });
     };
 
@@ -321,9 +1542,10 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
   const connections = Array.isArray(topology?.connections) ? topology.connections : [];
 
   const selectedNode =
-    nodes.find((node) => node.id === selectedNodeId) ||
-    nodes.find((node) => node.id === nodes[0]?.id) ||
-    null;
+    nodes.find(
+      (node) =>
+        node.id === selectedNodeId
+    ) || null;
 
   const inspectorVisible = config.showInspector && size.width >= 760 && size.height >= 250;
   const inspectorWidth = inspectorVisible ? (size.width >= 1120 ? 270 : 236) : 0;
@@ -336,6 +1558,24 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
   }, [nodes, selectedNodeId]);
 
   const bounds = useMemo(() => {
+    const canvasWidth = Number(topology?.canvas?.width);
+    const canvasHeight = Number(topology?.canvas?.height);
+
+    if (
+      config.preserveCanvasLayout &&
+      nodes.length > 0 &&
+      size.width >= 900 &&
+      canvasWidth > 0 &&
+      canvasHeight > 0
+    ) {
+      return {
+        minX: 0,
+        minY: 0,
+        width: canvasWidth,
+        height: canvasHeight,
+      };
+    }
+
     if (!nodes.length) {
       return { minX: 0, minY: 0, width: 1000, height: 600 };
     }
@@ -351,7 +1591,13 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
       width: Math.max(240, maxX - minX),
       height: Math.max(160, maxY - minY),
     };
-  }, [nodes]);
+  }, [
+    nodes,
+    topology?.canvas?.width,
+    topology?.canvas?.height,
+    config.preserveCanvasLayout,
+    size.width,
+  ]);
 
   const fit = useMemo(() => {
     const paddingX = inspectorVisible ? 10 : 14;
@@ -422,26 +1668,146 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
 
   const selectedMetricRows = selectedNode ? getNodeMetricRows(selectedNode) : [];
 
-  const equipmentDataCards = nodes.map((node) => {
-    const definition = EQUIPMENT_BY_TYPE?.[node.type] || {};
-    const rows = getNodeMetricRows(node).filter(
-      ({ value }) => value !== null && value !== undefined
+
+
+  const pipeNetworkJunctions =
+    useMemo(
+      () =>
+        buildPipeNetworkJunctions(
+          connections
+            .map(
+              (
+                connection
+              ) => {
+                const connectorType =
+                  connection.connectorType ||
+                  (
+                    connection.connectionStyle ===
+                    "arrows"
+                      ? "arrow"
+                      : "pipeline"
+                  );
+
+                if (
+                  connectorType !==
+                  "pipeline"
+                ) {
+                  return null;
+                }
+
+                if (
+                  resolveDynamicPipeDesign(
+                    connection.pipeDesign ||
+                      "auto",
+                    connection.medium
+                  ) !==
+                  "realPipe"
+                ) {
+                  return null;
+                }
+
+                const source =
+                  nodes.find(
+                    (node) =>
+                      node.id ===
+                      connection.source
+                  ) ||
+                  null;
+
+                const target =
+                  nodes.find(
+                    (node) =>
+                      node.id ===
+                      connection.target
+                  ) ||
+                  null;
+
+                const geometry =
+                  getConnectionGeometry(
+                    connection,
+                    source,
+                    target,
+                    bounds.minX,
+                    bounds.minY
+                  );
+
+                if (
+                  !geometry
+                ) {
+                  return null;
+                }
+
+                return {
+                  id:
+                    connection.id,
+                  path:
+                    geometry.path,
+                  color:
+                    /^#[0-9a-fA-F]{6}$/.test(
+                      String(
+                        connection.colorOverride ||
+                          ""
+                      )
+                      )
+                      ? connection.colorOverride
+                      : "#AEB7BC",
+                };
+              }
+            )
+            .filter(Boolean)
+        ),
+      [
+        connections,
+        nodes,
+        bounds.minX,
+        bounds.minY,
+      ]
     );
 
-    return {
-      node,
-      definition,
-      rows,
-      compactRows: rows.slice(0, 2),
-    };
-  });
+  const connectionBranchJunctions = useMemo(
+    () => buildConnectionBranchJunctions(
+      connections.map((connection) => {
+        const source = nodes.find((node) => node.id === connection.source) || null;
+        const target = nodes.find((node) => node.id === connection.target) || null;
+        const geometry = getConnectionGeometry(
+          connection,
+          source,
+          target,
+          bounds.minX,
+          bounds.minY
+        );
+        return {
+          ...connection,
+          path: geometry?.path || "",
+          color: connection.colorOverride ||
+            (["arrow", "line"].includes(getConnectionKind(connection)) ? "#64748B" : "#AEB7BC"),
+        };
+      })
+    ),
+    [connections, nodes, bounds.minX, bounds.minY]
+  );
+
+  const visibleConnectionJunctions = [
+    ...pipeNetworkJunctions,
+    ...connectionBranchJunctions,
+  ].filter((junction, index, all) =>
+    index === all.findIndex((candidate) =>
+      Math.hypot(candidate.x - junction.x, candidate.y - junction.y) < 1 &&
+      (candidate.connectorType || "pipeline") === (junction.connectorType || "pipeline")
+    )
+  );
 
   const mappedEquipmentCount = nodes.filter((node) => Boolean(node?.deviceId)).length;
 
   const topologySourceLabel =
-    activeStorageKey === LATEST_TOPOLOGY_KEY
+    config.processFlowId
+      ? processFlowName ||
+        `Process Flow ${config.processFlowId}`
+      : activeStorageKey ===
+        LATEST_TOPOLOGY_KEY
       ? "Latest saved layout"
-      : activeStorageKey === getStoredTopologyKey(null)
+      : activeStorageKey ===
+        getStoredTopologyKey(null)
       ? "Standalone layout"
       : config.templateId
       ? `Template ${config.templateId}`
@@ -466,11 +1832,18 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
             <Factory size={20} />
           </div>
 
-          <div className="mt-3 text-sm font-bold">No saved process layout</div>
+          <div className="mt-3 text-sm font-bold">
+            {config.processFlowId
+              ? "Process flow unavailable"
+              : "No process flow selected"}
+          </div>
 
           <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-            Open Plant Simulator, arrange the equipment and pipelines, then press
-            Save. This dashboard widget will load it automatically.
+            {topologyError
+              ? topologyError
+              : config.processFlowId
+              ? "The selected saved Process Flow has no available topology yet."
+              : "Choose a saved Process Flow for this widget in Widget Studio."}
           </p>
 
           <button
@@ -489,17 +1862,34 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
   return (
     <div
       ref={rootRef}
-      onClick={() => setSelectedNodeId(null)}
-      className="dashboard-widget-surface relative h-full w-full overflow-hidden rounded-[11px] bg-[#F7FAFD] shadow-[0_4px_14px_rgba(15,23,42,0.08)] dark:bg-[#0B1429] dark:shadow-[0_4px_14px_rgba(0,0,0,0.24)]"
+      onClick={() => {
+        setSelectedNodeId(null);
+        onBackgroundClick?.();
+      }}
+      className={`dashboard-widget-surface relative h-full w-full overflow-hidden bg-[#F7FAFD] dark:bg-[#0B1429] ${
+        canvasOnly
+          ? "rounded-none shadow-none"
+          : "rounded-[11px] shadow-[0_4px_14px_rgba(15,23,42,0.08)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.24)]"
+      }`}
+      style={
+        canvasOnly
+          ? {
+              height: "100%",
+              minHeight: "320px",
+            }
+          : undefined
+      }
     >
-      <div className="pointer-events-none absolute left-3 top-2.5 z-30 rounded-lg bg-white/85 px-2 py-1 backdrop-blur dark:bg-[#0B1429]/85">
-        <div className="text-[10px] font-black uppercase tracking-[0.12em] text-cyan-700 dark:text-cyan-300">
-          {item?.label || "Process View"}
+      {!canvasOnly && (
+        <div className="pointer-events-none absolute left-3 top-2.5 z-30 rounded-lg bg-white/85 px-2 py-1 backdrop-blur dark:bg-[#0B1429]/85">
+          <div className="text-[10px] font-black uppercase tracking-[0.12em] text-cyan-700 dark:text-cyan-300">
+            {item?.label || "Process View"}
+          </div>
+          <div className="mt-0.5 text-[8px] font-medium uppercase tracking-wide text-slate-400">
+            {resolvedMode}
+          </div>
         </div>
-        <div className="mt-0.5 text-[8px] font-medium uppercase tracking-wide text-slate-400">
-          {resolvedMode}
-        </div>
-      </div>
+      )}
 
       <div
         className="absolute left-0 top-0"
@@ -515,150 +1905,467 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
           viewBox={`0 0 ${bounds.width} ${bounds.height}`}
           preserveAspectRatio="none"
         >
-          <defs>
-            {Object.entries(PROCESS_MEDIA).map(([key, medium]) => (
-              <marker
-                key={key}
-                id={`monitor-arrow-${key}`}
-                viewBox="0 0 10 10"
-                refX="8"
-                refY="5"
-                markerWidth="5"
-                markerHeight="5"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill={medium.color} />
-              </marker>
-            ))}
-          </defs>
 
           {connections.map((connection) => {
-            const source = nodes.find((node) => node.id === connection.source);
-            const target = nodes.find((node) => node.id === connection.target);
-            if (!source || !target) return null;
+            const source =
+              nodes.find(
+                (node) =>
+                  node.id ===
+                  connection.source
+              ) || null;
 
-            const geometry = getEdgeGeometry(source, target, bounds.minX, bounds.minY);
-            const flowValue = resolveConnectionValue(connection);
+            const target =
+              nodes.find(
+                (node) =>
+                  node.id ===
+                  connection.target
+              ) || null;
+
+            if (
+              (
+                !source &&
+                !connection.freeSource
+              ) ||
+              (
+                !target &&
+                !connection.freeTarget
+              )
+            ) {
+              return null;
+            }
+
+            const geometry =
+              getConnectionGeometry(
+                connection,
+                source,
+                target,
+                bounds.minX,
+                bounds.minY
+              );
+
+            const flowValue =
+              resolveConnectionValue(
+                connection
+              );
+
+            const medium =
+              PROCESS_MEDIA[
+                connection.medium ||
+                  "steam"
+              ] ||
+              PROCESS_MEDIA.steam;
 
             return (
               <g key={connection.id}>
                 <ProcessPipeline
                   id={connection.id}
                   path={geometry.path}
-                  medium={connection.medium || "steam"}
-                  value={flowValue}
-                  label={connection.label}
-                  variant="monitor"
+                  medium={
+                    connection.medium ||
+                    "steam"
+                  }
+                  value={
+                    config.showFlowLabels
+                      ? flowValue
+                      : null
+                  }
+                  label={
+                    config.showFlowLabels
+                      ? connection.label ||
+                        medium?.label
+                      : ""
+                  }
                   dark={dark}
-                  connectionStyle={connection.connectionStyle || "pipe-icons"}
+                  variant="monitor"
+                  pipeDesign={
+                    connection.pipeDesign ||
+                    "auto"
+                  }
+                  colorOverride={
+                    connection.colorOverride ||
+                    ""
+                  }
+                  connectorType={
+                    connection.connectorType ||
+                    (
+                      connection.connectionStyle ===
+                      "arrows"
+                        ? "arrow"
+                        : "pipeline"
+                    )
+                  }
+                  animateFlow={
+                    connection.animateFlow !==
+                    false
+                  }
+                  sourceJoined={
+                    Boolean(
+                      connection.sourcePipeJoin
+                    )
+                  }
+                  targetJoined={
+                    Boolean(
+                      connection.targetPipeJoin
+                    )
+                  }
                 />
-
-                {config.showFlowLabels && (connection.label || Number.isFinite(Number(flowValue))) && (
-                  <g>
-                    <rect
-                      x={geometry.midX - 45}
-                      y={geometry.midY - 12}
-                      width="90"
-                      height="24"
-                      rx="12"
-                      fill={dark ? "#111C34" : "#FFFFFF"}
-                      stroke={dark ? "#334155" : "#D8E2EF"}
-                    />
-
-                    <text
-                      x={geometry.midX}
-                      y={geometry.midY + 3.5}
-                      textAnchor="middle"
-                      fontSize="10"
-                      fontWeight="700"
-                      fill={dark ? "#E2E8F0" : "#334155"}
-                    >
-                      {connection.label ||
-                        (Number.isFinite(Number(flowValue))
-                          ? Number(flowValue).toFixed(1)
-                          : "Flow")}
-                    </text>
-                  </g>
-                )}
               </g>
             );
           })}
+
+          <ProcessPipeJunctions
+            junctions={
+              visibleConnectionJunctions
+            }
+            dark={dark}
+          />
         </svg>
 
         {nodes.map((node) => {
-          const definition = EQUIPMENT_BY_TYPE?.[node.type] || {};
-          const metrics = Array.isArray(definition.metrics) ? definition.metrics : [];
-          const resolvedMetrics = metrics
-            .map((metric) => ({ metric, value: resolveMetric(node, metric) }))
-            .filter(({ value }) => value !== null && value !== undefined);
+          const definition =
+            EQUIPMENT_BY_TYPE?.[
+              node.type
+            ] || {};
 
-          const visualValues = Object.fromEntries(
-            resolvedMetrics.map(({ metric, value }) => [metric.id, value])
-          );
-          const shownMetrics = resolvedMetrics.slice(0, 2);
+          const metrics =
+            Array.isArray(
+              definition.metrics
+            )
+              ? definition.metrics
+              : [];
+
+          const resolvedMetrics =
+            metrics.map((metric) => {
+              const value =
+                resolveMetric(
+                  node,
+                  metric
+                );
+
+              const dataKey =
+                node?.bindings?.[
+                  metric.id
+                ] || "";
+
+              const hasLive =
+                dataKey &&
+                data?.[dataKey] !==
+                  undefined &&
+                data?.[dataKey] !==
+                  null;
+
+              const source =
+                resolvedMode === "live"
+                  ? hasLive
+                    ? "live"
+                    : "missing"
+                  : resolvedMode ===
+                      "hybrid" &&
+                    hasLive
+                  ? "live"
+                  : "fake";
+
+              return {
+                metric,
+                value,
+                source,
+              };
+            });
+
+          const shownMetrics =
+            resolvedMetrics
+              .filter(
+                ({ value }) =>
+                  value !== null &&
+                  value !== undefined
+              )
+              .slice(0, 2);
+
+          const visualValues =
+            Object.fromEntries(
+              resolvedMetrics.map(
+                ({
+                  metric,
+                  value,
+                }) => [
+                  metric.id,
+                  value,
+                ]
+              )
+            );
+
+          const equipmentRect =
+            getEquipmentRect(node);
+
+          const dataDisplayPosition =
+            normalizeDataDisplayPosition(
+              node.dataDisplayPosition
+            );
+
+          const selected =
+            highlightNodeId
+              ? highlightNodeId ===
+                node.id
+              : selectedNodeId ===
+                node.id;
 
           return (
             <div
               key={node.id}
+              onMouseEnter={(event) => {
+                onNodeHover?.(
+                  node,
+                  event
+                );
+              }}
+              onMouseMove={(event) => {
+                onNodeMove?.(
+                  node,
+                  event
+                );
+              }}
+              onMouseLeave={() => {
+                onNodeLeave?.(
+                  node
+                );
+              }}
               onClick={(event) => {
                 event.stopPropagation();
-                setSelectedNodeId(node.id);
+
+                setSelectedNodeId(
+                  node.id
+                );
+
+                onNodeClick?.(
+                  node,
+                  event
+                );
               }}
-              className={`absolute cursor-pointer overflow-hidden rounded-xl border bg-white/95 shadow-[0_5px_16px_rgba(15,23,42,0.10)] transition dark:bg-[#111C34]/95 dark:shadow-[0_8px_20px_rgba(0,0,0,0.26)] ${
-                selectedNodeId === node.id
-                  ? "border-cyan-400 ring-2 ring-cyan-300/50 dark:border-cyan-400 dark:ring-cyan-400/30"
-                  : "border-slate-200 hover:border-cyan-300 dark:border-[#2B3B60] dark:hover:border-cyan-500"
+              className={`absolute ${
+                canvasOnly
+                  ? "cursor-pointer"
+                  : ""
               }`}
               style={{
-                left: Number(node.x || 0) - bounds.minX,
-                top: Number(node.y || 0) - bounds.minY,
-                width: getNodeWidth(node),
-                height: getNodeHeight(node),
+                left:
+                  Number(node.x || 0) -
+                  bounds.minX,
+                top:
+                  Number(node.y || 0) -
+                  bounds.minY,
+                width:
+                  getNodeWidth(node),
+                height:
+                  getNodeHeight(node),
               }}
             >
               {config.showLabels && (
-                <div className="flex h-[28px] items-center justify-between gap-2 border-b border-slate-100 px-2.5 dark:border-[#263657]">
-                  <span className="min-w-0 truncate text-[10px] font-black text-slate-800 dark:text-slate-100">
-                    {node.label || definition.label || node.type}
-                  </span>
-
-                  {node.deviceId && (
-                    <span className="max-w-[92px] truncate rounded bg-slate-100 px-1.5 py-0.5 text-[7px] font-semibold text-slate-400 dark:bg-slate-800 dark:text-slate-500">
-                      {node.deviceId}
-                    </span>
-                  )}
+                <div
+                  className={`
+                    absolute z-30
+                    max-w-[220px]
+                    truncate rounded-lg
+                    border bg-white/95
+                    px-2.5 py-1.5
+                    text-[8px] font-black
+                    text-slate-700 shadow-sm
+                    dark:bg-[#0E172D]/95
+                    dark:text-slate-100
+                    ${
+                      selected
+                        ? "border-cyan-400 ring-2 ring-cyan-400/15"
+                        : "border-slate-200 dark:border-[#34476F]"
+                    }
+                  `}
+                  style={
+                    getEquipmentLabelStyle(
+                      node
+                    )
+                  }
+                  title={
+                    node.label ||
+                    definition.label ||
+                    node.type
+                  }
+                >
+                  {node.label ||
+                    definition.label ||
+                    node.type}
                 </div>
               )}
 
               <div
-                className="relative"
+                className={`
+                  absolute z-20 flex
+                  items-center
+                  justify-center
+                  rounded-xl
+                  transition-all
+                  ${
+                    selected
+                      ? "bg-cyan-50/50 ring-2 ring-cyan-400/30 dark:bg-cyan-400/5"
+                      : ""
+                  }
+                `}
                 style={{
+                  left:
+                    equipmentRect.left,
+                  top:
+                    equipmentRect.top,
+                  width:
+                    equipmentRect.width,
                   height:
-                    getNodeHeight(node) -
-                    (config.showLabels ? 28 : 0) -
-                    (config.showMetrics && shownMetrics.length ? 28 : 0),
+                    equipmentRect.height,
                 }}
               >
-                <ProcessEquipmentVisual type={node.type} values={visualValues} monitoring dark={dark} />
+                <div className="h-full w-full">
+                  {renderEquipmentVisualContent({
+                    node,
+                    visualValues,
+                    dark,
+                    forceMotion:
+                      resolvedMode !== "live",
+                  })}
+                </div>
               </div>
 
-              {config.showMetrics && shownMetrics.length > 0 && (
-                <div className="flex h-[28px] items-center gap-1 border-t border-slate-100 px-2 dark:border-[#263657]">
-                  {shownMetrics.map(({ metric, value }) => (
-                    <div
-                      key={metric.id}
-                      className="min-w-0 flex-1 truncate rounded-md bg-slate-50 px-1.5 py-1 text-center dark:bg-[#0B1429]"
-                      title={metric.label}
-                    >
-                      <span className="text-[7px] font-semibold text-slate-400">{metric.label}</span>{" "}
-                      <span className="text-[8px] font-black text-slate-700 dark:text-slate-200">
-                        {formatMetricValue(value, metric)}
-                        {metric.unit ? ` ${metric.unit}` : ""}
-                      </span>
+              {config.showMetrics &&
+                dataDisplayPosition !==
+                  "hidden" && (
+                  <div
+                    className="
+                      absolute z-30
+                      w-[146px]
+                      rounded-lg border
+                      border-slate-200
+                      bg-white/95
+                      px-2 py-1.5
+                      shadow-md
+                      backdrop-blur
+                      dark:border-[#34476F]
+                      dark:bg-[#0B1428]/95
+                    "
+                    style={
+                      getDataDisplayStyle(
+                        dataDisplayPosition,
+                        node
+                      )
+                    }
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-1">
+                      <div
+                        className="
+                          min-w-0 truncate
+                          text-[7px] font-bold
+                          uppercase tracking-wide
+                          text-slate-400
+                        "
+                        title={
+                          node.deviceId ||
+                          definition.label
+                        }
+                      >
+                        {node.deviceId ||
+                          definition.label ||
+                          node.type}
+                      </div>
+
+                      <span
+                        title={`${resolvedMode} mode`}
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                          resolvedMode ===
+                          "live"
+                            ? "bg-cyan-400"
+                            : resolvedMode ===
+                              "fake"
+                            ? "bg-violet-400"
+                            : "bg-amber-400"
+                        }`}
+                      />
                     </div>
-                  ))}
-                </div>
-              )}
+
+                    {shownMetrics.length ===
+                    0 ? (
+                      <div className="text-center text-[8px] font-semibold text-slate-400">
+                        No mapped metrics
+                      </div>
+                    ) : (
+                      <div
+                        className={`grid gap-1 ${
+                          shownMetrics.length >
+                          1
+                            ? "grid-cols-2"
+                            : "grid-cols-1"
+                        }`}
+                      >
+                        {shownMetrics.map(
+                          ({
+                            metric,
+                            value,
+                            source,
+                          }) => (
+                            <div
+                              key={
+                                metric.id
+                              }
+                              className="
+                                min-w-0
+                                rounded-md
+                                bg-slate-100/80
+                                px-1.5 py-1
+                                dark:bg-[#15213D]
+                              "
+                            >
+                              <div className="truncate text-[6px] font-medium text-slate-400">
+                                {
+                                  metric.label
+                                }
+                              </div>
+
+                              <div className="mt-0.5 flex items-baseline gap-0.5">
+                                <span className="truncate text-[9px] font-black text-slate-800 dark:text-slate-100">
+                                  {formatMetricValue(
+                                    value,
+                                    metric
+                                  )}
+                                </span>
+
+                                {metric.unit && (
+                                  <span className="shrink-0 text-[6px] text-slate-400">
+                                    {
+                                      metric.unit
+                                    }
+                                  </span>
+                                )}
+
+                                <span
+                                  title={
+                                    source ===
+                                    "live"
+                                      ? "Live data"
+                                      : source ===
+                                        "fake"
+                                      ? "Simulated data"
+                                      : "No data"
+                                  }
+                                  className={`ml-auto h-1.5 w-1.5 shrink-0 rounded-full ${
+                                    source ===
+                                    "live"
+                                      ? "bg-cyan-400"
+                                      : source ===
+                                        "fake"
+                                      ? "bg-violet-400"
+                                      : "bg-slate-400"
+                                  }`}
+                                />
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
           );
         })}
@@ -723,14 +2430,16 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-white p-2.5 dark:border-[#2B3B60] dark:bg-[#111C34]">
-                <div className="text-[8px] font-black uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+              <div className="rounded-lg border border-slate-200 bg-white p-2 dark:border-[#2B3B60] dark:bg-[#111C34]">
+                <div className="text-[7px] font-black uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
                   Layout Source
                 </div>
-                <div className="mt-1 text-[9px] font-bold text-slate-700 dark:text-slate-200">
+                <div className="mt-0.5 text-[8px] font-bold text-slate-700 dark:text-slate-200">
                   {topologySourceLabel}
                 </div>
-                <div className="mt-1 text-[8px] text-slate-400">Saved: {lastSavedLabel}</div>
+                <div className="mt-0.5 text-[7px] text-slate-400">
+                  Saved: {lastSavedLabel}
+                </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-2.5 dark:border-[#2B3B60] dark:bg-[#111C34]">
@@ -817,56 +2526,6 @@ export default function ProcessViewWidget({ data = {}, item = {} }) {
                 )}
               </div>
 
-              <div>
-                <div className="mb-2 text-[8px] font-black uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
-                  Equipment Quick Data
-                </div>
-                <div className="space-y-1.5">
-                  {equipmentDataCards.map(({ node, compactRows }) => (
-                    <button
-                      key={node.id}
-                      type="button"
-                      onClick={() => setSelectedNodeId(node.id)}
-                      className={`w-full rounded-xl border px-2.5 py-2 text-left transition ${
-                        selectedNodeId === node.id
-                          ? "border-cyan-300 bg-cyan-50 dark:border-cyan-500/40 dark:bg-cyan-400/[0.06]"
-                          : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-white dark:border-[#2B3B60] dark:bg-[#111C34] dark:hover:border-cyan-500/30 dark:hover:bg-[#15213B]"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-[9px] font-black text-slate-800 dark:text-slate-100">
-                            {node.label || node.type}
-                          </div>
-                          <div className="mt-0.5 truncate text-[7px] text-slate-400">
-                            {node.deviceId || "No device assigned"}
-                          </div>
-                        </div>
-                        <ChevronRight size={12} className="mt-0.5 shrink-0 text-slate-300" />
-                      </div>
-
-                      {compactRows.length > 0 && (
-                        <div className="mt-2 grid grid-cols-2 gap-1">
-                          {compactRows.map(({ metric, value }) => (
-                            <div
-                              key={metric.id}
-                              className="rounded-md bg-white px-1.5 py-1 dark:bg-[#0B1429]"
-                            >
-                              <div className="truncate text-[7px] font-semibold text-slate-400">
-                                {metric.label}
-                              </div>
-                              <div className="truncate text-[8px] font-black text-slate-700 dark:text-slate-200">
-                                {formatMetricValue(value, metric)}
-                                {metric.unit ? ` ${metric.unit}` : ""}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
         </aside>

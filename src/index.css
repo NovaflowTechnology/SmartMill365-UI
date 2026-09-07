@@ -8,54 +8,51 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  color: #111B34;
-  background: #eef1f5;
+  color: #09264A;
+  background: #edf3f8;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  /* Light mode remains intentionally restrained. */
-  --ui-canvas: #eef1f5;
+  --ui-canvas: #edf3f8;
   --ui-surface: #ffffff;
-  --ui-surface-2: #f8fafc;
-  --ui-surface-3: #f1f5f9;
-  --ui-border: #dbe3ec;
-  --ui-text: #111B34;
-  --ui-muted: #64748b;
+  --ui-surface-2: #f7fafc;
+  --ui-surface-3: #eef4f8;
+  --ui-border: #d6e1eb;
+  --ui-text: #09264A;
+  --ui-muted: #667b91;
 
-  /* Shared visualization accents inspired by the dashboard reference. */
-  --ui-cyan: #58d7ff;
-  --ui-purple: #a86bdf;
-  --ui-indigo: #7d75e7;
-  --ui-coral: #ff6f88;
-  --ui-orange: #ff9c63;
-  --ui-amber: #ffbf63;
-  --ui-yellow: #ffd66b;
-  --ui-mint: #70e1c2;
+  --ui-cyan: #35c9f4;
+  --ui-purple: #5d71d8;
+  --ui-indigo: #426bd0;
+  --ui-coral: #ef4653;
+  --ui-orange: #f49a45;
+  --ui-amber: #f5b942;
+  --ui-yellow: #f7cf58;
+  --ui-mint: #41c7b5;
 }
 
 html.dark {
   color-scheme: dark;
 
-  /* Deep blue / indigo dashboard palette from the supplied reference. */
-  --ui-canvas: #0b1328;
-  --ui-canvas-deep: #081022;
-  --ui-surface: #111b34;
-  --ui-surface-2: #15213d;
-  --ui-surface-3: #1b2948;
-  --ui-surface-4: #223253;
-  --ui-border: #2c3c61;
-  --ui-border-soft: rgba(113, 139, 196, 0.18);
-  --ui-text: #e8edff;
-  --ui-text-soft: #c8d1ea;
-  --ui-muted: #93a2c7;
-  --ui-muted-2: #7484aa;
-  --ui-grid: #29385c;
-  --ui-axis: #8796bb;
-  --ui-focus: #58d7ff;
+  --ui-canvas: #061426;
+  --ui-canvas-deep: #041020;
+  --ui-surface: #0b1f38;
+  --ui-surface-2: #102846;
+  --ui-surface-3: #153253;
+  --ui-surface-4: #1b3b60;
+  --ui-border: #24435f;
+  --ui-border-soft: rgba(77, 151, 202, 0.18);
+  --ui-text: #edf6ff;
+  --ui-text-soft: #c7d8ea;
+  --ui-muted: #91a8bf;
+  --ui-muted-2: #6f8aa5;
+  --ui-grid: #21415f;
+  --ui-axis: #7f9bb5;
+  --ui-focus: #35c9f4;
 
-  --ui-glow-cyan: rgba(88, 215, 255, 0.18);
-  --ui-glow-purple: rgba(168, 107, 223, 0.17);
-  --ui-glow-coral: rgba(255, 111, 136, 0.14);
+  --ui-glow-cyan: rgba(53, 201, 244, 0.18);
+  --ui-glow-purple: rgba(66, 107, 208, 0.15);
+  --ui-glow-coral: rgba(239, 70, 83, 0.13);
 }
 
 html,
@@ -79,9 +76,9 @@ html.dark body,
 body.dark {
   color: var(--ui-text);
   background:
-    radial-gradient(circle at 12% -8%, rgba(125, 117, 231, 0.16), transparent 31rem),
-    radial-gradient(circle at 94% 8%, rgba(88, 215, 255, 0.10), transparent 30rem),
-    radial-gradient(circle at 67% 100%, rgba(168, 107, 223, 0.08), transparent 34rem),
+    radial-gradient(circle at 12% -8%, rgba(36, 94, 197, 0.16), transparent 31rem),
+    radial-gradient(circle at 94% 8%, rgba(53, 201, 244, 0.10), transparent 30rem),
+    radial-gradient(circle at 67% 100%, rgba(53, 122, 214, 0.08), transparent 34rem),
     var(--ui-canvas);
   background-attachment: fixed;
 }
@@ -91,13 +88,9 @@ body.dark {
 }
 
 ::selection {
-  background: rgba(88, 215, 255, 0.24);
+  background: rgba(53, 201, 244, 0.24);
   color: inherit;
 }
-
-/* -------------------------------------------------------------------------- */
-/* Global interaction language                                                */
-/* -------------------------------------------------------------------------- */
 
 button,
 a,
@@ -128,7 +121,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(88, 215, 255, 0.20);
+  box-shadow: 0 0 0 3px rgba(53, 201, 244, 0.20);
 }
 
 html.dark input,
@@ -140,13 +133,12 @@ html.dark textarea {
 html.dark input:focus,
 html.dark select:focus,
 html.dark textarea:focus {
-  border-color: rgba(88, 215, 255, 0.68) !important;
+  border-color: rgba(53, 201, 244, 0.68) !important;
   box-shadow:
-    0 0 0 3px rgba(88, 215, 255, 0.12),
+    0 0 0 3px rgba(53, 201, 244, 0.12),
     0 8px 24px rgba(4, 10, 28, 0.22);
 }
 
-/* Route-level entrance is used by App.jsx for every page. */
 .app-route-frame {
   min-height: 100%;
 }
@@ -208,7 +200,6 @@ html.dark textarea:focus {
       0 0 30px rgba(88, 215, 255, 0.07) !important;
   }
 
-  /* Tailwind modal backdrops and fullscreen editors get a soft entrance. */
   .fixed.inset-0 {
     animation: ui-overlay-enter 180ms ease-out;
   }
@@ -263,14 +254,7 @@ html.dark textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /*
-   * Keep the application's ordinary UI respectful of reduced-motion,
-   * but do NOT silently kill process visualization motion that the
-   * application explicitly marks as motion-enabled.
-   *
-   * Equipment animation can still be disabled with motionEnabled={false},
-   * and pipeline flow can still be disabled per connection.
-   */
+  
   *:not(.process-equipment-visual):not(.process-equipment-visual *):not(.process-flow-line),
   *:not(.process-equipment-visual):not(.process-equipment-visual *):not(.process-flow-line)::before,
   *:not(.process-equipment-visual):not(.process-equipment-visual *):not(.process-flow-line)::after {
@@ -281,11 +265,6 @@ html.dark textarea:focus {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Reference-inspired dark surfaces                                           */
-/* -------------------------------------------------------------------------- */
-
-/* Canvas / deepest backgrounds. */
 html.dark [class~="bg-slate-950"],
 html.dark [class~="bg-gray-950"],
 html.dark [class~="dark:bg-slate-950"],
@@ -300,7 +279,6 @@ html.dark [class~="dark:bg-[#0B1328]"] {
   background-color: var(--ui-canvas) !important;
 }
 
-/* Main cards and panels. */
 html.dark [class~="bg-white"],
 html.dark [class~="dark:bg-white"],
 html.dark [class~="bg-slate-900"],
@@ -312,7 +290,6 @@ html.dark [class~="dark:bg-[#111B34]"] {
   background-color: var(--ui-surface) !important;
 }
 
-/* Secondary / nested panels. */
 html.dark [class~="bg-slate-50"],
 html.dark [class~="bg-gray-50"],
 html.dark [class~="dark:bg-slate-50"],
@@ -331,7 +308,6 @@ html.dark [class~="dark:bg-gray-700"] {
   background-color: var(--ui-surface-3) !important;
 }
 
-/* Neutral borders become cool indigo-blue rather than gray. */
 html.dark [class~="border-slate-800"],
 html.dark [class~="border-slate-700"],
 html.dark [class~="border-slate-600"],
@@ -347,14 +323,6 @@ html.dark [class~="dark:border-gray-700"] {
   border-color: var(--ui-border) !important;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Dark-mode separator safety                                                  */
-/* -------------------------------------------------------------------------- */
-/*
- * Never use a white/light-gray rule as a separator in dark mode. Accent
- * borders (cyan/purple/amber/etc.) are intentionally left alone; only white
- * and neutral divider utilities are normalized to the deep-blue border tone.
- */
 html.dark [class*="border-white"],
 html.dark [class~="border-slate-100"],
 html.dark [class~="border-slate-200"],
@@ -381,7 +349,6 @@ html.dark hr {
   border-color: #263657 !important;
 }
 
-/* Text hierarchy across every page. */
 html.dark [class~="text-slate-950"],
 html.dark [class~="text-slate-900"],
 html.dark [class~="text-slate-800"],
@@ -413,11 +380,10 @@ html.dark [class~="dark:text-gray-400"] {
   color: var(--ui-muted) !important;
 }
 
-/* Existing emerald brand accents become the reference cyan in dark mode. */
 html.dark [class~="bg-emerald-600"],
 html.dark [class~="dark:bg-emerald-600"] {
-  background: linear-gradient(135deg, #3dc6eb 0%, #6d6fe4 100%) !important;
-  box-shadow: 0 8px 24px rgba(55, 177, 221, 0.16);
+  background: linear-gradient(135deg, #245ec5 0%, #35c9f4 100%) !important;
+  box-shadow: 0 8px 24px rgba(36, 94, 197, 0.18);
 }
 
 html.dark [class~="text-emerald-700"],
@@ -447,7 +413,6 @@ html.dark [class~="dark:bg-emerald-500/20"] {
   background-color: rgba(88, 215, 255, 0.09) !important;
 }
 
-/* Hover variants used throughout the app. */
 html.dark [class~="dark:hover:bg-slate-800"]:hover,
 html.dark [class~="dark:hover:bg-gray-800"]:hover,
 html.dark [class~="hover:bg-slate-800"]:hover {
@@ -459,7 +424,6 @@ html.dark [class~="dark:hover:bg-gray-700"]:hover {
   background-color: var(--ui-surface-4) !important;
 }
 
-/* Tables and dividers. */
 html.dark table {
   color: var(--ui-text-soft);
 }
@@ -475,7 +439,6 @@ html.dark [class~="divide-gray-700"] > :not([hidden]) ~ :not([hidden]) {
   border-color: var(--ui-border-soft) !important;
 }
 
-/* Recharts: dark grid/axis treatment is shared by every chart page/widget. */
 html.dark .recharts-cartesian-grid line {
   stroke: var(--ui-grid) !important;
   stroke-opacity: 0.70;
@@ -497,7 +460,6 @@ html.dark .recharts-tooltip-cursor {
   stroke: rgba(88, 215, 255, 0.48) !important;
 }
 
-/* Dashboard widgets use a faint indigo/cyan edge like the reference cards. */
 html.dark .dashboard-widget-surface {
   background:
     linear-gradient(180deg, rgba(14, 23, 45, 0.99), rgba(8, 16, 34, 0.995)) !important;
@@ -507,20 +469,6 @@ html.dark .dashboard-widget-surface {
     inset 0 1px 0 rgba(88, 215, 255, 0.018) !important;
 }
 
-
-/* -------------------------------------------------------------------------- */
-/* Dark-mode contrast safety net                                              */
-/* -------------------------------------------------------------------------- */
-
-/*
- * Tailwind is class-driven in this project (tailwind.config.js: darkMode =
- * "class"). The rules below are deliberate fallbacks for older components
- * that still have a light neutral base without a matching dark:* utility.
- *
- * Dark mode should not be a literal inversion: canvases remain deep navy,
- * nested cards step upward in luminance, and text uses off-white/muted blue
- * rather than large pure-white slabs.
- */
 html.dark [class~="bg-slate-100"],
 html.dark [class~="bg-gray-100"] {
   background-color: var(--ui-surface-2) !important;
@@ -538,9 +486,6 @@ html.dark [class~="bg-gray-400"] {
   background-color: var(--ui-surface-4) !important;
 }
 
-/* Tailwind opacity-suffixed light surfaces such as bg-white/95 do not match
- * the exact-token rules above. Give the common ones a dark equivalent.
- */
 html.dark [class~="bg-white/95"],
 html.dark [class~="bg-white/90"],
 html.dark [class~="bg-white/80"],
@@ -560,20 +505,15 @@ html.dark [class~="bg-slate-200/70"] {
   background-color: rgba(21, 33, 61, 0.94) !important;
 }
 
-/* Keep "white" typography slightly softened in dark mode. This still gives
- * strong contrast without making every heading look fluorescent.
- */
 html.dark [class~="text-white"] {
   color: var(--ui-text) !important;
 }
 
-/* Disabled controls stay visibly disabled, but do not become pale gray cards. */
 html.dark button:disabled,
 html.dark [aria-disabled="true"] {
   filter: saturate(0.72) brightness(0.92);
 }
 
-/* Native autofill can otherwise flash a bright input in Chromium. */
 html.dark input:-webkit-autofill,
 html.dark input:-webkit-autofill:hover,
 html.dark input:-webkit-autofill:focus,
@@ -584,7 +524,6 @@ html.dark select:-webkit-autofill {
   caret-color: var(--ui-cyan);
 }
 
-/* Semantic alert surfaces remain dark-tinted instead of becoming cream/white. */
 html.dark .ui-warning-surface {
   background: linear-gradient(
     180deg,
@@ -612,7 +551,6 @@ html.dark .ui-danger-surface {
   border-color: rgba(255, 111, 136, 0.34) !important;
 }
 
-/* Scrollbars */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -643,19 +581,13 @@ html.dark ::-webkit-scrollbar-thumb:hover,
   background-clip: padding-box;
 }
 
-/*
- * Desktop UI remains at normal CSS scale so grid drag/resize pointer math is
- * unaffected by the visual redesign.
- */
-
-/* Sidebar gets the same navy + cyan/violet ambient depth as the reference. */
 .app-sidebar::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 20% 0%, rgba(125, 117, 231, 0.16), transparent 14rem),
+    radial-gradient(circle at 20% 0%, rgba(36, 94, 197, 0.16), transparent 14rem),
     radial-gradient(circle at 110% 38%, rgba(88, 215, 255, 0.09), transparent 15rem);
   opacity: 0.9;
 }
@@ -698,4 +630,129 @@ html.dark .app-main {
     radial-gradient(circle at 92% 3%, rgba(88, 215, 255, 0.07), transparent 25rem),
     var(--ui-canvas) !important;
   background-attachment: local;
+}
+
+.widget-appearance-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.widget-appearance-no-dots .widget-tech-backdrop {
+  display: none !important;
+}
+
+.widget-appearance-square .dashboard-widget-surface {
+  border-radius: 0 !important;
+}
+
+.widget-appearance-no-dots [class~="pr-14"],
+.widget-appearance-no-dots [class~="pr-12"] {
+  padding-right: 0.25rem !important;
+}
+
+.widget-appearance-no-dots [class~="px-12"] {
+  padding-left: 0.25rem !important;
+  padding-right: 0.25rem !important;
+}
+
+@keyframes nf-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nf-fullscreen-enter {
+  from {
+    opacity: 0.82;
+    transform: scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes nf-popover-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes nf-equipment-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.955);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.012);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes nf-panel-content-enter {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .process-simulator-page {
+    animation: nf-page-enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .dashboard-page[data-dashboard-mode="fullscreen"] {
+    transform-origin: center top;
+    animation: nf-fullscreen-enter 200ms ease-out;
+  }
+
+  .dashboard-popover {
+    transform-origin: top right;
+    animation: nf-popover-enter 170ms ease-out;
+  }
+
+  .process-simulator-layout {
+    transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .process-simulator-side-panel > * {
+    animation: nf-panel-content-enter 180ms ease-out;
+  }
+
+  .process-simulator-node {
+    transform-origin: center;
+    animation: nf-equipment-enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .process-save-button svg {
+    transition: transform 180ms ease;
+  }
+
+  .process-save-button:hover svg {
+    transform: translateY(-1px) scale(1.06);
+  }
+
+  .process-save-button:active svg {
+    transform: translateY(0) scale(0.94);
+  }
 }
