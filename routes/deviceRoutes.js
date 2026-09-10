@@ -5,7 +5,10 @@ import {
   org,
 } from "../config/influx.js";
 import auth from "../middleware/auth.js";
-import { isValidFluxColumnName } from "../utils/helpers.js";
+import {
+  escapeFluxString,
+  isValidFluxColumnName,
+} from "../utils/helpers.js";
 import {
   discoverSmartMillLogicalDevices,
   getLogicalDeviceKey,
@@ -22,7 +25,7 @@ const router = express.Router();
 // Superadmins can see all device assignments, optionally filtered by org_id.
 router.get(
   "/influx/allowed-devices",
-  auth(["superadmin", "admin", "editor"]),
+  auth(["superadmin", "admin", "editor", "viewer"]),
   async (req, res) => {
     try {
       const { role, org_id } = req.user;
@@ -46,7 +49,7 @@ router.get(
 
       const params = [];
 
-      if (role === "admin" || role === "editor") {
+      if (role !== "superadmin") {
         if (!org_id) {
           return res.status(403).json({
             error: "User has no organization assigned",

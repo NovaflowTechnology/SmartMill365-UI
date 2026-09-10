@@ -178,11 +178,16 @@ export default function ProcessMonitoringView({
   liveState = "idle",
   lastLiveAt = null,
   mode = "hybrid",
-  clock = Date.now(),
+  clock: suppliedClock,
   resolveMetric,
   resolveConnectionValue,
   dark = false,
 }) {
+  const [initialClock] = useState(
+    () => Date.now()
+  );
+  const clock =
+    suppliedClock ?? initialClock;
   const stageRef = useRef(null);
   const [stageSize, setStageSize] = useState({
     width: 960,
@@ -241,7 +246,7 @@ export default function ProcessMonitoringView({
           ),
         };
       }),
-    [nodes, resolveMetric, clock, mode]
+    [nodes, resolveMetric]
   );
 
   const selected =
@@ -326,7 +331,7 @@ export default function ProcessMonitoringView({
     return connectionFlow.length
       ? Math.max(...connectionFlow)
       : null;
-  }, [boilers, connections, resolveConnectionValue, clock, mode]);
+  }, [boilers, connections, resolveConnectionValue]);
 
   const sterilizerPressures = sterilizers
     .map((item) => finite(item.values.pressure))
@@ -410,7 +415,7 @@ export default function ProcessMonitoringView({
         metric: pressureMetric,
       });
     }).filter(Boolean);
-  }, [sterilizers, history, clock, mode]);
+  }, [sterilizers, history, clock]);
 
   const systemSummary = [
     {

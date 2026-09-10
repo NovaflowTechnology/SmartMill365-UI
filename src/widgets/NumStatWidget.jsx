@@ -150,7 +150,6 @@ export default function NumStatWidget({
   value = 0,
   statusValue,
   label = "Value",
-  dataKey = "",
   display = {},
   rangeConfig = null,
 }) {
@@ -181,6 +180,8 @@ export default function NumStatWidget({
 
   const numericValue = toFiniteNumber(value, 0);
   const previousValueRef = useRef(numericValue);
+  // This ref intentionally carries the previous render's value for the trend.
+  // eslint-disable-next-line react-hooks/refs
   const previousValue = previousValueRef.current;
 
   const min = toFiniteNumber(config.min, 0);
@@ -638,14 +639,6 @@ export default function NumStatWidget({
 
   const mappingValueSizeClass =
     getMappingValueSize();
-
-  const mappingSelfAlignClass =
-    horizontalAlignment === "center"
-      ? "self-center"
-      : horizontalAlignment ===
-        "right"
-      ? "self-end"
-      : "self-start";
 
   const valueColorClass =
     settings.valueColor === "custom"

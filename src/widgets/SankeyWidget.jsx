@@ -40,11 +40,6 @@ const PREVIEW_VALUES = [
   8.2,
 ];
 
-const createId = (prefix) =>
-  `${prefix}-${Date.now()}-${Math.random()
-    .toString(16)
-    .slice(2)}`;
-
 const normalizeTier = (value, fallback = 1) => {
   const numeric = Number(value);
 

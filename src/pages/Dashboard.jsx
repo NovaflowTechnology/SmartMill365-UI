@@ -38,6 +38,9 @@ const TIME_RANGE_OPTIONS = [
   { value: "5y", label: "Last 5 years" },
 ];
 
+const LIVE_POLL_INTERVAL_MS = 2000;
+const HISTORY_REFRESH_INTERVAL_MS = 15000;
+
 const CALENDAR_RANGE_OPTIONS = [
   { value: "yesterday", label: "Yesterday" },
   { value: "dayBeforeYesterday", label: "Day before yesterday" },
@@ -883,7 +886,9 @@ export default function Dashboard({
     setSankeyValues({});
   }, [template?.id]);
 
-  const fetchTemplateLiveData = async () => {
+  const fetchTemplateLiveData = async ({
+    includeHistory = true,
+  } = {}) => {
     const token = localStorage.getItem("token");
 
     if (!token) {
@@ -946,6 +951,7 @@ export default function Dashboard({
 
             ...timeRequest,
             items: layout?.items || items || [],
+            includeHistory,
           }),
         }
       );
@@ -1120,16 +1126,29 @@ export default function Dashboard({
 
     let cancelled = false;
     let timer = null;
+    let lastHistoryRefreshAt = 0;
 
     const poll =
       async () => {
-        await fetchTemplateLiveData();
+        const now = Date.now();
+        const includeHistory =
+          lastHistoryRefreshAt === 0 ||
+          now - lastHistoryRefreshAt >=
+            HISTORY_REFRESH_INTERVAL_MS;
+
+        if (includeHistory) {
+          lastHistoryRefreshAt = now;
+        }
+
+        await fetchTemplateLiveData({
+          includeHistory,
+        });
 
         if (!cancelled) {
           timer =
             window.setTimeout(
               poll,
-              5000
+              LIVE_POLL_INTERVAL_MS
             );
         }
       };
@@ -1438,10 +1457,10 @@ export default function Dashboard({
             background-color: #101A31 !important;
           }
 
-          .dashboard-dark .hover\:bg-gray-50:hover,
-          .dashboard-dark .hover\:bg-gray-100:hover,
-          .dashboard-dark .dark\:hover\:bg-gray-700:hover,
-          .dashboard-dark .dark\:hover\:bg-gray-800:hover {
+          .dashboard-dark .hover\\:bg-gray-50:hover,
+          .dashboard-dark .hover\\:bg-gray-100:hover,
+          .dashboard-dark .dark\\:hover\\:bg-gray-700:hover,
+          .dashboard-dark .dark\\:hover\\:bg-gray-800:hover {
             background-color: #1B2948 !important;
           }
 

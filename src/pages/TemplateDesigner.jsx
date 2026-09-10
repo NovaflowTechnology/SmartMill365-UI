@@ -30,10 +30,8 @@ import {
   normalizeSankeyConfig,
 } from "../widgets/SankeyWidget";
 import {
-  filterMeasurementsByGroup,
   formatMeasurementLabel,
   getMeasurementGroup,
-  getMeasurementGroupOptions,
   groupMeasurements,
 } from "../utils/measurementGroups";
 import {
@@ -1266,8 +1264,11 @@ export default function TemplateDesigner({
   const isOrganizationAdmin =
     role === "admin";
 
+  const isEditor =
+    role === "editor";
+
   const canConfigureInflux =
-    isSuperadmin || isOrganizationAdmin;
+    isSuperadmin || isOrganizationAdmin || isEditor;
 
   const [influxConfig, setInfluxConfig] =
     useState(defaultInfluxConfig);
@@ -1275,7 +1276,7 @@ export default function TemplateDesigner({
   const [channelMap, setChannelMap] =
     useState(defaultChannelMap);
 
-  // Superadmins can browse all Influx metadata; admins only see assigned devices.
+  // Superadmins can browse all metadata; organization roles see assigned devices.
   const [availableDevices, setAvailableDevices] =
     useState([]);
 
@@ -1296,7 +1297,7 @@ export default function TemplateDesigner({
   const [influxIds, setInfluxIds] =
     useState([]);
 
-  const [influxIdMeasurementMap, setInfluxIdMeasurementMap] =
+  const [, setInfluxIdMeasurementMap] =
     useState({});
 
   const [influxChannels, setInfluxChannels] =
@@ -1310,30 +1311,6 @@ export default function TemplateDesigner({
 
   const [influxError, setInfluxError] =
     useState("");
-
-  const measurementGroupOptions =
-    getMeasurementGroupOptions(influxMeasurements);
-
-  const filteredInfluxMeasurements =
-    filterMeasurementsByGroup(
-      influxMeasurements,
-      selectedMeasurementGroup
-    );
-
-  const measurementsForSelectedInfluxId =
-    influxConfig.tagValue || influxConfig.id
-      ? filteredInfluxMeasurements.filter(
-          (measurement) =>
-            (
-              influxIdMeasurementMap[
-                String(
-                  influxConfig.tagValue ||
-                    influxConfig.id
-                )
-              ] || []
-            ).includes(measurement)
-        )
-      : [];
 
   // Group permission rows into logical devices so admins do not see duplicates.
   const logicalAssignedDevices = (() => {
@@ -1817,6 +1794,24 @@ export default function TemplateDesigner({
     const draft = readPageDraft(designerDraftKey);
     if (draft) {
       restoreDesignerSnapshot(draft);
+
+      if (isEditor) {
+        let assignedLayout = {};
+
+        try {
+          assignedLayout =
+            typeof selectedTemplate.layout === "string"
+              ? JSON.parse(selectedTemplate.layout)
+              : selectedTemplate.layout || {};
+        } catch {
+          assignedLayout = {};
+        }
+
+        setTemplateName(selectedTemplate.name || "");
+        setRows(assignedLayout.rows || 3);
+        setCols(assignedLayout.cols || 4);
+      }
+
       setSankeyConfig(defaultSankeyConfig);
       return;
     }
@@ -1972,7 +1967,12 @@ export default function TemplateDesigner({
       console.error("❌ Template load error:", err);
       showToast("error", "Failed to load template layout.");
     }
-  }, [isEditingTemplate, selectedTemplate?.id, designerDraftKey]);
+  }, [
+    isEditingTemplate,
+    isEditor,
+    selectedTemplate,
+    designerDraftKey,
+  ]);
 
   // Autosave working state separately from the official template save.
   useEffect(() => {
@@ -2061,12 +2061,6 @@ export default function TemplateDesigner({
     "processView",
   ];
 
-  const wizardWidgetOptions = allWidgetOptions.filter((widget) =>
-    useDedicatedWidgetSource
-      ? dedicatedWidgetTypes.includes(widget.type)
-      : !dedicatedWidgetTypes.includes(widget.type)
-  );
-
   const previewValues = allDataOptions.reduce(
     (values, option, index) => ({
       ...values,
@@ -2077,24 +2071,6 @@ export default function TemplateDesigner({
     }),
     { ...previewData }
   );
-
-  const getAvailableDataOptionsForType = (type) => {
-    if (
-      [
-        "image",
-        "sankey",
-        "logs",
-        "processView",
-        "customLayout",
-      ].includes(type)
-    ) {
-      return [];
-    }
-
-    return allDataOptions;
-  };
-
-  const availableDataOptions = getAvailableDataOptionsForType(newType);
 
   const getDataSourceLabel = (key) =>
     allDataOptions.find(
@@ -2188,71 +2164,6 @@ export default function TemplateDesigner({
             ?.channel
         )
     );
-
-  const getUnmappedTerminalSankeyFlows = (
-    config = sankeyConfig
-  ) => {
-    const normalized =
-      getNormalizedSankeyConfig(
-        config
-      );
-
-    const terminalNodeIds =
-      new Set(
-        normalized.nodes
-          .filter(
-            (node) =>
-              !normalized.links.some(
-                (flow) =>
-                  flow.source ===
-                  node.id
-              )
-          )
-          .map(
-            (node) =>
-              node.id
-          )
-      );
-
-    return normalized.links.filter(
-      (flow) =>
-        terminalNodeIds.has(
-          flow.target
-        ) &&
-        !(
-          flow.dataKey ||
-          flow.dataSource
-            ?.channel
-        )
-    );
-  };
-
-  const getSankeyOutputSummary = (
-    config = sankeyConfig
-  ) => {
-    const configuredOutputs =
-      getConfiguredSankeyOutputs(
-        config
-      );
-
-    if (
-      !configuredOutputs.length
-    ) {
-      return "No Sankey flow data source configured";
-    }
-
-    return configuredOutputs
-      .map((flow) => {
-        const source =
-          flow.dataKey ||
-          flow.dataSource
-            ?.channel ||
-          "not configured";
-
-        return `${flow.name || "Flow"} (${source})`;
-      })
-      .join(", ");
-  };
 
   const getPreparedSankeyConfig =
     () => {
@@ -3091,61 +3002,6 @@ export default function TemplateDesigner({
       : [];
   };
 
-  const fetchInfluxIdsAndChannels = async (
-    selectedBucket,
-    selectedMeasurement,
-    token
-  ) => {
-    const query = new URLSearchParams({
-      bucket: selectedBucket,
-      measurement: selectedMeasurement,
-    });
-
-    const [idsRes, channelsRes] =
-      await Promise.all([
-        fetch(
-          `http://localhost:5000/influx/ids?${query.toString()}`,
-          {
-            headers: {
-              Authorization: token,
-            },
-          }
-        ),
-
-        fetch(
-          `http://localhost:5000/influx/channels?${query.toString()}`,
-          {
-            headers: {
-              Authorization: token,
-            },
-          }
-        ),
-      ]);
-
-    const idsData = await idsRes.json();
-    const channelsData =
-      await channelsRes.json();
-
-    if (!idsRes.ok) {
-      throw new Error(
-        idsData?.error ||
-          "Failed to load available Influx IDs"
-      );
-    }
-
-    if (!channelsRes.ok) {
-      throw new Error(
-        channelsData?.error ||
-          "Failed to load available Influx channels"
-      );
-    }
-
-    return {
-      ids: idsData?.ids || [],
-      channels: channelsData?.channels || [],
-    };
-  };
-
   const applySelectedDevice = (
     logicalDeviceId
   ) => {
@@ -3857,16 +3713,6 @@ export default function TemplateDesigner({
     refreshInfluxMetadata();
   }, [showCustomDataModal]);
 
-  const updateChannelMapping = (
-    dataKey,
-    channel
-  ) => {
-    setChannelMap((prev) => ({
-      ...prev,
-      [dataKey]: channel,
-    }));
-  };
-
   // Direct Influx fields map to themselves automatically.
   useEffect(() => {
     if (!newDataKey) {
@@ -3987,8 +3833,8 @@ export default function TemplateDesigner({
     if (!editingImageWidget?.resumeWidgetSettings) return;
 
     const {
-      resumeWidgetSettings,
-      returnPage,
+      resumeWidgetSettings: _resumeWidgetSettings,
+      returnPage: _returnPage,
       designerSnapshot,
       ...returnedWidget
     } = editingImageWidget;
@@ -4092,8 +3938,8 @@ export default function TemplateDesigner({
     if (!editingSankeyWidget?.resumeWidgetSettings) return;
 
     const {
-      resumeWidgetSettings,
-      returnPage,
+      resumeWidgetSettings: _resumeWidgetSettings,
+      returnPage: _returnPage,
       designerSnapshot,
       customDataOptions:
         returnedCustomDataOptions,
@@ -4456,24 +4302,6 @@ export default function TemplateDesigner({
     }
 
     return false;
-  };
-
-  const hasMoveCollision = (movingItem) => {
-    return items.some((item) => {
-      if (item.id === movingItem.id) {
-        return false;
-      }
-
-      const overlapX =
-        movingItem.x < item.x + item.w &&
-        movingItem.x + movingItem.w > item.x;
-
-      const overlapY =
-        movingItem.y < item.y + item.h &&
-        movingItem.y + movingItem.h > item.y;
-
-      return overlapX && overlapY;
-    });
   };
 
   // All widgets may resize to 1×1; width and height must remain at least 1.
@@ -4912,41 +4740,6 @@ export default function TemplateDesigner({
     setDidDrag(false);
   };
 
-  const moveWidget = (
-    itemId,
-    targetRow,
-    targetCol
-  ) => {
-    const movingItem = items.find(
-      (item) => item.id === itemId
-    );
-
-    if (!movingItem) return;
-
-    const placement = findClosestValidPlacement(
-      movingItem,
-      targetRow,
-      targetCol
-    );
-
-    if (!placement) {
-      showToast("error", "No available space for this widget.");
-      return;
-    }
-
-    setItems((previousItems) =>
-      previousItems.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              x: placement.col,
-              y: placement.row,
-            }
-          : item
-      )
-    );
-  };
-
   // Step 1 supports multiple sources; single-value widgets use the first source.
   const toggleWizardDataSource = (key) => {
     setUseDedicatedWidgetSource(false);
@@ -4963,44 +4756,6 @@ export default function TemplateDesigner({
 
       setNewDataKey(next[0] || "");
       return next;
-    });
-  };
-
-  const chooseDedicatedWidgetSource = () => {
-    setUseDedicatedWidgetSource(true);
-    setNewDataKey("");
-    setNewDataKeys([]);
-    setNewWidgetTypeId("");
-
-    if (!dedicatedWidgetTypes.includes(newType)) {
-      const firstDedicatedWidget =
-        widgetLibrary.find((widget) =>
-          dedicatedWidgetTypes.includes(widget.type)
-        );
-
-      if (firstDedicatedWidget) {
-        setNewType(firstDedicatedWidget.type);
-      }
-    }
-  };
-
-  const toggleMultiDataKey = (key) => {
-    setNewDataKeys((prev) => {
-      if (prev.includes(key)) {
-        const updated = prev.filter(
-          (k) => k !== key
-        );
-
-        setNewDataKey(updated[0] || "");
-
-        return updated;
-      }
-
-      const updated = [...prev, key];
-
-      setNewDataKey(updated[0] || key);
-
-      return updated;
     });
   };
 
@@ -6821,13 +6576,38 @@ export default function TemplateDesigner({
         {}
       );
 
+    const layoutPayload = {
+      rows,
+      cols,
+      dataSources,
+      influx:
+        Object.values(dataSources)[0]
+          ? {
+              ...Object.values(dataSources)[0],
+            }
+          : undefined,
+      channelMap,
+      customDataOptions,
+      customWidgetTypes,
+      items,
+    };
+
+    const isEditorLayoutUpdate =
+      isEditingTemplate && isEditor;
+
     try {
-      const endpoint = isEditingTemplate
+      const endpoint = isEditorLayoutUpdate
+        ? `http://localhost:5000/templates/${selectedTemplate.id}/layout`
+        : isEditingTemplate
         ? `http://localhost:5000/templates/${selectedTemplate.id}`
         : "http://localhost:5000/templates";
 
       const res = await fetch(endpoint, {
-          method: isEditingTemplate ? "PUT" : "POST",
+          method: isEditorLayoutUpdate
+            ? "PATCH"
+            : isEditingTemplate
+            ? "PUT"
+            : "POST",
 
           headers: {
             "Content-Type":
@@ -6835,34 +6615,18 @@ export default function TemplateDesigner({
             Authorization: token,
           },
 
-          body: JSON.stringify({
-            name:
-              templateName ||
-              `Template ${Date.now()}`,
-
-            layout: {
-              rows,
-              cols,
-
-              // Each dashboard data key should own a complete source; legacy mapping remains as fallback.
-              dataSources,
-
-              influx:
-                Object.values(dataSources)[0]
-                  ? {
-                      ...Object.values(
-                        dataSources
-                      )[0],
-                    }
-                  : undefined,
-
-              channelMap,
-              customDataOptions,
-              customWidgetTypes,
-
-              items,
-            },
-          }),
+          body: JSON.stringify(
+            isEditorLayoutUpdate
+              ? {
+                  layout: layoutPayload,
+                }
+              : {
+                  name:
+                    templateName ||
+                    `Template ${Date.now()}`,
+                  layout: layoutPayload,
+                }
+          ),
         }
       );
 
@@ -6887,21 +6651,7 @@ export default function TemplateDesigner({
             templateName ||
             selectedTemplate?.name ||
             `Template ${Date.now()}`,
-          layout: {
-            rows,
-            cols,
-            dataSources,
-            influx:
-              Object.values(dataSources)[0]
-                ? {
-                    ...Object.values(dataSources)[0],
-                  }
-                : undefined,
-            channelMap,
-            customDataOptions,
-            customWidgetTypes,
-            items,
-          },
+          layout: layoutPayload,
         });
       }
 
@@ -8028,13 +7778,13 @@ export default function TemplateDesigner({
           background-color: #020617 !important;
         }
 
-        .dark .template-builder .hover\:bg-gray-100:hover,
-        .dark .template-builder .hover\:bg-gray-50:hover {
+        .dark .template-builder .hover\\:bg-gray-100:hover,
+        .dark .template-builder .hover\\:bg-gray-50:hover {
           background-color: #1e293b !important;
         }
 
-        .dark .template-builder .dark\:hover\:bg-gray-800:hover,
-        .dark .template-builder .dark\:hover\:bg-slate-800:hover {
+        .dark .template-builder .dark\\:hover\\:bg-gray-800:hover,
+        .dark .template-builder .dark\\:hover\\:bg-slate-800:hover {
           background-color: #1e293b !important;
         }
 
@@ -8192,6 +7942,12 @@ export default function TemplateDesigner({
               type="text"
               placeholder="Template Name..."
               value={templateName}
+              readOnly={isEditingTemplate && isEditor}
+              title={
+                isEditingTemplate && isEditor
+                  ? "Only administrators can rename templates"
+                  : undefined
+              }
               onChange={(e) =>
                 setTemplateName(e.target.value)
               }
@@ -8264,6 +8020,7 @@ export default function TemplateDesigner({
 
                 <button
                   type="button"
+                  disabled={isEditingTemplate && isEditor}
                   onClick={() =>
                     updateGridRows(rows - 1)
                   }
@@ -8275,6 +8032,8 @@ export default function TemplateDesigner({
                     hover:bg-slate-100
                     dark:text-slate-300
                     dark:hover:bg-slate-800
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
                   "
                 >
                   −
@@ -8282,6 +8041,7 @@ export default function TemplateDesigner({
 
                 <input
                   type="number"
+                  disabled={isEditingTemplate && isEditor}
                   min={GRID_MIN_ROWS}
                   max={GRID_MAX_ROWS}
                   value={rows}
@@ -8302,6 +8062,7 @@ export default function TemplateDesigner({
 
                 <button
                   type="button"
+                  disabled={isEditingTemplate && isEditor}
                   onClick={() =>
                     updateGridRows(rows + 1)
                   }
@@ -8313,6 +8074,8 @@ export default function TemplateDesigner({
                     hover:bg-slate-100
                     dark:text-slate-300
                     dark:hover:bg-slate-800
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
                   "
                 >
                   +
@@ -8343,6 +8106,7 @@ export default function TemplateDesigner({
 
                 <button
                   type="button"
+                  disabled={isEditingTemplate && isEditor}
                   onClick={() =>
                     updateGridCols(cols - 1)
                   }
@@ -8354,6 +8118,8 @@ export default function TemplateDesigner({
                     hover:bg-slate-100
                     dark:text-slate-300
                     dark:hover:bg-slate-800
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
                   "
                 >
                   −
@@ -8361,6 +8127,7 @@ export default function TemplateDesigner({
 
                 <input
                   type="number"
+                  disabled={isEditingTemplate && isEditor}
                   min={GRID_MIN_COLS}
                   max={GRID_MAX_COLS}
                   value={cols}
@@ -8381,6 +8148,7 @@ export default function TemplateDesigner({
 
                 <button
                   type="button"
+                  disabled={isEditingTemplate && isEditor}
                   onClick={() =>
                     updateGridCols(cols + 1)
                   }
@@ -8392,6 +8160,8 @@ export default function TemplateDesigner({
                     hover:bg-slate-100
                     dark:text-slate-300
                     dark:hover:bg-slate-800
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
                   "
                 >
                   +
@@ -9783,7 +9553,7 @@ export default function TemplateDesigner({
                     </span>
                   </div>
 
-                {true && (
+                {(
                   <>
                     <div className="space-y-3">
                       {useDedicatedWidgetSource ? (
@@ -11290,7 +11060,7 @@ export default function TemplateDesigner({
                   goToNextWidgetStep={goToNextWidgetStep}
                 />
 
-                {true && (
+                {(
                   <>
                     <div className="mt-4 space-y-4">
                       <div

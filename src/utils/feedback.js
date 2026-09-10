@@ -43,7 +43,7 @@ const inferType = (message = "") => {
 
 const cleanMessage = (message) =>
   String(message ?? "")
-    .replace(/^[\s⭐✅❌⚠️]+/u, "")
+    .replace(/^(?:\s|⭐|✅|❌|⚠️)+/u, "")
     .trim();
 
 export const notify = (message, type = null) => {

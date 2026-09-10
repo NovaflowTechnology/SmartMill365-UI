@@ -377,7 +377,31 @@ export const normalizeCustomLayoutConfig = (
             {
               label:
                 part?.label || "",
-              measurements: [],
+              measurements:
+                part?.processEquipmentConfig
+                  ?.primaryMeasurement
+                  ?.dataKey
+                  ? [
+                      {
+                        id: "legacy-primary",
+                        label:
+                          part
+                            .processEquipmentConfig
+                            .primaryMeasurement
+                            .label || "",
+                        dataKey:
+                          part
+                            .processEquipmentConfig
+                            .primaryMeasurement
+                            .dataKey || "",
+                        unit:
+                          part
+                            .processEquipmentConfig
+                            .primaryMeasurement
+                            .unit || "",
+                      },
+                    ]
+                  : [],
             }
         );
 
@@ -471,43 +495,6 @@ export const normalizeCustomLayoutConfig = (
           300,
           900
         ),
-        equipmentPanel:
-          normalizeEquipmentPanel(
-            part?.equipmentPanel ||
-              {
-                label:
-                  part?.label || "",
-                measurements:
-                  part?.processEquipmentConfig
-                    ?.primaryMeasurement
-                    ?.dataKey
-                    ? [
-                        {
-                          id:
-                            "legacy-primary",
-                          label:
-                            part
-                              .processEquipmentConfig
-                              .primaryMeasurement
-                              .label ||
-                            "",
-                          dataKey:
-                            part
-                              .processEquipmentConfig
-                              .primaryMeasurement
-                              .dataKey ||
-                            "",
-                          unit:
-                            part
-                              .processEquipmentConfig
-                              .primaryMeasurement
-                              .unit ||
-                            "",
-                        },
-                      ]
-                    : [],
-              }
-          ),
       };
     });
 

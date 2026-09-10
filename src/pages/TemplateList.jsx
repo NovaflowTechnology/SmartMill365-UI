@@ -103,9 +103,13 @@ export default function TemplateList({
   const isSuperadmin =
     role === "superadmin";
 
-  const canCreateOrEdit =
+  const canCreateOrDelete =
     role === "superadmin" ||
     role === "admin";
+
+  const canEdit =
+    canCreateOrDelete ||
+    role === "editor";
 
   const [detectedDark, setDetectedDark] = useState(false);
 
@@ -1043,7 +1047,7 @@ export default function TemplateList({
             --tw-gradient-to: #2C3C61 var(--tw-gradient-to-position) !important;
           }
 
-          .template-list-dark .hover\:shadow-2xl:hover {
+          .template-list-dark .hover\\:shadow-2xl:hover {
             box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.45) !important;
           }
 
@@ -1204,7 +1208,7 @@ export default function TemplateList({
         }
         className="mb-3 shrink-0"
         actions={
-          canCreateOrEdit ? (
+          canCreateOrDelete ? (
             <button
               type="button"
               onClick={() =>
@@ -2429,7 +2433,7 @@ export default function TemplateList({
                   </button>
 
                   {/* EDIT */}
-                  {canCreateOrEdit && (
+                  {canEdit && (
                     <button
                       onClick={() => {
                         console.log(
@@ -2470,7 +2474,7 @@ export default function TemplateList({
                   )}
 
                   {/* DELETE */}
-                  {canCreateOrEdit && (
+                  {canCreateOrDelete && (
                     <button
                       onClick={() =>
                         deleteTemplate(t.id)

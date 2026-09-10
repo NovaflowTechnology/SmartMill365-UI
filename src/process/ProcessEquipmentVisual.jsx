@@ -123,7 +123,6 @@ const BoilerVisual = ({ values, dark = false }) => {
   const pressure = num(values.pressure, 0);
   const clipId = `boiler-body-${useId().replace(/:/g, "")}`;
   const waterLevel = pct(values.waterLevel ?? 55, 0, 100);
-  const steamFlow = num(values.steamFlow, 0);
   const active = hasIncomingData(values);
   const waterY = 61 - waterLevel * 0.34;
 
@@ -421,8 +420,6 @@ const ThresherVisual = ({ values, dark = false }) => {
 
 const HeatExchangerVisual = ({ values, dark = false }) => {
   const p = palette(dark);
-  const hot = num(values.hotTemperature ?? values.inletTemperature ?? values.temperature, 0);
-  const cold = num(values.coldTemperature ?? values.outletTemperature, 0);
   const active = hasIncomingData(values);
 
   return (
@@ -1010,7 +1007,6 @@ const ExtendedPalmEquipmentVisual = ({ type, values = {}, dark = false }) => {
 
 const VacuumDryerVisual = ({ values, dark = false }) => {
   const p = palette(dark);
-  const vacuum = Math.abs(num(values.vacuum ?? values.pressure, 0));
   const active = hasIncomingData(values);
   return (
     <SvgShell>

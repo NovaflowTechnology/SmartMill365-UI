@@ -27,7 +27,6 @@ const getSelectedKeys = (
 export default function CompositeWidget({
   data = {},
   history = [],
-  liveStatus = null,
   historyWindow = "15m",
   item = {},
 }) {
@@ -47,11 +46,6 @@ export default function CompositeWidget({
     selectedKeys[0] ||
     item.dataKey ||
     "";
-
-  const primaryValue =
-    Number(
-      data?.[primaryKey]
-    ) || 0;
 
   const ratio = Math.min(
     70,

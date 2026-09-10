@@ -11,6 +11,7 @@ export default function ProtectedRoute({ children, roles = [] }) {
 
   if (roles.length && !roles.includes(role)) {
     notify("No permission", "error");
+    window.location.replace("/");
     return null;
   }
 

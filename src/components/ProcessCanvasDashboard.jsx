@@ -319,7 +319,6 @@ export default function ProcessCanvasDashboard({
   liveStatus = null,
   sankeyValues = {},
   widgetAppearance = null,
-  dark = false,
 }) {
   const rootRef = useRef(null);
 

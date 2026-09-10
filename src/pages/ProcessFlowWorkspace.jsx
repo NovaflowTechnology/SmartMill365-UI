@@ -11,7 +11,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Save,
   Search,
   Star,
   Trash2,
@@ -121,6 +120,8 @@ export default function ProcessFlowWorkspace({
     useState("New Process Flow");
   const [createDescription, setCreateDescription] =
     useState("");
+  const [createLayout, setCreateLayout] =
+    useState("starter");
   const [createOrgId, setCreateOrgId] =
     useState("");
   const [organizations, setOrganizations] =
@@ -461,9 +462,14 @@ export default function ProcessFlowWorkspace({
         await createProcessFlow({
           name: createName.trim(),
           description:
-            createDescription.trim(),
+            createDescription.trim() ||
+            (createLayout === "starter"
+              ? "Starter palm oil sterilizer process flow."
+              : ""),
           topology:
-            createBlankTopology(),
+            createLayout === "starter"
+              ? ProcessSimulator.createDefaultTopology()
+              : createBlankTopology(),
           org_id: isSuperadmin
             ? Number(createOrgId)
             : undefined,
@@ -479,6 +485,7 @@ export default function ProcessFlowWorkspace({
         "New Process Flow"
       );
       setCreateDescription("");
+      setCreateLayout("starter");
 
       openFlow(flow);
       notify(
@@ -629,7 +636,7 @@ export default function ProcessFlowWorkspace({
     const confirmed =
       await confirmAction({
         title: "Delete process flow?",
-        message: `Permanently delete \"${flow.name}\"?`,
+        message: `Permanently delete "${flow.name}"?`,
         confirmLabel: "Delete",
         tone: "danger",
       });
@@ -671,63 +678,6 @@ export default function ProcessFlowWorkspace({
       notify(
         error.message ||
           "Unable to delete process flow",
-        "error"
-      );
-    }
-  };
-
-  const importLegacy = async () => {
-    const raw =
-      localStorage.getItem(
-        "palm-oil-process-simulator:last-saved"
-      );
-
-    const topology = safeParse(
-      raw,
-      null
-    );
-
-    if (
-      !topology ||
-      !Array.isArray(topology.nodes) ||
-      !Array.isArray(
-        topology.connections
-      )
-    ) {
-      notify(
-        "No legacy saved Plant Simulator layout was found",
-        "info"
-      );
-      return;
-    }
-
-    try {
-      const flow =
-        await createProcessFlow({
-          name: "Imported Plant Layout",
-          description:
-            "Imported from the previous local Plant Simulator save.",
-          topology,
-          org_id: isSuperadmin
-            ? Number(createOrgId) ||
-              undefined
-            : undefined,
-        });
-
-      setFlows((current) => [
-        flow,
-        ...current,
-      ]);
-      openFlow(flow);
-
-      notify(
-        "Legacy process layout imported",
-        "success"
-      );
-    } catch (error) {
-      notify(
-        error.message ||
-          "Unable to import legacy process layout",
         "error"
       );
     }
@@ -911,7 +861,7 @@ export default function ProcessFlowWorkspace({
               </p>
 
               {canEdit && (
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <div className="mt-4 flex justify-center">
                   <button
                     type="button"
                     onClick={() =>
@@ -921,14 +871,6 @@ export default function ProcessFlowWorkspace({
                   >
                     <Plus size={12} />
                     Create Flow
-                  </button>
-                  <button
-                    type="button"
-                    onClick={importLegacy}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[10px] font-semibold text-slate-600 dark:border-[#2C3C61] dark:text-slate-200"
-                  >
-                    <Save size={12} />
-                    Import Old Save
                   </button>
                 </div>
               )}
@@ -1141,6 +1083,40 @@ export default function ProcessFlowWorkspace({
                   className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-5 outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
                 />
               </label>
+
+              <fieldset>
+                <legend className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                  Starting layout
+                </legend>
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-[#081022]">
+                  <button
+                    type="button"
+                    aria-pressed={createLayout === "starter"}
+                    onClick={() => setCreateLayout("starter")}
+                    className={`flex min-h-12 items-center justify-center gap-2 rounded-lg px-3 text-[10px] font-bold transition ${
+                      createLayout === "starter"
+                        ? "bg-white text-cyan-700 shadow-sm dark:bg-[#15213D] dark:text-cyan-300"
+                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    <Layers3 size={14} />
+                    Starter process
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={createLayout === "blank"}
+                    onClick={() => setCreateLayout("blank")}
+                    className={`flex min-h-12 items-center justify-center gap-2 rounded-lg px-3 text-[10px] font-bold transition ${
+                      createLayout === "blank"
+                        ? "bg-white text-cyan-700 shadow-sm dark:bg-[#15213D] dark:text-cyan-300"
+                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    <Plus size={14} />
+                    Blank canvas
+                  </button>
+                </div>
+              </fieldset>
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -1272,7 +1248,9 @@ export default function ProcessFlowWorkspace({
                 <Plus size={12} />
                 {creating
                   ? "Creating…"
-                  : "Create Flow"}
+                  : createLayout === "starter"
+                    ? "Create Starter Flow"
+                    : "Create Blank Flow"}
               </button>
             </div>
           </div>

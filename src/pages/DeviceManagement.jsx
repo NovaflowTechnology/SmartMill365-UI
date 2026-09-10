@@ -151,7 +151,6 @@ const getOrganizationPalette = (index) =>
   ];
 
 export default function DeviceManagement({
-  setPage,
   dark = false,
 }) {
   const role =
@@ -166,10 +165,14 @@ export default function DeviceManagement({
   const isEditor =
     role === "editor";
 
+  const isViewer =
+    role === "viewer";
+
   const canViewDevices =
     isSuperadmin ||
     isAdmin ||
-    isEditor;
+    isEditor ||
+    isViewer;
 
   const currentOrgId =
     localStorage.getItem("org_id");
@@ -901,7 +904,7 @@ export default function DeviceManagement({
         }
       );
 
-      const payload = await readPayload(
+      await readPayload(
         response,
         "Failed to assign Device ID"
       );
@@ -991,7 +994,7 @@ export default function DeviceManagement({
     return (
       <div className="p-3">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
-          Device Management is available to Superadmin, Admin, and Editor.
+          You do not have permission to view devices.
         </div>
       </div>
     );

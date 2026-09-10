@@ -44,20 +44,14 @@ const TYPE_STYLE = {
 };
 
 export default function AppFeedback() {
-  const [toasts, setToasts] = useState([]);
+  const [toasts, setToasts] = useState(
+    consumePendingToasts
+  );
   const [exitingToastIds, setExitingToastIds] = useState(() => new Set());
   const [confirmation, setConfirmation] = useState(null);
 
   useEffect(() => {
     window.__appFeedbackReady = true;
-
-    const pending = consumePendingToasts();
-    if (pending.length) {
-      setToasts((current) => [
-        ...current,
-        ...pending,
-      ]);
-    }
 
     const onToast = (event) => {
       const toast = event.detail;

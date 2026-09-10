@@ -1,11 +1,19 @@
 import express from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import process from "node:process";
 import "dotenv/config";
 import db from "../config/db.js";
 
 const SECRET = process.env.JWT_SECRET;
 const router = express.Router();
+const INVALID_CREDENTIALS_MESSAGE =
+  "Invalid username or password";
+
+// Comparing against a real BCrypt hash for unknown usernames keeps the
+// failure path closer to the timing of a wrong-password attempt.
+const DUMMY_PASSWORD_HASH =
+  "$2b$10$WdH2M2G4r6rZ.IQzx14ga.NZ//hGNokLu2yC3g2xQPYEOmS9HDxEq";
 
 // =====================================
 // LOGIN
@@ -33,22 +41,16 @@ router.post("/login", (req, res) => {
         });
       }
 
-      if (!results.length) {
-        return res.status(401).json({
-          error: "User not found",
-        });
-      }
-
-      const user = results[0];
+      const user = results[0] || null;
 
       const match = await bcrypt.compare(
-        password,
-        user.password
+        String(password || ""),
+        user?.password || DUMMY_PASSWORD_HASH
       );
 
-      if (!match) {
+      if (!user || !match) {
         return res.status(401).json({
-          error: "Wrong password",
+          error: INVALID_CREDENTIALS_MESSAGE,
         });
       }
 

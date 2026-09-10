@@ -389,7 +389,9 @@ export default function App() {
       // PALM OIL PROCESS SIMULATOR
       case "process-simulator":
         return (
-          <ProtectedRoute>
+          <ProtectedRoute
+            roles={["superadmin", "admin", "editor"]}
+          >
             <Layout
               setPage={handleNavigate}
               currentPage={page}
@@ -413,7 +415,6 @@ export default function App() {
             roles={[
               "superadmin",
               "admin",
-              "editor",
             ]}
           >
             <Layout
@@ -530,6 +531,7 @@ export default function App() {
               "superadmin",
               "admin",
               "editor",
+              "viewer",
             ]}
           >
             <Layout
@@ -573,7 +575,9 @@ export default function App() {
       // IMAGE WIDGET EDITOR
       case "image-editor":
         return (
-          <ProtectedRoute>
+          <ProtectedRoute
+            roles={["superadmin", "admin", "editor"]}
+          >
             <ImageWidgetEditor
               widget={editingImageWidget}
               setWidget={
@@ -589,7 +593,9 @@ export default function App() {
       // SANKEY FLOW EDITOR
       case "sankey-editor":
         return (
-          <ProtectedRoute>
+          <ProtectedRoute
+            roles={["superadmin", "admin", "editor"]}
+          >
             <SankeyFlowEditor
               sankeyWidget={
                 editingSankeyWidget

@@ -728,7 +728,6 @@ export const normalizeTemplateDataSources = ({
         const selectedBucket =
           source.bucket ||
           influx?.bucket ||
-          bucket ||
           "";
 
         const measurement =
@@ -777,7 +776,7 @@ export const normalizeTemplateDataSources = ({
   // Backward compatibility for existing templates:
   // one Influx source + a dashboard-key-to-field map.
   const selectedBucket =
-    influx?.bucket || bucket || "";
+    influx?.bucket || "";
 
   const measurement =
     String(
@@ -887,6 +886,7 @@ export const fetchTemplateSourceGroup = async ({
   group,
   historyRangeFlux,
   aggregateEvery,
+  includeHistory = true,
 }) => {
   const uniqueFields = [
     ...new Set(
@@ -940,24 +940,20 @@ export const fetchTemplateSourceGroup = async ({
       |> sort(columns: ["_time"])
   `;
 
-  const [liveRows, historyRows] =
-    await Promise.all([
-      collectRowsWithRetry({
-        queryApi,
-        fluxQuery:
-          liveFluxQuery,
-        label:
-          `Live ${group.measurement}`,
-      }),
-
-      collectRowsWithRetry({
-        queryApi,
-        fluxQuery:
-          historyFluxQuery,
-        label:
-          `History ${group.measurement}`,
-      }),
-    ]);
+  const [liveRows, historyRows] = await Promise.all([
+    collectRowsWithRetry({
+      queryApi,
+      fluxQuery: liveFluxQuery,
+      label: `Live ${group.measurement}`,
+    }),
+    includeHistory
+      ? collectRowsWithRetry({
+          queryApi,
+          fluxQuery: historyFluxQuery,
+          label: `History ${group.measurement}`,
+        })
+      : Promise.resolve([]),
+  ]);
 
   return {
     group,

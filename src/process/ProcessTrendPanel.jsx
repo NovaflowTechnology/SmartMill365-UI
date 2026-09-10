@@ -186,7 +186,7 @@ export default function ProcessTrendPanel({
         label: formatTime(value),
       };
     });
-  }, [model.end, model.start, plotWidth]);
+  }, [model.end, model.start, plot.left, plotWidth]);
 
   const theme = dark
     ? {

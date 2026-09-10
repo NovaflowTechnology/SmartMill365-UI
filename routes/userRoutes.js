@@ -99,7 +99,7 @@ router.post(
           });
         }
       );
-    } catch (err) {
+    } catch {
       return res.status(500).json({
         error: "Failed to hash password",
       });

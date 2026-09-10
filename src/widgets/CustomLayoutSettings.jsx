@@ -86,27 +86,6 @@ const snapValue = (
       snap
     : value;
 
-const labelForMetric = (
-  metric
-) =>
-  metric?.label ||
-  String(
-    metric?.id || "Metric"
-  )
-    .replace(
-      /([a-z])([A-Z])/g,
-      "$1 $2"
-    )
-    .replace(
-      /[_-]+/g,
-      " "
-    )
-    .replace(
-      /\b\w/g,
-      (character) =>
-        character.toUpperCase()
-    );
-
 const defaultSizeForType = (
   type
 ) =>
@@ -315,6 +294,9 @@ export default function CustomLayoutSettings({
       options,
     ]);
 
+  const [previewEndTime] =
+    useState(() => Date.now());
+
   const exampleHistory =
     useMemo(() => {
       const rows =
@@ -326,11 +308,11 @@ export default function CustomLayoutSettings({
               },
               (_, index) => ({
                 timestamp:
-                  Date.now() -
+                  previewEndTime -
                   (20 - index) *
                     2000,
                 time: new Date(
-                  Date.now() -
+                  previewEndTime -
                     (20 - index) *
                       2000
                 ).toLocaleTimeString(),
@@ -381,6 +363,7 @@ export default function CustomLayoutSettings({
       previewHistory,
       options,
       exampleData,
+      previewEndTime,
     ]);
 
   const getPreviewPart = (

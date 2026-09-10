@@ -1295,7 +1295,9 @@ export default function ProcessViewWidget({
   const [topologyError, setTopologyError] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [size, setSize] = useState({ width: 800, height: 420 });
-  const [clock, setClock] = useState(Date.now());
+  const [clock, setClock] = useState(
+    () => Date.now()
+  );
   const dark = useDarkMode();
 
   const refreshTopology = async () => {
@@ -1419,10 +1421,12 @@ export default function ProcessViewWidget({
   useEffect(() => {
     lastTopologyTextRef.current = "";
 
+    /* eslint-disable react-hooks/set-state-in-effect -- clear stale flow data before the async refresh */
     if (config.processFlowId) {
       setTopology(null);
       setProcessFlowName("");
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     refreshTopology();
 
@@ -1553,6 +1557,8 @@ export default function ProcessViewWidget({
 
   useEffect(() => {
     if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+      // Keep inspector selection valid when a refresh removes the node.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedNodeId(null);
     }
   }, [nodes, selectedNodeId]);

@@ -1301,7 +1301,7 @@ router.get(
 // =====================================
 router.get(
   "/influx/channels",
-  auth(["superadmin", "admin", "editor"]),
+  auth(["superadmin", "admin", "editor", "viewer"]),
   async (req, res) => {
     const selectedBucket =
       req.query.bucket || bucket;
@@ -1328,7 +1328,7 @@ router.get(
       });
     }
 
-    // Organization admins may only discover fields for a device
+    // Organization users may only discover fields for a device
     // explicitly assigned to their own organization.
     if (req.user.role !== "superadmin") {
       if (!tagValue) {
@@ -1452,7 +1452,11 @@ router.post(
       startTime,
       endTime,
       items = [],
+      includeHistory = true,
     } = req.body;
+
+    const shouldIncludeHistory =
+      includeHistory !== false;
 
     const normalizedSources =
       normalizeTemplateDataSources({
@@ -1493,30 +1497,39 @@ router.post(
 
     // Verify the signed-in user can access every requested device source.
     try {
-      for (const group of groups) {
-        const allowed =
-          await canAccessInfluxDevice({
-            user: req.user,
-            bucketName: group.bucket,
-            measurementName:
-              group.measurement,
-            tagKey: group.tagKey,
-            tagValue: group.tagValue,
-          });
+      const accessChecks =
+        await Promise.all(
+          groups.map(async (group) => ({
+            group,
+            allowed:
+              await canAccessInfluxDevice({
+                user: req.user,
+                bucketName: group.bucket,
+                measurementName:
+                  group.measurement,
+                tagKey: group.tagKey,
+                tagValue: group.tagValue,
+              }),
+          }))
+        );
 
-        if (!allowed) {
-          return res.status(403).json({
-            error:
-              "You do not have permission to access one or more Influx devices",
-            source: {
-              bucket: group.bucket,
-              measurement:
-                group.measurement,
-              tagKey: group.tagKey,
-              tagValue: group.tagValue,
-            },
-          });
-        }
+      const deniedSource =
+        accessChecks.find(
+          ({ allowed }) => !allowed
+        )?.group;
+
+      if (deniedSource) {
+        return res.status(403).json({
+          error:
+            "You do not have permission to access one or more Influx devices",
+          source: {
+            bucket: deniedSource.bucket,
+            measurement:
+              deniedSource.measurement,
+            tagKey: deniedSource.tagKey,
+            tagValue: deniedSource.tagValue,
+          },
+        });
       }
     } catch (err) {
       console.error(
@@ -1625,24 +1638,26 @@ router.post(
       const queryApi =
         influxDB.getQueryApi(org);
 
-      const groupResults =
-        await Promise.all(
-          groups.map((group) =>
-            fetchTemplateSourceGroup({
-              queryApi,
-              group,
-              historyRangeFlux,
-              aggregateEvery,
-            })
-          )
-        );
-
-      const sankeyValues =
-        await fetchSankeyRuntimeValues({
-          queryApi,
-          user: req.user,
-          items,
-        });
+      const [groupResults, sankeyValues] =
+        await Promise.all([
+          Promise.all(
+            groups.map((group) =>
+              fetchTemplateSourceGroup({
+                queryApi,
+                group,
+                historyRangeFlux,
+                aggregateEvery,
+                includeHistory:
+                  shouldIncludeHistory,
+              })
+            )
+          ),
+          fetchSankeyRuntimeValues({
+            queryApi,
+            user: req.user,
+            items,
+          }),
+        ]);
 
       const data = {};
       const fieldTimestamps = {};

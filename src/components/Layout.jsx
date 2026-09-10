@@ -18,6 +18,13 @@ import {
   Factory,
 } from "lucide-react";
 
+const SETTING_KEYS = [
+  "builder",
+  "templates",
+  "organizations",
+  "device-management",
+];
+
 export default function Layout({
   children,
   setPage,
@@ -35,20 +42,16 @@ export default function Layout({
   const isSuperadmin = role === "superadmin";
   const isAdmin = role === "admin";
   const isEditor = role === "editor";
-
-  const settingKeys = [
-    "builder",
-    "templates",
-    "organizations",
-    "device-management",
-  ];
+  const isViewer = role === "viewer";
 
   const [settingOpen, setSettingOpen] = useState(
-    settingKeys.includes(currentPage)
+    SETTING_KEYS.includes(currentPage)
   );
 
   useEffect(() => {
-    if (settingKeys.includes(currentPage)) {
+    if (SETTING_KEYS.includes(currentPage)) {
+      // Navigation can be changed by the parent, so keep its section expanded.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSettingOpen(true);
     }
   }, [currentPage]);
@@ -64,15 +67,19 @@ export default function Layout({
       label: "Dashboard",
       icon: LayoutDashboard,
     },
-    {
-      key: "process-simulator",
-      label: "Plant Simulator",
-      icon: Factory,
-    },
+    ...(!isViewer
+      ? [
+          {
+            key: "process-simulator",
+            label: "Plant Simulator",
+            icon: Factory,
+          },
+        ]
+      : []),
   ];
 
   const settingMenu = [
-    ...(isSuperadmin || isAdmin || isEditor
+    ...(isSuperadmin || isAdmin
       ? [
           {
             key: "builder",
@@ -87,14 +94,18 @@ export default function Layout({
       label: isSuperadmin
         ? "Template Management"
         : "Templates",
-      description: "Manage dashboards",
+      description: isViewer
+        ? "View assigned dashboards"
+        : "Manage dashboards",
       icon: Folder,
     },
-    ...(isSuperadmin || isAdmin || isEditor
+    ...(isSuperadmin || isAdmin || isEditor || isViewer
       ? [
           {
             key: "device-management",
-            label: "Device Management",
+            label: isViewer
+              ? "Devices"
+              : "Device Management",
             description: isSuperadmin
               ? "Assign device access"
               : "View assigned devices",
@@ -118,7 +129,7 @@ export default function Layout({
       : []),
   ];
 
-  const isSettingActive = settingKeys.includes(currentPage);
+  const isSettingActive = SETTING_KEYS.includes(currentPage);
 
   const renderMenuButton = (item) => {
     const Icon = item.icon;
@@ -250,7 +261,7 @@ export default function Layout({
                   flex h-9 w-9 items-center justify-center
                   rounded-xl bg-gradient-to-br from-[#245EC5] to-[#35C9F4] shadow-sm
                 "
-                title="UI Template System"
+                title="Configurable Web Dashboard"
               >
                 <Monitor size={15} strokeWidth={2} className="text-white" />
               </div>

@@ -311,8 +311,7 @@ export default function PieWidget({
     tallNarrow,
   ]);
 
-  const pieGeometry =
-    useMemo(() => {
+  const pieGeometry = (() => {
       let outer =
         donutSize.outer;
 
@@ -361,19 +360,12 @@ export default function PieWidget({
         paddingAngle,
         cornerRadius,
       };
-    }, [
-      donutSize,
-      pieStyle,
-      chartData.length,
-    ]);
+    })();
 
   const hasCenterHole =
     pieGeometry.inner > 0;
 
-  const renderSliceLabel = ({
-    value,
-    percent,
-  }) => {
+  const renderSliceLabel = ({ percent }) => {
     if (
       pieDisplay.showSliceLabels !==
         true ||

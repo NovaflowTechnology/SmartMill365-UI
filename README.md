@@ -1,13 +1,13 @@
-# Configurable Web-Based UI Template System for Industrial Sterilizer Process Monitoring Using React
+# Development of a Configurable Web Dashboard for Industrial Sterilizer Process Monitoring
 
 
 ## Overview
 
-This project is a real-time industrial monitoring dashboard system developed using React, Node.js, WebSocket, and MySQL.
+This project is a near-real-time industrial monitoring dashboard system developed using React, Tailwind CSS, Node.js, Express, MySQL, and InfluxDB.
 
 The system supports:
 
-* Real-time sensor monitoring
+* Near-real-time sensor monitoring
 * Dashboard template builder
 * Dynamic widget system
 * Industrial mimic/image widgets
@@ -16,7 +16,7 @@ The system supports:
 * Big number widgets
 * Fullscreen dashboard mode
 * Role-based authentication
-* WebSocket live updates
+* Authenticated REST polling every five seconds
 * Image pin mapping editor
 
 ---
@@ -34,11 +34,12 @@ The system supports:
 
 * Node.js
 * Express.js
-* WebSocket
+* REST API
 
 ## Database
 
 * MySQL
+* InfluxDB
 
 ---
 
@@ -150,9 +151,9 @@ http://localhost:5173
 
 ## Dashboard
 
-* Real-time monitoring
+* Near-real-time monitoring
 * Fullscreen mode
-* Live updates using WebSocket
+* Live updates using authenticated REST polling
 
 ## Template Builder
 
@@ -198,5 +199,4 @@ http://localhost:5173
 
 Teh Kuan Yew
 
-Final Year Project – Design and Development of a Configurable Web-Based UI Template System for Industrial Sterilizer Process Monitoring Using React
-
+Final Year Project – Development of a Configurable Web Dashboard for Industrial Sterilizer Process Monitoring

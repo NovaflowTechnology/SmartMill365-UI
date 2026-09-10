@@ -1055,35 +1055,6 @@ export default function SankeyFlowEditor({
         0) === 0
   );
 
-  const configuredLinks =
-    safeLinks.filter(
-      (link) =>
-        managedDataOptions.some(
-          (option) =>
-            option.key ===
-            link.dataKey
-        ) ||
-        Boolean(
-          link.dataSource
-            ?.channel
-        )
-    );
-
-  const derivedLinks =
-    safeLinks.filter(
-      (link) =>
-        !(
-          link.dataSource?.channel ||
-          link.dataKey
-        ) &&
-        (outgoingCounts.get(
-          link.target
-        ) || 0) > 0 &&
-        (incomingCounts.get(
-          link.target
-        ) || 0) === 1
-    );
-
   const updateConfig = (changes) => {
     setConfig((current) => ({
       ...current,
@@ -1482,30 +1453,6 @@ export default function SankeyFlowEditor({
     setConnectFrom(null);
   };
 
-  const addDefaultLink = () => {
-    if (safeNodes.length < 2) {
-      notify(
-        "Add at least two nodes first.",
-        "warning"
-      );
-      return;
-    }
-
-    const source =
-      safeNodes[0]?.id;
-
-    const target =
-      safeNodes.find(
-        (node) =>
-          node.id !== source
-      )?.id;
-
-    addLinkBetween(
-      source,
-      target
-    );
-  };
-
   const removeLink = (linkId) => {
     setConfig((current) => ({
       ...current,
@@ -1527,16 +1474,6 @@ export default function SankeyFlowEditor({
     setSourceDraft(
       makeEmptySourceDraft()
     );
-    setSourceChannels([]);
-    setSourceEditorError("");
-    setShowSourceEditor(true);
-  };
-
-  const openAddSourceForLink = (linkId) => {
-    setPendingSourceAssignmentLinkId(linkId || "");
-    setSourceEditorMode("add");
-    setEditingSourceKey("");
-    setSourceDraft(makeEmptySourceDraft());
     setSourceChannels([]);
     setSourceEditorError("");
     setShowSourceEditor(true);
@@ -2053,29 +1990,6 @@ export default function SankeyFlowEditor({
         },
       }
     );
-  };
-
-  const setLinkChannel = (
-    linkId,
-    channel
-  ) => {
-    const existing =
-      safeLinks.find(
-        (link) =>
-          link.id === linkId
-      );
-
-    updateLink(linkId, {
-      dataKey:
-        existing?.dataKey ||
-        channel,
-      dataSource: {
-        ...(existing?.dataSource ||
-          {}),
-        channel,
-        field: channel,
-      },
-    });
   };
 
   const handleAutoLayout = () => {
@@ -3112,12 +3026,13 @@ export default function SankeyFlowEditor({
                             type="button"
                             onPointerDown={(
                               event
-                            ) =>
+                            ) => {
+                              event.stopPropagation();
                               handlePortClick(
                                 node.id,
                                 "in"
-                              )
-                            }
+                              );
+                            }}
                             className={`absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition dark:border-[#111B34] ${
                               connectFrom
                                 ? "bg-cyan-400 ring-4 ring-cyan-400/10 hover:scale-125"
@@ -3134,12 +3049,13 @@ export default function SankeyFlowEditor({
                             type="button"
                             onPointerDown={(
                               event
-                            ) =>
+                            ) => {
+                              event.stopPropagation();
                               handlePortClick(
                                 node.id,
                                 "out"
-                              )
-                            }
+                              );
+                            }}
                             className={`absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition dark:border-[#111B34] ${
                               connectFrom ===
                               node.id

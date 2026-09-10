@@ -46,6 +46,7 @@ import {
 
 const DEFAULT_NODE_WIDTH = 150;
 const DEFAULT_NODE_HEIGHT = 172;
+const LIVE_POLL_INTERVAL_MS = 2000;
 
 const MIN_NODE_WIDTH = 110;
 const MIN_NODE_HEIGHT = 148;
@@ -518,20 +519,6 @@ const getAnchorPoint = (
       };
   }
 };
-
-// Backward-compatible midpoint port helper.
-const getPortPoint = (
-  node,
-  side = "right"
-) =>
-  getAnchorPoint(
-    node,
-    {
-      side,
-      offset: 0.5,
-    },
-    side
-  );
 
 const getBoundaryAnchorFromPoint = (
   node,
@@ -2639,6 +2626,7 @@ const getInitialDemo = () => {
 
   return {
     mode: "fake",
+    dataSources: {},
 
     nodes: [
       node(
@@ -3131,7 +3119,10 @@ export default function ProcessSimulator({
     template?.id,
   ]);
 
-  const demo = useMemo(() => getInitialDemo(), []);
+  const demo = useMemo(
+    () => getInitialDemo(),
+    []
+  );
   const [nodes, setNodes] = useState(
     Array.isArray(stored?.nodes)
       ? stored.nodes
@@ -3165,17 +3156,15 @@ export default function ProcessSimulator({
   // Simple connection mode is the default interaction.
   // Single: source -> target -> connection tool turns off.
   // Chain: every target becomes the next source until Esc/Cancel.
-  const [chainConnect, setChainConnect] = useState(false);
+  const chainConnect = false;
 
   // Advanced route controls are hidden until explicitly enabled
   // for the selected connection.
   const [routeEditConnectionId, setRouteEditConnectionId] =
     useState(null);
 
-  const [
-    connectWaypoints,
-    setConnectWaypoints,
-  ] = useState([]);
+  const [, setConnectWaypoints] =
+    useState([]);
 
   const [
     draftPointer,
@@ -3439,6 +3428,7 @@ export default function ProcessSimulator({
             channelMap: layout?.channelMap || {},
             historyWindow: "-15m",
             items: layout?.items || [],
+            includeHistory: false,
           }),
         });
 
@@ -3461,7 +3451,10 @@ export default function ProcessSimulator({
         }
       } finally {
         if (!cancelled) {
-          timer = window.setTimeout(fetchLive, 5000);
+          timer = window.setTimeout(
+            fetchLive,
+            LIVE_POLL_INTERVAL_MS
+          );
         }
       }
     };
@@ -6579,11 +6572,6 @@ export default function ProcessSimulator({
   const addCustomMetric = () => {
     if (!selectedNode || readOnly) return;
 
-    const existingMetrics =
-      getNodeMetricDefinitions(
-        selectedNode
-      );
-
     const existingBindings =
       selectedNode.bindings ||
       selectedNode.metricBindings ||
@@ -7997,8 +7985,8 @@ export default function ProcessSimulator({
             : libraryCollapsed
             ? "xl:grid-cols-[46px_minmax(0,1fr)_310px]"
             : inspectorCollapsed
-            ? "xl:grid-cols-[320px_minmax(0,1fr)_46px]"
-            : "xl:grid-cols-[320px_minmax(0,1fr)_310px]"
+            ? "xl:grid-cols-[280px_minmax(0,1fr)_46px]"
+            : "xl:grid-cols-[280px_minmax(0,1fr)_310px]"
         }`}
       >
         <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:max-h-[calc(100vh-150px)] xl:min-h-[500px]">
@@ -8019,11 +8007,11 @@ export default function ProcessSimulator({
             </div>
           ) : (
             <>
-          <div className="border-b border-slate-200 p-3 dark:border-[#263657]">
-            <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="border-b border-slate-200 p-2.5 dark:border-[#263657]">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <h2 className="text-sm font-bold">Equipment Library</h2>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">Drag an item onto the plant canvas.</p>
+                <h2 className="text-xs font-bold">Equipment Library</h2>
+                <p className="text-[9px] text-slate-500 dark:text-slate-400">Drag an item onto the plant canvas.</p>
               </div>
               <button
                 type="button"
@@ -8080,10 +8068,10 @@ export default function ProcessSimulator({
                   event.dataTransfer.effectAllowed = "copy";
                 }}
                 onDoubleClick={() => addNodeAt("custom-equipment", 320, 180)}
-                className="mb-2 w-full rounded-xl border-2 border-dashed border-cyan-300 bg-cyan-50/60 p-2 text-left transition hover:border-cyan-400 hover:bg-cyan-50 disabled:opacity-60 dark:border-cyan-400/30 dark:bg-cyan-400/5 dark:hover:bg-cyan-400/10"
+                className="mb-1.5 w-full rounded-lg border-2 border-dashed border-cyan-300 bg-cyan-50/60 p-1.5 text-left transition hover:border-cyan-400 hover:bg-cyan-50 disabled:opacity-60 dark:border-cyan-400/30 dark:bg-cyan-400/5 dark:hover:bg-cyan-400/10"
               >
                 <div className="flex items-center gap-2">
-                  <div className="relative flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-[#081022]">
+                  <div className="relative flex h-12 w-16 shrink-0 items-center justify-center rounded-md bg-white dark:bg-[#081022]">
                     <ProcessEquipmentVisual
                       type="custom-equipment"
                       values={{}}
@@ -8094,7 +8082,7 @@ export default function ProcessSimulator({
                     </span>
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[10px] font-black text-cyan-800 dark:text-cyan-200">
+                    <div className="text-[9px] font-black text-cyan-800 dark:text-cyan-200">
                       + Custom Equipment
                     </div>
                     <div className="mt-0.5 text-[8px] leading-3 text-slate-500 dark:text-slate-400">
@@ -8134,7 +8122,7 @@ export default function ProcessSimulator({
                         }
                         className="group rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-left transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-60 dark:border-[#2C3C61] dark:bg-[#111B34] dark:hover:border-cyan-400/30 dark:hover:bg-[#15213D]"
                       >
-                        <div className="flex h-16 w-full items-center justify-center overflow-visible rounded-md bg-white/80 px-1 dark:bg-[#081022]/80">
+                        <div className="flex h-14 w-full items-center justify-center overflow-visible rounded-md bg-white/80 px-1 dark:bg-[#081022]/80">
                           <ProcessEquipmentVisual
                             type={item.type}
                             values={{}}
@@ -8196,7 +8184,7 @@ export default function ProcessSimulator({
                         : "border-slate-200 bg-slate-50 hover:border-cyan-300 dark:border-[#2C3C61] dark:bg-[#111B34]"
                     }`}
                   >
-                    <div className="relative mx-auto h-10 w-full">
+                    <div className="relative mx-auto h-8 w-full">
                       {["pipeline", "conveyor"].includes(tool.value) ? (
                         <svg viewBox="0 0 140 48" className="h-full w-full" aria-hidden="true">
                           <ProcessPipeline id={`library-${tool.value}`} path="M 12 24 L 128 24" connectorType={tool.value} animateFlow={false} dark={dark} />
@@ -8212,7 +8200,7 @@ export default function ProcessSimulator({
                       )}
                       </>}
                     </div>
-                    <div className="text-center text-[11px] font-semibold text-slate-600 dark:text-slate-200">
+                    <div className="text-center text-[10px] font-semibold text-slate-600 dark:text-slate-200">
                       {tool.label}
                     </div>
                   </button>
@@ -8259,9 +8247,9 @@ export default function ProcessSimulator({
                     event.dataTransfer.effectAllowed = "copy";
                   }}
                   onDoubleClick={() => addNodeAt(item.type, 280 + Math.random() * 180, 120 + Math.random() * 300)}
-                  className="group flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-left transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:hover:border-cyan-400/30 dark:hover:bg-[#15213D]"
+                  className="group flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-left transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:hover:border-cyan-400/30 dark:hover:bg-[#15213D]"
                 >
-                  <div className="flex h-12 w-[70px] shrink-0 items-center justify-center overflow-visible rounded-lg bg-white px-1 dark:bg-[#081022]">
+                  <div className="flex h-10 w-[60px] shrink-0 items-center justify-center overflow-visible rounded-md bg-white px-1 dark:bg-[#081022]">
                     <ProcessEquipmentVisual
                       type={item.type}
                       values={{}}
@@ -8271,7 +8259,7 @@ export default function ProcessSimulator({
                     />
                   </div>
                   <div className="min-w-0">
-                    <div className="truncate text-[10px] font-bold text-slate-800 dark:text-slate-100">{item.label}</div>
+                    <div className="truncate text-[9px] font-bold text-slate-800 dark:text-slate-100">{item.label}</div>
                     <div className="truncate text-[8px] text-slate-400">{item.category}</div>
                   </div>
                 </button>
@@ -10425,3 +10413,5 @@ export default function ProcessSimulator({
     </div>
   );
 }
+
+ProcessSimulator.createDefaultTopology = getInitialDemo;

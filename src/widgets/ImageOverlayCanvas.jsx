@@ -165,11 +165,6 @@ export function ImageOverlayVisual({
     danger: 90,
     ...(dataOption?.rangeConfig || {}),
     ...(pin?.rangeConfig || {}),
-    unit:
-      pin?.rangeConfig?.unit ||
-      dataOption?.rangeConfig?.unit ||
-      dataOption?.unit ||
-      "",
   };
 
   const display = {
@@ -475,7 +470,7 @@ export default function ImageOverlayCanvas({
       width,
       height,
     });
-  }, [imageSrc]);
+  }, []);
 
   useEffect(() => {
     updateImageBox();

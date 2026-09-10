@@ -9,7 +9,6 @@ export default function StatSettings({
   setNewDataKey,
   setNewDataKeys,
   dataOptions = [],
-  getDataSourceLabel,
 }) {
   if (newType !== "bignumber") return null;
 

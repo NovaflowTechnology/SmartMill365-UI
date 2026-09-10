@@ -2,6 +2,10 @@ import express from "express";
 import db, { dbQuery } from "../config/db.js";
 import auth from "../middleware/auth.js";
 import { parseTemplateLayout } from "../utils/helpers.js";
+import {
+  findUnauthorizedTemplateDeviceSources,
+  getTemplateGridDimensions,
+} from "../utils/templateDeviceSources.js";
 const router = express.Router();
 
 // =====================================
@@ -166,6 +170,142 @@ router.get("/templates", auth(), (req, res) => {
     }
   );
 });
+
+// Editors may change only the widget layout of an assigned template. Template
+// identity, ownership, grid dimensions, deletion and assignment remain admin
+// operations handled by their existing routes.
+router.patch(
+  "/templates/:id/layout",
+  auth(["editor"]),
+  async (req, res) => {
+    const templateId = Number(req.params.id);
+    const { org_id: orgId } = req.user;
+    const bodyKeys = Object.keys(req.body || {});
+    const layout = req.body?.layout;
+
+    if (!Number.isInteger(templateId) || templateId <= 0) {
+      return res.status(400).json({
+        error: "A valid template ID is required",
+      });
+    }
+
+    if (!orgId) {
+      return res.status(403).json({
+        error: "Editor has no organization assigned",
+      });
+    }
+
+    if (
+      bodyKeys.length !== 1 ||
+      bodyKeys[0] !== "layout" ||
+      !layout ||
+      typeof layout !== "object" ||
+      Array.isArray(layout)
+    ) {
+      return res.status(400).json({
+        error: "This operation accepts only a template layout",
+      });
+    }
+
+    try {
+      const templates = await dbQuery(
+        `
+        SELECT t.id, t.layout
+        FROM templates t
+        INNER JOIN org_templates ot
+          ON ot.template_id = t.id
+        WHERE t.id = ?
+          AND ot.org_id = ?
+        LIMIT 1
+        `,
+        [templateId, orgId]
+      );
+
+      if (!templates.length) {
+        return res.status(403).json({
+          error: "Template not found or not assigned to your organization",
+        });
+      }
+
+      const currentGrid = getTemplateGridDimensions(templates[0].layout);
+      const requestedRows =
+        layout.rows === undefined ? currentGrid.rows : Number(layout.rows);
+      const requestedCols =
+        layout.cols === undefined ? currentGrid.cols : Number(layout.cols);
+
+      if (
+        requestedRows !== currentGrid.rows ||
+        requestedCols !== currentGrid.cols
+      ) {
+        return res.status(403).json({
+          error: "Editors cannot change template grid dimensions",
+        });
+      }
+
+      const allowedRows = await dbQuery(
+        `
+        SELECT
+          bucket_name,
+          measurement_name,
+          tag_key,
+          tag_value
+        FROM organization_influx_devices
+        WHERE org_id = ?
+        `,
+        [orgId]
+      );
+
+      const unauthorizedSources = findUnauthorizedTemplateDeviceSources(
+        layout,
+        allowedRows.map((source) => ({
+          bucket: String(source.bucket_name || "").trim(),
+          measurement: String(source.measurement_name || "").trim(),
+          tagKey: String(source.tag_key || "id").trim() || "id",
+          tagValue: String(source.tag_value || "").trim(),
+        }))
+      );
+
+      if (unauthorizedSources.length) {
+        return res.status(403).json({
+          error:
+            "The layout contains a data source that is not permitted for your organization",
+        });
+      }
+
+      const editorLayout = {
+        ...layout,
+        rows: currentGrid.rows,
+        cols: currentGrid.cols,
+      };
+
+      await dbQuery(
+        `
+        UPDATE templates
+        SET layout = ?
+        WHERE id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM org_templates ot
+            WHERE ot.template_id = templates.id
+              AND ot.org_id = ?
+          )
+        `,
+        [JSON.stringify(editorLayout), templateId, orgId]
+      );
+
+      return res.json({
+        success: true,
+        message: "Template layout updated",
+      });
+    } catch (err) {
+      console.error("Editor template layout update error:", err);
+
+      return res.status(500).json({
+        error: "Failed to update template layout",
+      });
+    }
+  }
+);
 
 // UPDATE TEMPLATE
 router.put(

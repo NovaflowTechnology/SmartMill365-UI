@@ -26,7 +26,7 @@ import {
 
 import { confirmAction, notify } from "../utils/feedback";
 
-export default function OrganizationManagement({ dark = false }) {
+export default function OrganizationManagement() {
   const currentRole = localStorage.getItem("role");
   const currentOrgId = localStorage.getItem("org_id");
   const currentOrgName = localStorage.getItem("org_name");
@@ -737,7 +737,7 @@ export default function OrganizationManagement({ dark = false }) {
             background-color: #111B34 !important;
           }
 
-          .dark .organization-management-page .bg-white\/70 {
+          .dark .organization-management-page .bg-white\\/70 {
             background-color: rgba(15, 23, 42, 0.7) !important;
           }
 
@@ -759,7 +759,7 @@ export default function OrganizationManagement({ dark = false }) {
           .dark .organization-management-page .border-gray-200,
           .dark .organization-management-page .border-gray-300,
           .dark .organization-management-page .border-gray-700,
-          .dark .organization-management-page .border-white\/70 {
+          .dark .organization-management-page .border-white\\/70 {
             border-color: #2C3C61 !important;
           }
 
@@ -807,9 +807,9 @@ export default function OrganizationManagement({ dark = false }) {
             background-color: #081022 !important;
           }
 
-          .dark .organization-management-page .bg-cyan-50\/60,
-          .dark .organization-management-page .bg-emerald-50\/60,
-          .dark .organization-management-page .bg-purple-50\/60 {
+          .dark .organization-management-page .bg-cyan-50\\/60,
+          .dark .organization-management-page .bg-emerald-50\\/60,
+          .dark .organization-management-page .bg-purple-50\\/60 {
             background-color: rgba(15, 23, 42, 0.92) !important;
           }
 
@@ -862,8 +862,8 @@ export default function OrganizationManagement({ dark = false }) {
           }
 
           .dark .organization-management-page .bg-white,
-          .dark .organization-management-page .bg-white\/70,
-          .dark .organization-management-page .bg-white\/85 {
+          .dark .organization-management-page .bg-white\\/70,
+          .dark .organization-management-page .bg-white\\/85 {
             background-color: #111B34 !important;
           }
 
@@ -874,8 +874,8 @@ export default function OrganizationManagement({ dark = false }) {
           }
 
           .dark .organization-management-page tr:hover,
-          .dark .organization-management-page .hover\:bg-gray-50:hover,
-          .dark .organization-management-page .hover\:bg-gray-100:hover {
+          .dark .organization-management-page .hover\\:bg-gray-50:hover,
+          .dark .organization-management-page .hover\\:bg-gray-100:hover {
             background-color: #1B2948 !important;
           }
 

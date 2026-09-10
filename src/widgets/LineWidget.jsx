@@ -511,17 +511,6 @@ const buildAutoIncludeZeroDomain = (
   ];
 };
 
-const getSeriesDomain = (
-  chartData,
-  key,
-  fallbackRange
-) =>
-  buildAutoIncludeZeroDomain(
-    chartData.map((row) => row?.[key]),
-    fallbackRange,
-    0.18
-  );
-
 const getCombinedSeriesDomain = (
   chartData,
   keys = [],
@@ -612,11 +601,6 @@ export default function LineWidget({
       ? parsedGridHeight <= 1 ||
         parsedGridWidth <= 2
       : measuredSize.compact;
-
-  const wide =
-    hasGridGeometry
-      ? parsedGridWidth >= 3
-      : measuredSize.wide;
 
   const widgetId =
     useId().replace(/:/g, "");
@@ -1858,10 +1842,7 @@ export default function LineWidget({
 
                 {display.showYAxis &&
                   axisDefinitions.map(
-                    (
-                      axis,
-                      index
-                    ) => (
+                    (axis) => (
                       <YAxis
                         key={axis.id}
                         yAxisId={
