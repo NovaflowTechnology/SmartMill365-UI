@@ -8,6 +8,19 @@ export const influxTimeout = (() => {
     : 15000;
 })();
 
+const configuredMetadataLookback = String(
+  process.env.INFLUX_METADATA_LOOKBACK || "-7d",
+).trim();
+
+// Discovery is used to populate configuration controls, not to analyse the
+// full production history. A short bounded range avoids scanning a year of
+// high-frequency points whenever Device Management is opened.
+export const influxMetadataLookback = /^-\d+[smhdw]$/.test(
+  configuredMetadataLookback,
+)
+  ? configuredMetadataLookback
+  : "-7d";
+
 export const influxDB = new InfluxDB({
   url: process.env.INFLUX_URL,
   token: process.env.INFLUX_TOKEN,

@@ -145,11 +145,11 @@ router.get("/templates", auth(), (req, res) => {
   db.query(
     `
     SELECT t.*
-    FROM templates t
-    JOIN org_templates ot
+    FROM org_templates ot FORCE INDEX (unique_org_template)
+    STRAIGHT_JOIN templates t
       ON t.id = ot.template_id
     WHERE ot.org_id = ?
-    ORDER BY t.id DESC
+    ORDER BY ot.template_id DESC
     `,
     [org_id],
     (err, results) => {
@@ -718,12 +718,12 @@ router.get(
 
         db.query(
           `
-          SELECT t.*
-          FROM org_templates ot
-          JOIN templates t
-            ON ot.template_id = t.id
-          WHERE ot.org_id = ?
-          ORDER BY t.id DESC
+      SELECT t.*
+      FROM org_templates ot FORCE INDEX (unique_org_template)
+      STRAIGHT_JOIN templates t
+        ON ot.template_id = t.id
+      WHERE ot.org_id = ?
+      ORDER BY ot.template_id DESC
           LIMIT 1
           `,
           [org_id],

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test, { after } from "node:test";
 
 import db from "../config/db.js";
-import { fetchTemplateSourceGroup } from "../services/influxService.js";
+import {
+  fetchTemplateSourceGroup,
+  isTransientInfluxError,
+} from "../services/influxService.js";
 
 after(() =>
   new Promise((resolve) => {
@@ -17,6 +20,23 @@ const group = {
   tagValue: "sterilizer-1",
   mappings: [{ dataKey: "pressure", field: "pressure" }],
 };
+
+test("treats unreachable InfluxDB network errors as transient", () => {
+  for (const code of [
+    "EACCES",
+    "EAI_AGAIN",
+    "ECONNREFUSED",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ENOTFOUND",
+  ]) {
+    assert.equal(
+      isTransientInfluxError({ code }),
+      true,
+      `${code} should be transient`
+    );
+  }
+});
 
 test("latest-value refresh skips the historical InfluxDB query", async () => {
   const queries = [];

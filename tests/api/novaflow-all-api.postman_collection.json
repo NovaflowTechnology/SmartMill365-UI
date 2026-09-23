@@ -1,0 +1,2151 @@
+{
+  "info": {
+    "_postman_id": "1c3e51a5-3149-4083-9d05-986f5e72ab82",
+    "name": "NovaFlow Configurable Dashboard - Complete Backend API",
+    "description": "Generated full-route regression collection. Run only against a disposable test database and non-production InfluxDB configuration because the suite creates, changes and deletes records.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [
+          "if (!pm.environment.get(\"runId\")) {",
+          "  const random = Math.random().toString(36).slice(2, 8);",
+          "  pm.environment.set(\"runId\", Date.now() + \"-\" + random);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Health and Authentication",
+      "item": [
+        {
+          "name": "API01 GET /health - Backend health check",
+          "description": "Expected status: 200\nExpected response: The backend reports a healthy JSON response.",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Health response confirms availability\", () => {",
+                  "  pm.expect(body.ok ?? body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API02 POST /login - Authenticate superadmin",
+          "description": "Expected status: 200\nExpected response: A JSON object containing a non-empty JWT and the authenticated user.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{superadminUsername}}\",\n  \"password\": \"{{superadminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"JWT is returned\", () => {",
+                  "  pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"Authenticated account has the superadmin role\", () => {",
+                  "  pm.expect(body.user?.role ?? body.role).to.eql(\"superadmin\");",
+                  "});",
+                  "if (body.token) pm.environment.set(\"superadminToken\", body.token);",
+                  "",
+                  "const returnedOrgId = body.user?.org_id ?? body.org_id;",
+                  "if (!pm.environment.get(\"orgId\") && returnedOrgId) {",
+                  "  pm.environment.set(\"orgId\", String(returnedOrgId));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API03 POST /login - Authenticate admin",
+          "description": "Expected status: 200\nExpected response: A JSON object containing a non-empty JWT and the authenticated user.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"JWT is returned\", () => {",
+                  "  pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"Authenticated account has the admin role\", () => {",
+                  "  pm.expect(body.user?.role ?? body.role).to.eql(\"admin\");",
+                  "});",
+                  "if (body.token) pm.environment.set(\"adminToken\", body.token);",
+                  "",
+                  "const returnedOrgId = body.user?.org_id ?? body.org_id;",
+                  "if (!pm.environment.get(\"orgId\") && returnedOrgId) {",
+                  "  pm.environment.set(\"orgId\", String(returnedOrgId));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API04 POST /login - Authenticate editor",
+          "description": "Expected status: 200\nExpected response: A JSON object containing a non-empty JWT and the authenticated user.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{editorUsername}}\",\n  \"password\": \"{{editorPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"JWT is returned\", () => {",
+                  "  pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"Authenticated account has the editor role\", () => {",
+                  "  pm.expect(body.user?.role ?? body.role).to.eql(\"editor\");",
+                  "});",
+                  "if (body.token) pm.environment.set(\"editorToken\", body.token);",
+                  "",
+                  "const returnedOrgId = body.user?.org_id ?? body.org_id;",
+                  "if (!pm.environment.get(\"orgId\") && returnedOrgId) {",
+                  "  pm.environment.set(\"orgId\", String(returnedOrgId));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API05 POST /login - Authenticate viewer",
+          "description": "Expected status: 200\nExpected response: A JSON object containing a non-empty JWT and the authenticated user.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{viewerUsername}}\",\n  \"password\": \"{{viewerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"JWT is returned\", () => {",
+                  "  pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"Authenticated account has the viewer role\", () => {",
+                  "  pm.expect(body.user?.role ?? body.role).to.eql(\"viewer\");",
+                  "});",
+                  "if (body.token) pm.environment.set(\"viewerToken\", body.token);",
+                  "",
+                  "const returnedOrgId = body.user?.org_id ?? body.org_id;",
+                  "if (!pm.environment.get(\"orgId\") && returnedOrgId) {",
+                  "  pm.environment.set(\"orgId\", String(returnedOrgId));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API06 POST /login - Reject invalid credentials safely",
+          "description": "Expected status: 401\nExpected response: The generic error 'Invalid username or password' with no account disclosure.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{viewerUsername}}\",\n  \"password\": \"definitely-wrong-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 401\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([401]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Login error is generic\", () => {",
+                  "  pm.expect(body.error).to.eql(\"Invalid username or password\");",
+                  "});",
+                  "pm.test(\"No internal details are exposed\", () => {",
+                  "  pm.expect(pm.response.text()).not.to.match(/ER_[A-Z_]+|SELECT\\s|stack/i);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API07 GET /templates - Reject a protected request without a token",
+          "description": "Expected status: 403\nExpected response: A JSON authentication error and no protected template data.",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 403\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Organizations and Users",
+      "item": [
+        {
+          "name": "API08 POST /organizations - Create a temporary organization",
+          "description": "Expected status: 200\nExpected response: The created organization identifier and a success message.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API Test Organization {{runId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/organizations"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "const id = body.organization?.id ?? body.organizationId ?? body.id;",
+                  "pm.test(\"Organization ID is returned\", () => pm.expect(id).to.exist);",
+                  "if (id) pm.environment.set(\"tempOrgId\", String(id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API09 GET /organizations - List organizations",
+          "description": "Expected status: 200\nExpected response: A JSON array containing organizations available to the caller.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Organizations are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API10 PUT /organizations/{{tempOrgId}} - Rename the temporary organization",
+          "description": "Expected status: 200\nExpected response: A success response confirming the organization update.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API Test Organization Updated {{runId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/organizations/{{tempOrgId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API11 POST /users - Create a temporary user",
+          "description": "Expected status: 200\nExpected response: A success response containing the new user ID.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"api_test_user_{{runId}}\",\n  \"password\": \"{{generatedUserPassword}}\",\n  \"role\": \"editor\",\n  \"org_id\": \"{{tempOrgId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/users"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"User ID is returned\", () => pm.expect(body.userId).to.exist);",
+                  "if (body.userId) pm.environment.set(\"tempUserId\", String(body.userId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API12 GET /users - List users",
+          "description": "Expected status: 200\nExpected response: A JSON array of user records without plaintext passwords.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/users"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Users are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));",
+                  "pm.test(\"Passwords are not returned\", () => pm.expect(JSON.stringify(body)).not.to.match(/\"password\"/i));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API12A POST /login - Authenticate the temporary editor",
+          "description": "Expected status: 200\nExpected response: A JWT for the temporary organization-scoped Editor account.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"api_test_user_{{runId}}\",\n  \"password\": \"{{generatedUserPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Temporary Editor JWT is returned\", () => {",
+                  "  pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "if (body.token) pm.environment.set(\"tempEditorToken\", body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API13 PUT /users/{{tempUserId}}/role - Update the temporary user's role",
+          "description": "Expected status: 200\nExpected response: A success response confirming the temporary user's Viewer role.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"viewer\",\n  \"org_id\": \"{{tempOrgId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/users/{{tempUserId}}/role"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API13A POST /login - Authenticate the temporary viewer",
+          "description": "Expected status: 200\nExpected response: A JWT for the temporary organization-scoped Viewer account.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"api_test_user_{{runId}}\",\n  \"password\": \"{{generatedUserPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Temporary Viewer JWT is returned\", () => {",
+                  "  pm.expect(body.token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "if (body.token) pm.environment.set(\"tempViewerToken\", body.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Templates and Role Boundaries",
+      "item": [
+        {
+          "name": "API14 POST /templates - Create a dashboard template",
+          "description": "Expected status: 200\nExpected response: A success response containing the new template ID.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API Test Template {{runId}}\",\n  \"org_id\": \"{{tempOrgId}}\",\n  \"layout\": {\n    \"cols\": 2,\n    \"rows\": 2,\n    \"items\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Template ID is returned\", () => pm.expect(body.templateId).to.exist);",
+                  "if (body.templateId) pm.environment.set(\"templateId\", String(body.templateId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API15 GET /templates - List accessible templates",
+          "description": "Expected status: 200\nExpected response: A JSON array filtered to templates accessible to the administrator.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Templates are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API16 PUT /templates/{{templateId}} - Update template metadata and layout",
+          "description": "Expected status: 200\nExpected response: A success response confirming the complete template update.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API Test Template Updated {{runId}}\",\n  \"layout\": {\n    \"cols\": 2,\n    \"rows\": 2,\n    \"items\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/templates/{{templateId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API17 POST /assign-template - Assign the template to an organization",
+          "description": "Expected status: 200\nExpected response: A success response confirming the organization-template assignment.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"org_id\": \"{{tempOrgId}}\",\n  \"template_id\": \"{{templateId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/assign-template"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API18 GET /template-assignments - List template assignments",
+          "description": "Expected status: 200\nExpected response: A JSON array containing template assignment records.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/template-assignments"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Assignments are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API19 PATCH /templates/{{templateId}}/layout - Allow an editor to update layout only",
+          "description": "Expected status: 200\nExpected response: A success response confirming an organization-scoped layout update.",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempEditorToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"layout\": {\n    \"cols\": 2,\n    \"rows\": 2,\n    \"items\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/templates/{{templateId}}/layout"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API20 PUT /users/favorite-template - Set the viewer's favourite template",
+          "description": "Expected status: 200\nExpected response: A success response confirming the favourite template selection.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template_id\": \"{{templateId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/users/favorite-template"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API21 GET /default-template - Retrieve the viewer's default template",
+          "description": "Expected status: 200\nExpected response: The selected or organization-default template with parsed layout JSON.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/default-template"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API22 PUT /templates/{{templateId}} - Prevent an editor from changing template ownership or name",
+          "description": "Expected status: 403\nExpected response: A JSON authorization error; the template remains unchanged.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempEditorToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Unauthorized rename\",\n  \"layout\": {\n    \"cols\": 2,\n    \"rows\": 2,\n    \"items\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/templates/{{templateId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 403\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API23 PATCH /templates/{{templateId}}/layout - Prevent a viewer from changing template layout",
+          "description": "Expected status: 403\nExpected response: A JSON authorization error; the layout remains unchanged.",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"layout\": {\n    \"cols\": 2,\n    \"rows\": 2,\n    \"items\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/templates/{{templateId}}/layout"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 403\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Process Flows",
+      "item": [
+        {
+          "name": "API24 POST /process-flows - Create a process flow",
+          "description": "Expected status: 201\nExpected response: The newly created process flow, including its ID and topology.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempEditorToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API Test Process Flow {{runId}}\",\n  \"description\": \"Temporary automated API test flow\",\n  \"topology\": {\n    \"nodes\": [],\n    \"connections\": [],\n    \"dataSources\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/process-flows"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "const id = body.id ?? body.processFlow?.id ?? body.flow?.id;",
+                  "pm.test(\"Process-flow ID is returned\", () => pm.expect(id).to.exist);",
+                  "if (id) pm.environment.set(\"flowId\", String(id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API25 GET /process-flows - List accessible process flows",
+          "description": "Expected status: 200\nExpected response: A JSON array filtered to the viewer's organization.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/process-flows"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Process flows are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API26 GET /process-flows/{{flowId}} - Retrieve one process flow",
+          "description": "Expected status: 200\nExpected response: The requested organization-scoped process flow.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/process-flows/{{flowId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API27 PUT /process-flows/{{flowId}} - Update a process flow",
+          "description": "Expected status: 200\nExpected response: The updated process flow with its persisted topology.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempEditorToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API Test Process Flow Updated {{runId}}\",\n  \"description\": \"Updated by the automated API suite\",\n  \"topology\": {\n    \"nodes\": [],\n    \"connections\": [],\n    \"dataSources\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/process-flows/{{flowId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API28 POST /process-flows - Prevent a viewer from creating process flows",
+          "description": "Expected status: 403\nExpected response: A JSON authorization error and no new process-flow record.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Unauthorized process flow\",\n  \"topology\": {\n    \"nodes\": [],\n    \"connections\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/process-flows"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 403\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - InfluxDB Metadata and Device Permissions",
+      "item": [
+        {
+          "name": "API29 GET /influx/buckets - List InfluxDB buckets",
+          "description": "Expected status: 200\nExpected response: A JSON bucket list from the configured InfluxDB service.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/influx/buckets"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "function firstValue(value, keys = []) {",
+                  "  if (Array.isArray(value)) return value[0];",
+                  "  for (const key of keys) {",
+                  "    if (Array.isArray(value?.[key])) return value[key][0];",
+                  "  }",
+                  "  return undefined;",
+                  "}",
+                  "",
+                  "const body = pm.response.json();",
+                  "const value = firstValue(body, [\"buckets\", \"data\"]);",
+                  "const bucket = typeof value === \"string\" ? value : value?.name ?? value?.bucket;",
+                  "pm.test(\"At least one bucket is available\", () => pm.expect(bucket).to.exist);",
+                  "if (!pm.environment.get(\"bucket\") && bucket) pm.environment.set(\"bucket\", String(bucket));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API31 GET /influx/measurements?bucket={{bucket}} - List InfluxDB measurements",
+          "description": "Expected status: 200\nExpected response: A JSON measurement list for the selected bucket.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/influx/measurements?bucket={{bucket}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "function firstValue(value, keys = []) {",
+                  "  if (Array.isArray(value)) return value[0];",
+                  "  for (const key of keys) {",
+                  "    if (Array.isArray(value?.[key])) return value[key][0];",
+                  "  }",
+                  "  return undefined;",
+                  "}",
+                  "",
+                  "const body = pm.response.json();",
+                  "const value = firstValue(body, [\"measurements\", \"data\"]);",
+                  "const measurement = typeof value === \"string\" ? value : value?.name ?? value?.measurement;",
+                  "pm.test(\"At least one measurement is available\", () => pm.expect(measurement).to.exist);",
+                  "if (!pm.environment.get(\"measurement\") && measurement) pm.environment.set(\"measurement\", String(measurement));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API33 GET /influx/ids?bucket={{bucket}}&measurement={{measurement}}&tagKey={{tagKey}} - List identifiers for one measurement",
+          "description": "Expected status: 200\nExpected response: A JSON identifier list filtered by bucket and measurement.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/influx/ids?bucket={{bucket}}&measurement={{measurement}}&tagKey={{tagKey}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API34 POST /organization-influx-devices - Assign one device source to an organization",
+          "description": "Expected status: 201\nExpected response: A success response containing the permission assignment ID.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"org_id\": \"{{tempOrgId}}\",\n  \"bucket_name\": \"{{bucket}}\",\n  \"measurement_name\": \"{{measurement}}\",\n  \"tag_key\": \"{{tagKey}}\",\n  \"tag_value\": \"{{deviceId}}\",\n  \"device_name\": \"API Test Device {{runId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/organization-influx-devices"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Device assignment ID is returned\", () => pm.expect(body.deviceId).to.exist);",
+                  "if (body.deviceId) pm.environment.set(\"deviceAssignmentId\", String(body.deviceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API35 GET /organization-influx-devices - List organization device assignments",
+          "description": "Expected status: 200\nExpected response: A JSON array containing organization-to-device permission rows.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/organization-influx-devices"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Device assignments are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API36 GET /influx/allowed-devices - List devices permitted for the viewer",
+          "description": "Expected status: 200\nExpected response: Only device sources permitted for the viewer's organization.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/influx/allowed-devices"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Allowed devices are returned as an array\", () => pm.expect(body).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API37 GET /influx/channels?bucket={{bucket}}&measurement={{measurement}}&tagKey={{tagKey}}&tagValue={{deviceId}} - List permitted channels",
+          "description": "Expected status: 200\nExpected response: A JSON channel list for an organization-permitted data source.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/influx/channels?bucket={{bucket}}&measurement={{measurement}}&tagKey={{tagKey}}&tagValue={{deviceId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "function firstValue(value, keys = []) {",
+                  "  if (Array.isArray(value)) return value[0];",
+                  "  for (const key of keys) {",
+                  "    if (Array.isArray(value?.[key])) return value[key][0];",
+                  "  }",
+                  "  return undefined;",
+                  "}",
+                  "",
+                  "const body = pm.response.json();",
+                  "const value = firstValue(body, [\"channels\", \"fields\", \"data\"]);",
+                  "const channel = typeof value === \"string\" ? value : value?.name ?? value?.field ?? value?.channel;",
+                  "pm.test(\"At least one channel is available\", () => pm.expect(channel).to.exist);",
+                  "if (!pm.environment.get(\"channel\") && channel) pm.environment.set(\"channel\", String(channel));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Dashboard Data",
+      "item": [
+        {
+          "name": "API43 POST /template-live-data - Retrieve dashboard live data",
+          "description": "Expected status: 200\nExpected response: Latest permitted industrial measurement data for the requested widget source.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempViewerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataSources\": {\n    \"apiTestValue\": {\n      \"bucket\": \"{{bucket}}\",\n      \"measurement\": \"{{measurement}}\",\n      \"tagKey\": \"{{tagKey}}\",\n      \"tagValue\": \"{{deviceId}}\",\n      \"field\": \"{{channel}}\"\n    }\n  },\n  \"historyWindow\": \"15m\",\n  \"includeHistory\": false,\n  \"items\": [\n    {\n      \"id\": \"api-test-widget\",\n      \"type\": \"number\",\n      \"dataKey\": \"apiTestValue\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/template-live-data"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 - Cleanup",
+      "item": [
+        {
+          "name": "API38 DELETE /organization-influx-devices/{{deviceAssignmentId}} - Remove one device permission",
+          "description": "Expected status: 200\nExpected response: A success response confirming removal of the permission row.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/organization-influx-devices/{{deviceAssignmentId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API41 POST /organization-influx-devices - Create a device permission for bulk removal",
+          "description": "Expected status: 201\nExpected response: A temporary permission assignment ID for the bulk-removal test.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"org_id\": \"{{tempOrgId}}\",\n  \"bucket_name\": \"{{bucket}}\",\n  \"measurement_name\": \"{{measurement}}\",\n  \"tag_key\": \"{{tagKey}}\",\n  \"tag_value\": \"{{deviceId}}\",\n  \"device_name\": \"API Cleanup Device {{runId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/organization-influx-devices"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Cleanup assignment ID is returned\", () => pm.expect(body.deviceId).to.exist);",
+                  "if (body.deviceId) pm.environment.set(\"deviceAssignmentId\", String(body.deviceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API42 POST /organization-influx-devices/bulk-remove - Remove a device permission in bulk",
+          "description": "Expected status: 200\nExpected response: A success response confirming that the temporary permission row was removed.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignment_ids\": [\n    \"{{deviceAssignmentId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/organization-influx-devices/bulk-remove"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});",
+                  "",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"One cleanup assignment is removed\", () => pm.expect(body.removed).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API44 DELETE /template-assignments - Remove the template assignment",
+          "description": "Expected status: 200\nExpected response: A success response confirming assignment removal.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"org_id\": \"{{tempOrgId}}\",\n  \"template_id\": \"{{templateId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/template-assignments"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API45 DELETE /templates/{{templateId}} - Delete the temporary template",
+          "description": "Expected status: 200\nExpected response: A success response confirming template deletion.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/templates/{{templateId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API46 DELETE /process-flows/{{flowId}} - Delete the temporary process flow",
+          "description": "Expected status: 200\nExpected response: A success response confirming process-flow deletion.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tempEditorToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/process-flows/{{flowId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API47 DELETE /organizations/{{tempOrgId}} - Delete the temporary organization and unlink its user",
+          "description": "Expected status: 200\nExpected response: A success response confirming deletion of the temporary organization; its user is retained with no organization because no user-delete API is exposed.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superadminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{tempOrgId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {},
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is JSON\", () => {",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "  pm.expect(contentType.toLowerCase()).to.include(\"application/json\");",
+                  "  pm.expect(() => pm.response.json()).not.to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

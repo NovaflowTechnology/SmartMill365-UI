@@ -39,6 +39,7 @@ const TIME_RANGE_OPTIONS = [
 ];
 
 const LIVE_POLL_INTERVAL_MS = 2000;
+const MAX_LIVE_POLL_INTERVAL_MS = 30000;
 const HISTORY_REFRESH_INTERVAL_MS = 15000;
 
 const CALENDAR_RANGE_OPTIONS = [
@@ -884,6 +885,8 @@ export default function Dashboard({
     setLogs([]);
     setLiveStatus(null);
     setSankeyValues({});
+    setDataError("");
+    setShowDataErrorPopup(false);
   }, [template?.id]);
 
   const fetchTemplateLiveData = async ({
@@ -933,7 +936,6 @@ export default function Dashboard({
 
     try {
       setLoadingData(true);
-      setDataError("");
 
       const res = await fetch(
         "http://localhost:5000/template-live-data",
@@ -996,6 +998,8 @@ export default function Dashboard({
       if (hasIncomingData) {
         const receivedAt =
           new Date().toISOString();
+
+        setDataError("");
 
         setData((previous) => {
           const merged = {
@@ -1072,7 +1076,7 @@ export default function Dashboard({
         );
       }
 
-      return hasIncomingData;
+      return true;
     } catch (err) {
       console.error(
         "❌ Template live data error:",
@@ -1127,6 +1131,7 @@ export default function Dashboard({
     let cancelled = false;
     let timer = null;
     let lastHistoryRefreshAt = 0;
+    let consecutiveFailures = 0;
 
     const poll =
       async () => {
@@ -1140,15 +1145,31 @@ export default function Dashboard({
           lastHistoryRefreshAt = now;
         }
 
-        await fetchTemplateLiveData({
-          includeHistory,
-        });
+        const succeeded =
+          await fetchTemplateLiveData({
+            includeHistory,
+          });
+
+        consecutiveFailures = succeeded
+          ? 0
+          : consecutiveFailures + 1;
+
+        const nextPollDelay = succeeded
+          ? LIVE_POLL_INTERVAL_MS
+          : Math.min(
+              MAX_LIVE_POLL_INTERVAL_MS,
+              LIVE_POLL_INTERVAL_MS *
+                2 ** Math.min(
+                  consecutiveFailures,
+                  4
+                )
+            );
 
         if (!cancelled) {
           timer =
             window.setTimeout(
               poll,
-              LIVE_POLL_INTERVAL_MS
+              nextPollDelay
             );
         }
       };

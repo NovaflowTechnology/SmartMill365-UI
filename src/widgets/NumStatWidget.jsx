@@ -364,7 +364,13 @@ export default function NumStatWidget({
       ? "text-[10px]"
       : labelLength > 16
       ? "text-[11px]"
-      : "";
+      : tiny
+      ? "text-[11px]"
+      : compact
+      ? "text-xs"
+      : wide
+      ? "text-sm"
+      : "text-[13px]";
 
   const renderWidgetLabel = () => {
     if (!settings.showLabel) {
@@ -588,10 +594,10 @@ export default function NumStatWidget({
         ]
       : wide
       ? [
-          "text-2xl",
-          "text-3xl",
           "text-4xl",
           "text-5xl",
+          "text-6xl",
+          "text-7xl",
         ]
       : [
           "text-xl",
@@ -607,22 +613,26 @@ export default function NumStatWidget({
      * Long mapping labels such as "MANUAL INLET VALVE" should wrap rather
      * than overflow the card. Reduce only when needed.
      */
-    if (mappedTextLength >= 28) {
+    if (mappedTextLength >= 44) {
       requested = tiny
         ? "text-sm"
         : compact
         ? "text-base"
-        : "text-lg";
+        : wide
+        ? "text-4xl"
+        : "text-2xl";
     } else if (
-      mappedTextLength >= 20
+      mappedTextLength >= 32
     ) {
       requested = tiny
         ? "text-sm"
         : compact
         ? "text-lg"
-        : "text-xl";
+        : wide
+        ? "text-5xl"
+        : "text-3xl";
     } else if (
-      mappedTextLength >= 14 &&
+      mappedTextLength >= 22 &&
       ["large", "xlarge"].includes(
         normalizedValueSize
       )
@@ -631,7 +641,9 @@ export default function NumStatWidget({
         ? "text-base"
         : compact
         ? "text-xl"
-        : "text-2xl";
+        : wide
+        ? "text-5xl"
+        : "text-3xl";
     }
 
     return requested;
@@ -711,8 +723,8 @@ export default function NumStatWidget({
                 whitespace-normal
                 break-words
                 text-center
-                font-medium
-                leading-[1.08]
+                font-black
+                leading-[1.02]
                 tracking-[0.01em]
                 ${mappingValueSizeClass}
                 ${statusClass.text}

@@ -1239,6 +1239,7 @@ export default function ProcessViewWidget({
   onBackgroundClick,
 }) {
   const rootRef = useRef(null);
+  const viewportRef = useRef(null);
   const lastTopologyTextRef = useRef("");
 
   const config = useMemo(() => {
@@ -1295,6 +1296,7 @@ export default function ProcessViewWidget({
   const [topologyError, setTopologyError] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [size, setSize] = useState({ width: 800, height: 420 });
+  const [viewZoom, setViewZoom] = useState(1);
   const [clock, setClock] = useState(
     () => Date.now()
   );
@@ -1568,6 +1570,7 @@ export default function ProcessViewWidget({
     const canvasHeight = Number(topology?.canvas?.height);
 
     if (
+      canvasOnly &&
       config.preserveCanvasLayout &&
       nodes.length > 0 &&
       size.width >= 900 &&
@@ -1586,10 +1589,85 @@ export default function ProcessViewWidget({
       return { minX: 0, minY: 0, width: 1000, height: 600 };
     }
 
-    const minX = Math.min(...nodes.map((node) => Number(node?.x || 0)));
-    const minY = Math.min(...nodes.map((node) => Number(node?.y || 0)));
-    const maxX = Math.max(...nodes.map((node) => Number(node?.x || 0) + getNodeWidth(node)));
-    const maxY = Math.max(...nodes.map((node) => Number(node?.y || 0) + getNodeHeight(node)));
+    const nodeRects =
+      nodes.map((node) => {
+        const x =
+          Number(node?.x || 0);
+        const y =
+          Number(node?.y || 0);
+
+        return {
+          left: x,
+          top: y,
+          right:
+            x + getNodeWidth(node),
+          bottom:
+            y + getNodeHeight(node),
+        };
+      });
+
+    const routePoints =
+      connections.flatMap(
+        (connection) => [
+          connection?.freeSource,
+          connection?.freeTarget,
+          ...(Array.isArray(
+            connection?.waypoints
+          )
+            ? connection.waypoints
+            : connection?.routePoint
+            ? [connection.routePoint]
+            : []),
+        ]
+      ).filter(
+        (point) =>
+          point &&
+          Number.isFinite(
+            Number(point.x)
+          ) &&
+          Number.isFinite(
+            Number(point.y)
+          )
+      );
+
+    const padding = 96;
+
+    const minX =
+      Math.min(
+        ...nodeRects.map(
+          (rect) => rect.left
+        ),
+        ...routePoints.map(
+          (point) => Number(point.x)
+        )
+      ) - padding;
+    const minY =
+      Math.min(
+        ...nodeRects.map(
+          (rect) => rect.top
+        ),
+        ...routePoints.map(
+          (point) => Number(point.y)
+        )
+      ) - padding;
+    const maxX =
+      Math.max(
+        ...nodeRects.map(
+          (rect) => rect.right
+        ),
+        ...routePoints.map(
+          (point) => Number(point.x)
+        )
+      ) + padding;
+    const maxY =
+      Math.max(
+        ...nodeRects.map(
+          (rect) => rect.bottom
+        ),
+        ...routePoints.map(
+          (point) => Number(point.y)
+        )
+      ) + padding;
 
     return {
       minX,
@@ -1599,9 +1677,11 @@ export default function ProcessViewWidget({
     };
   }, [
     nodes,
+    connections,
     topology?.canvas?.width,
     topology?.canvas?.height,
     config.preserveCanvasLayout,
+    canvasOnly,
     size.width,
   ]);
 
@@ -1614,13 +1694,63 @@ export default function ProcessViewWidget({
     const heightScale = availableHeight / bounds.height;
     const maxScale = inspectorVisible ? 1.55 : 1.8;
     const scale = Math.min(widthScale, heightScale, maxScale);
+    const appliedScale =
+      scale * viewZoom;
+    const scaledWidth =
+      bounds.width * appliedScale;
+    const scaledHeight =
+      bounds.height * appliedScale;
+    const offsetX =
+      scaledWidth < diagramWidth
+        ? (diagramWidth - scaledWidth) / 2
+        : paddingX;
+    const offsetY =
+      scaledHeight < size.height
+        ? (size.height - scaledHeight) / 2
+        : paddingY;
 
     return {
-      scale,
-      x: (diagramWidth - bounds.width * scale) / 2,
-      y: (size.height - bounds.height * scale) / 2,
+      scale: appliedScale,
+      x: offsetX,
+      y: offsetY,
+      contentWidth:
+        Math.max(
+          diagramWidth,
+          scaledWidth + offsetX * 2
+        ),
+      contentHeight:
+        Math.max(
+          size.height,
+          scaledHeight + offsetY * 2
+        ),
     };
-  }, [bounds, diagramWidth, size.height, inspectorVisible]);
+  }, [
+    bounds,
+    diagramWidth,
+    size.height,
+    inspectorVisible,
+    viewZoom,
+  ]);
+
+  const setClampedViewZoom = (nextZoom) => {
+    setViewZoom(
+      clamp(
+        Number(nextZoom) || 1,
+        0.55,
+        2.6
+      )
+    );
+  };
+
+  const zoomIn = () =>
+    setClampedViewZoom(
+      viewZoom + 0.15
+    );
+
+  const zoomOut = () =>
+    setClampedViewZoom(
+      viewZoom - 0.15
+    );
 
   const resolveMetric = (node, metric) => {
     const dataKey = node?.bindings?.[metric.id] || "";
@@ -1897,6 +2027,80 @@ export default function ProcessViewWidget({
         </div>
       )}
 
+      {!canvasOnly && (
+        <div
+          onClick={(event) =>
+            event.stopPropagation()
+          }
+          className="absolute top-2.5 z-30 flex h-8 items-center overflow-hidden rounded-lg border border-slate-200 bg-white/90 text-[9px] font-black text-slate-600 shadow-sm backdrop-blur dark:border-[#2B3B60] dark:bg-[#0E172D]/90 dark:text-slate-200"
+          style={{
+            right:
+              inspectorVisible
+                ? inspectorWidth + 12
+                : 12,
+          }}
+        >
+          <button
+            type="button"
+            onClick={zoomOut}
+            className="flex h-full w-8 items-center justify-center transition hover:bg-slate-100 dark:hover:bg-[#17233F]"
+            title="Zoom out"
+          >
+            -
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setClampedViewZoom(1)
+            }
+            className="flex h-full min-w-12 items-center justify-center border-x border-slate-200 px-2 text-[8px] tabular-nums transition hover:bg-slate-100 dark:border-[#2B3B60] dark:hover:bg-[#17233F]"
+            title="Reset zoom"
+          >
+            {Math.round(
+              viewZoom * 100
+            )}
+            %
+          </button>
+
+          <button
+            type="button"
+            onClick={zoomIn}
+            className="flex h-full w-8 items-center justify-center transition hover:bg-slate-100 dark:hover:bg-[#17233F]"
+            title="Zoom in"
+          >
+            +
+          </button>
+        </div>
+      )}
+
+      <div
+        ref={viewportRef}
+        className="absolute left-0 top-0 h-full overflow-auto overscroll-contain"
+        onWheel={(event) => {
+          if (!event.ctrlKey) {
+            return;
+          }
+
+          event.preventDefault();
+          setClampedViewZoom(
+            viewZoom +
+              (event.deltaY < 0
+                ? 0.1
+                : -0.1)
+          );
+        }}
+        style={{
+          width: diagramWidth,
+        }}
+      >
+        <div
+          className="relative"
+          style={{
+            width: fit.contentWidth,
+            height: fit.contentHeight,
+          }}
+        >
       <div
         className="absolute left-0 top-0"
         style={{
@@ -2375,6 +2579,8 @@ export default function ProcessViewWidget({
             </div>
           );
         })}
+      </div>
+        </div>
       </div>
 
       {inspectorVisible && (

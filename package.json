@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "test": "node --test",
     "test:roles": "node scripts/check-role-api.mjs",
-    "docs:compile": "node docs/tools/compile-documentation.mjs",
+    "api:collection": "node tests/api/tools/generate-postman-collection.mjs",
+    "api:audit": "node tests/api/tools/audit-api-coverage.mjs",
+    "test:api": "node tests/api/tools/run-api-tests.mjs",
+    "docs:compile": "node reports/docs/tools/compile-documentation.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -43,6 +46,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "newman": "^6.2.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "vite": "^8.0.1"

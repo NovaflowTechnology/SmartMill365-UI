@@ -933,7 +933,7 @@ export default function StatSettings({
                                       key={index}
                                       className="
                                         grid min-w-0
-                                        grid-cols-[minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(90px,1fr)_36px]
+                                        grid-cols-[minmax(0,0.65fr)_minmax(0,1.7fr)_minmax(90px,0.9fr)_36px]
                                         gap-1.5 rounded-xl
                                         border border-gray-200
                                         bg-white p-2.5
@@ -997,7 +997,7 @@ export default function StatSettings({
                                           mapping.text ||
                                           ""
                                         }
-                                        placeholder="Display text"
+                                        placeholder="Status text, e.g. Manual inlet valve open"
                                         onChange={(
                                           event
                                         ) =>

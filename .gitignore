@@ -27,6 +27,7 @@ node_modules/
 dist/
 build/
 .env
+tests/api/postman-local-environment.local.json
 .vscode/
 .DS_Store
 *.log

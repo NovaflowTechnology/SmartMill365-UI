@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { buildPageDraftKey, clearPageDraft, readPageDraft, writePageDraft } from "../utils/pageDraftStorage";
 import { widgetLibrary } from "../data/widgetLibrary";
 import WidgetRenderer from "../components/WidgetRenderer";
@@ -159,6 +159,9 @@ const defaultBigNumberDisplay = {
   statusSource: "mapping",
   showProgress: true,
 };
+
+const isGeneratedImageDataKey = (key = "") =>
+  /^img_/i.test(String(key || ""));
 
 const defaultRangeConfig = {
   min: 0,
@@ -2033,6 +2036,43 @@ export default function TemplateDesigner({
   const allDataOptions =
     deduplicateDataOptions(
       customDataOptions
+    );
+
+  const selectedDataOptionKeys =
+    useMemo(
+      () =>
+        new Set(
+          [
+            newDataKey,
+            ...(Array.isArray(newDataKeys)
+              ? newDataKeys
+              : []),
+            newBigNumberDisplay?.statusDataKey,
+          ].filter(Boolean)
+        ),
+      [
+        newDataKey,
+        newDataKeys,
+        newBigNumberDisplay?.statusDataKey,
+      ]
+    );
+
+  const selectableDataOptions =
+    useMemo(
+      () =>
+        allDataOptions.filter(
+          (option) =>
+            !isGeneratedImageDataKey(
+              option?.key
+            ) ||
+            selectedDataOptionKeys.has(
+              option?.key
+            )
+        ),
+      [
+        allDataOptions,
+        selectedDataOptionKeys,
+      ]
     );
 
   const allWidgetOptions = [
@@ -9525,7 +9565,7 @@ export default function TemplateDesigner({
                           ? "Choose the saved process this widget should display."
                           : useDedicatedWidgetSource
                           ? "This widget uses its own dedicated configuration."
-                          : allDataOptions.length
+                          : selectableDataOptions.length
                           ? "Choose the source this widget should read, or connect another source."
                           : "Connect the process data this widget should read."}
                       </p>
@@ -9545,8 +9585,8 @@ export default function TemplateDesigner({
                         ? "Process"
                         : useDedicatedWidgetSource
                         ? "Dedicated"
-                        : `${allDataOptions.length} Source${
-                            allDataOptions.length === 1
+                        : `${selectableDataOptions.length} Source${
+                            selectableDataOptions.length === 1
                               ? ""
                               : "s"
                           }`}
@@ -9617,7 +9657,7 @@ export default function TemplateDesigner({
                           </div>
                         </div>
                         )
-                      ) : allDataOptions.length === 0 &&
+                      ) : selectableDataOptions.length === 0 &&
                         !showCustomDataModal ? (
                         <div
                           className="
@@ -9717,7 +9757,7 @@ export default function TemplateDesigner({
                             </button>
                           </div>
                         </div>
-                      ) : allDataOptions.length > 0 ? (
+                      ) : selectableDataOptions.length > 0 ? (
                         <div
                           className="
                             rounded-xl border
@@ -9750,7 +9790,7 @@ export default function TemplateDesigner({
                                     dark:text-slate-300
                                   "
                                 >
-                                  {allDataOptions.length}
+                                  {selectableDataOptions.length}
                                 </span>
                               </div>
 
@@ -9789,7 +9829,7 @@ export default function TemplateDesigner({
                           </div>
 
                           <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-                            {allDataOptions.map((dataOption) => {
+                            {selectableDataOptions.map((dataOption) => {
                               const selected =
                                 newDataKeys.includes(
                                   dataOption.key
@@ -10886,7 +10926,7 @@ export default function TemplateDesigner({
                 </div>
 
                 <datalist id="dashboard-key-options">
-                  {allDataOptions.map((option) => (
+                  {selectableDataOptions.map((option) => (
                     <option
                       key={option.key}
                       value={option.key}
@@ -11124,7 +11164,7 @@ export default function TemplateDesigner({
                         newDataKey={newDataKey}
                         setNewDataKey={setNewDataKey}
                         setNewDataKeys={setNewDataKeys}
-                        dataOptions={allDataOptions}
+                        dataOptions={selectableDataOptions}
                         getDataSourceLabel={getDataSourceLabel}
                       />
 
@@ -11630,7 +11670,7 @@ export default function TemplateDesigner({
                               config={newProcessEquipmentConfig}
                               onChange={setNewProcessEquipmentConfig}
                               selectedDataKeys={newDataKeys}
-                              dataOptions={allDataOptions}
+                              dataOptions={selectableDataOptions}
                               previewData={previewValues}
                               previewHistory={previewHistory}
                             />
@@ -11679,7 +11719,7 @@ export default function TemplateDesigner({
                           newChartDisplay={newChartDisplay}
                           setNewChartDisplay={setNewChartDisplay}
                           selectedDataKeys={newDataKeys}
-                          dataOptions={allDataOptions}
+                          dataOptions={selectableDataOptions}
                         />
                         {newType === "gauge" &&
                           hasSelectedDataSource && (
@@ -11820,7 +11860,7 @@ export default function TemplateDesigner({
                               ? newDataKeys
                               : [newDataKey]
                           }
-                          dataOptions={allDataOptions}
+                          dataOptions={selectableDataOptions}
                           chartDisplay={newChartDisplay}
                           setChartDisplay={setNewChartDisplay}
                           gaugeDisplay={newGaugeDisplay}
@@ -12082,10 +12122,10 @@ export default function TemplateDesigner({
                       layoutConfig,
                     }))
                   }
-                  availableDataKeys={allDataOptions.map(
+                  availableDataKeys={selectableDataOptions.map(
                     (option) => option.key
                   )}
-                  dataOptions={allDataOptions}
+                  dataOptions={selectableDataOptions}
                   previewData={previewValues}
                   previewHistory={previewHistory}
                 />

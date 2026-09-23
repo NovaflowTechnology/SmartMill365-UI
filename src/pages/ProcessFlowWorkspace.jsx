@@ -51,6 +51,51 @@ const createBlankTopology = () => ({
   dataSources: {},
 });
 
+const getFlowTopologyCounts = (
+  flow = {}
+) => {
+  const topology =
+    flow.topology || {};
+
+  return {
+    nodes: Array.isArray(
+      topology.nodes
+    )
+      ? topology.nodes.length
+      : 0,
+    connections: Array.isArray(
+      topology.connections
+    )
+      ? topology.connections.length
+      : 0,
+  };
+};
+
+const formatFlowUpdatedAt = (
+  value
+) => {
+  if (!value) {
+    return "Not saved yet";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "Not saved yet";
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 export default function ProcessFlowWorkspace({
   template,
   dark = false,
@@ -781,66 +826,68 @@ export default function ProcessFlowWorkspace({
       </div>
 
       {showLibrary || !activeFlow ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4 dark:border-[#2C3C61] dark:bg-[#0E172D]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 text-white">
-                  <Layers3 size={18} />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70 dark:border-[#2C3C61] dark:bg-[#081224]">
+          <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 dark:border-[#263657] dark:bg-[#0E172D]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 text-white shadow-sm">
+                  <Layers3 size={20} />
                 </div>
-                <div>
-                  <h1 className="text-base font-black text-slate-900 dark:text-white">
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg font-black text-slate-900 dark:text-white">
                     Process Flow Library
                   </h1>
                   <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    Save independent plant topologies and open several flows in tabs.
+                    Manage saved plant topologies and open them into simulator tabs.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  fetchFlows()
-                }
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:text-slate-200"
-              >
-                <RefreshCw size={12} />
-                Refresh
-              </button>
+            <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative min-w-0 flex-1 lg:max-w-xl">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  value={search}
+                  onChange={(event) =>
+                    setSearch(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Search by flow name, description, or organization..."
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
+                />
+              </div>
 
-              {canEdit && (
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() =>
-                    setShowCreate(true)
+                    fetchFlows()
                   }
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-cyan-600 px-3 text-[10px] font-bold text-white hover:bg-cyan-500"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-[#2C3C61] dark:bg-[#111B34] dark:text-slate-200"
                 >
-                  <Plus size={12} />
-                  New Flow
+                  <RefreshCw size={13} />
+                  Refresh
                 </button>
-              )}
-            </div>
-          </div>
 
-          <div className="relative mt-4 max-w-[420px] shrink-0">
-            <Search
-              size={13}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              value={search}
-              onChange={(event) =>
-                setSearch(
-                  event.target.value
-                )
-              }
-              placeholder="Search process flows..."
-              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-[11px] outline-none focus:border-cyan-400 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-white"
-            />
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowCreate(true)
+                    }
+                    className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-cyan-600 px-4 text-[10px] font-bold text-white shadow-sm hover:bg-cyan-500"
+                  >
+                    <Plus size={13} />
+                    New Flow
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {loading ? (
@@ -848,26 +895,28 @@ export default function ProcessFlowWorkspace({
               Loading process flows…
             </div>
           ) : filteredFlows.length === 0 ? (
-            <div className="mt-4 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 px-5 text-center dark:border-[#2C3C61]">
+            <div className="m-4 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-5 text-center dark:border-[#2C3C61] dark:bg-[#0E172D]">
               <Factory
                 size={34}
                 className="text-slate-300 dark:text-slate-600"
               />
               <h3 className="mt-3 text-sm font-bold text-slate-700 dark:text-slate-200">
-                No process flows yet
+                No process flows found
               </h3>
               <p className="mt-1 max-w-md text-[10px] leading-5 text-slate-400">
-                Create a flow for the main production line, steam system, clarification, utilities, or any other plant section.
+                {search.trim()
+                  ? "Try a different search term or clear the search box."
+                  : "Create a flow for the main production line, steam system, clarification, utilities, or any other plant section."}
               </p>
 
-              {canEdit && (
+              {canEdit && !search.trim() && (
                 <div className="mt-4 flex justify-center">
                   <button
                     type="button"
                     onClick={() =>
                       setShowCreate(true)
                     }
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-cyan-600 px-3 text-[10px] font-bold text-white"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-cyan-600 px-3 text-[10px] font-bold text-white"
                   >
                     <Plus size={12} />
                     Create Flow
@@ -876,25 +925,12 @@ export default function ProcessFlowWorkspace({
               )}
             </div>
           ) : (
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
               {filteredFlows.map(
                 (flow) => {
-                  const topology =
-                    flow.topology || {};
-                  const nodeCount =
-                    Array.isArray(
-                      topology.nodes
-                    )
-                      ? topology.nodes.length
-                      : 0;
-                  const connectionCount =
-                    Array.isArray(
-                      topology.connections
-                    )
-                      ? topology.connections
-                          .length
-                      : 0;
+                  const counts =
+                    getFlowTopologyCounts(flow);
                   const favorite =
                     favoriteIds.includes(
                       Number(flow.id)
@@ -903,110 +939,129 @@ export default function ProcessFlowWorkspace({
                   return (
                     <article
                       key={flow.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 transition hover:border-cyan-300 hover:shadow-sm dark:border-[#2C3C61] dark:bg-[#111B34]"
+                      className="group flex min-h-[190px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md dark:border-[#2C3C61] dark:bg-[#0E172D]"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="truncate text-[12px] font-black text-slate-800 dark:text-slate-100">
-                            {flow.name}
-                          </h3>
-                          <p className="mt-1 line-clamp-2 min-h-[30px] text-[9px] leading-[15px] text-slate-400">
-                            {flow.description ||
-                              "Saved industrial process topology"}
-                          </p>
+                      <div className="h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-violet-500" />
+                      <div className="flex flex-1 flex-col p-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-[13px] font-black text-slate-900 dark:text-white">
+                              {flow.name}
+                            </h3>
+                            <p className="mt-1 line-clamp-2 min-h-[32px] text-[9px] leading-4 text-slate-500 dark:text-slate-400">
+                              {flow.description ||
+                                "Saved industrial process topology"}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggleFavorite(
+                                flow.id
+                              )
+                            }
+                            title={
+                              favorite
+                                ? "Remove favourite"
+                                : "Favourite"
+                            }
+                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${
+                              favorite
+                                ? "border-amber-200 bg-amber-50 text-amber-500 dark:border-amber-400/20 dark:bg-amber-400/10"
+                                : "border-transparent text-slate-300 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-500 dark:text-slate-500"
+                            }`}
+                          >
+                            <Star
+                              size={14}
+                              fill={
+                                favorite
+                                  ? "currentColor"
+                                  : "none"
+                              }
+                            />
+                          </button>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleFavorite(
-                              flow.id
-                            )
-                          }
-                          title={
-                            favorite
-                              ? "Remove favourite"
-                              : "Favourite"
-                          }
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                            favorite
-                              ? "bg-amber-100 text-amber-500 dark:bg-amber-400/10"
-                              : "text-slate-300 hover:bg-amber-50 hover:text-amber-500 dark:text-slate-500"
-                          }`}
-                        >
-                          <Star
-                            size={13}
-                            fill={
-                              favorite
-                                ? "currentColor"
-                                : "none"
-                            }
-                          />
-                        </button>
-                      </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-[#2C3C61] dark:bg-[#081022]">
+                            <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400">
+                              Equipment
+                            </span>
+                            <span className="mt-0.5 block text-sm font-black text-slate-900 dark:text-white">
+                              {counts.nodes}
+                            </span>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-[#2C3C61] dark:bg-[#081022]">
+                            <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400">
+                              Pipelines
+                            </span>
+                            <span className="mt-0.5 block text-sm font-black text-slate-900 dark:text-white">
+                              {counts.connections}
+                            </span>
+                          </div>
+                        </div>
 
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[8px] text-slate-500 dark:text-slate-400">
-                        <span className="rounded-md bg-white px-2 py-1 dark:bg-[#081022]">
-                          {nodeCount} equipment
-                        </span>
-                        <span className="rounded-md bg-white px-2 py-1 dark:bg-[#081022]">
-                          {connectionCount} pipelines
-                        </span>
-                        {flow.organization_name && (
-                          <span className="max-w-[150px] truncate rounded-md bg-white px-2 py-1 dark:bg-[#081022]">
-                            {flow.organization_name}
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[8px] text-slate-500 dark:text-slate-400">
+                          <span className="rounded-md bg-slate-100 px-2 py-1 dark:bg-[#081022]">
+                            Updated {formatFlowUpdatedAt(flow.updated_at)}
                           </span>
-                        )}
-                      </div>
+                          {flow.organization_name && (
+                            <span className="max-w-[190px] truncate rounded-md bg-slate-100 px-2 py-1 dark:bg-[#081022]">
+                              {flow.organization_name}
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openFlow(flow)
-                          }
-                          className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-500 px-2 text-[9px] font-bold text-white"
-                        >
-                          <Factory size={11} />
-                          Open
-                        </button>
+                        <div className="mt-auto flex flex-wrap gap-1.5 pt-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openFlow(flow)
+                            }
+                            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-500 px-3 text-[10px] font-bold text-white shadow-sm"
+                          >
+                            <Factory size={12} />
+                            Open
+                          </button>
 
-                        {canEdit && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                editFlow(flow)
-                              }
-                              title="Edit name and description"
-                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:text-amber-600 dark:border-[#2C3C61] dark:bg-[#081022]"
-                            >
-                              <Pencil size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDuplicate(
-                                  flow
-                                )
-                              }
-                              title="Duplicate"
-                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-violet-300 hover:text-violet-600 dark:border-[#2C3C61] dark:bg-[#081022]"
-                            >
-                              <Copy size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDelete(flow)
-                              }
-                              title="Delete"
-                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 dark:border-rose-400/20 dark:bg-rose-400/5"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          </>
-                        )}
+                          {canEdit && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  editFlow(flow)
+                                }
+                                title="Edit name and description"
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:text-amber-600 dark:border-[#2C3C61] dark:bg-[#081022]"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDuplicate(
+                                    flow
+                                  )
+                                }
+                                title="Duplicate"
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-violet-300 hover:text-violet-600 dark:border-[#2C3C61] dark:bg-[#081022]"
+                              >
+                                <Copy size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDelete(flow)
+                                }
+                                title="Delete"
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 dark:border-rose-400/20 dark:bg-rose-400/5"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </article>
                   );

@@ -1644,6 +1644,60 @@ const getConnectionWaypoints = (
   return [];
 };
 
+const getConnectionLabelOffset = (
+  connection = {}
+) => ({
+  x: Number.isFinite(
+    Number(
+      connection?.labelOffset?.x
+    )
+  )
+    ? Number(
+        connection.labelOffset.x
+      )
+    : 0,
+  y: Number.isFinite(
+    Number(
+      connection?.labelOffset?.y
+    )
+  )
+    ? Number(
+        connection.labelOffset.y
+      )
+    : 0,
+});
+
+const getConnectionLabelPoint = (
+  connection = {},
+  geometry = {}
+) => {
+  const base =
+    geometry?.labelPoint || {
+      x: 0,
+      y: 0,
+    };
+
+  const offset =
+    getConnectionLabelOffset(
+      connection
+    );
+
+  return {
+    x: clamp(
+      Number(base.x || 0) +
+        offset.x,
+      54,
+      CANVAS_WIDTH - 54
+    ),
+    y: clamp(
+      Number(base.y || 0) +
+        offset.y,
+      18,
+      CANVAS_HEIGHT - 18
+    ),
+  };
+};
+
 const getEdgeGeometry = (
   sourceNode,
   targetNode,
@@ -2048,6 +2102,10 @@ const makeConnection = (
 
     medium: "steam",
     label: "",
+    labelOffset: {
+      x: 0,
+      y: 0,
+    },
     dataKey: "",
 
     pipeDesign:
@@ -4370,6 +4428,64 @@ export default function ProcessSimulator({
         ) /
         zoom;
 
+      if (
+        labelDragging.type ===
+        "connection"
+      ) {
+        const basePoint =
+          labelDragging.basePoint || {
+            x: 0,
+            y: 0,
+          };
+
+        const nextX =
+          clamp(
+            labelDragging
+              .startOffset.x + dx,
+            54 -
+              Number(
+                basePoint.x || 0
+              ),
+            CANVAS_WIDTH -
+              54 -
+              Number(
+                basePoint.x || 0
+              )
+          );
+
+        const nextY =
+          clamp(
+            labelDragging
+              .startOffset.y + dy,
+            18 -
+              Number(
+                basePoint.y || 0
+              ),
+            CANVAS_HEIGHT -
+              18 -
+              Number(
+                basePoint.y || 0
+              )
+          );
+
+        setConnections((current) =>
+          current.map((connection) =>
+            connection.id ===
+            labelDragging.id
+              ? {
+                  ...connection,
+                  labelOffset: {
+                    x: nextX,
+                    y: nextY,
+                  },
+                }
+              : connection
+          )
+        );
+
+        return;
+      }
+
       setNodes((current) =>
         current.map((node) => {
           if (
@@ -4529,6 +4645,7 @@ export default function ProcessSimulator({
     setPipelineDragging(null);
 
     setLabelDragging({
+      type: "node",
       id: node.id,
       pointerX:
         event.clientX,
@@ -4536,6 +4653,49 @@ export default function ProcessSimulator({
         event.clientY,
       startOffset:
         getLabelOffset(node),
+    });
+  };
+
+  const startConnectionLabelDrag = (
+    event,
+    connection,
+    geometry
+  ) => {
+    if (
+      readOnly ||
+      event.button !== 0
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setSelectedConnectionId(
+      connection.id
+    );
+    setSelectedNodeId(null);
+
+    setDragging(null);
+    setResizing(null);
+    setPipelineDragging(null);
+
+    setLabelDragging({
+      type: "connection",
+      id: connection.id,
+      pointerX:
+        event.clientX,
+      pointerY:
+        event.clientY,
+      basePoint:
+        geometry?.labelPoint || {
+          x: 0,
+          y: 0,
+        },
+      startOffset:
+        getConnectionLabelOffset(
+          connection
+        ),
     });
   };
 
@@ -7340,6 +7500,12 @@ export default function ProcessSimulator({
         ? connection.colorOverride
         : media.color;
 
+    const labelPoint =
+      getConnectionLabelPoint(
+        connection,
+        geometry
+      );
+
     return (
       <g key={connection.id}>
         <ProcessPipeline
@@ -7789,8 +7955,48 @@ export default function ProcessSimulator({
         {(connection.label ||
           connection.dataKey) && (
           <g
-            transform={`translate(${geometry.labelPoint.x}, ${geometry.labelPoint.y})`}
-            className="pointer-events-none"
+            transform={`translate(${labelPoint.x}, ${labelPoint.y})`}
+            className={
+              readOnly
+                ? "pointer-events-none"
+                : "cursor-move"
+            }
+            onPointerDown={(event) =>
+              startConnectionLabelDrag(
+                event,
+                connection,
+                geometry
+              )
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+
+              setSelectedConnectionId(
+                connection.id
+              );
+              setSelectedNodeId(null);
+            }}
+            onDoubleClick={(event) => {
+              if (readOnly) return;
+
+              event.preventDefault();
+              event.stopPropagation();
+
+              setConnections((current) =>
+                current.map((item) =>
+                  item.id ===
+                  connection.id
+                    ? {
+                        ...item,
+                        labelOffset: {
+                          x: 0,
+                          y: 0,
+                        },
+                      }
+                    : item
+                )
+              );
+            }}
           >
             <rect
               x="-45"
@@ -7819,6 +8025,7 @@ export default function ProcessSimulator({
               textAnchor="middle"
               fontSize="7.5"
               fontWeight="800"
+              pointerEvents="none"
               fill={
                 dark
                   ? "#E8EDFF"
@@ -7833,6 +8040,7 @@ export default function ProcessSimulator({
               y="9"
               textAnchor="middle"
               fontSize="6.5"
+              pointerEvents="none"
               fill={
                 connectionColor
               }
@@ -7848,6 +8056,12 @@ export default function ProcessSimulator({
                   }`
                 : "—"}
             </text>
+
+            <title>
+              {readOnly
+                ? "Connection label"
+                : "Drag label to move · double-click to reset"}
+            </title>
           </g>
         )}
       </g>
@@ -7929,8 +8143,8 @@ export default function ProcessSimulator({
   })();
 
   return (
-    <div className="process-simulator-page min-h-full text-slate-900 dark:text-slate-100">
-      <div className="mb-2 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] lg:flex-row lg:items-center lg:justify-between">
+    <div className="process-simulator-page relative flex h-full min-h-0 flex-col overflow-hidden text-slate-900 dark:text-slate-100">
+      <div className="mb-2 flex shrink-0 flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 text-white">
             <Factory size={19} />
@@ -7979,7 +8193,7 @@ export default function ProcessSimulator({
       </div>
 
       <div
-        className={`process-simulator-layout grid min-h-[600px] grid-cols-1 gap-2 ${
+        className={`process-simulator-layout grid min-h-0 flex-1 grid-cols-1 items-stretch gap-2 overflow-hidden pb-11 ${
           libraryCollapsed && inspectorCollapsed
             ? "xl:grid-cols-[46px_minmax(0,1fr)_46px]"
             : libraryCollapsed
@@ -7989,9 +8203,9 @@ export default function ProcessSimulator({
             : "xl:grid-cols-[280px_minmax(0,1fr)_310px]"
         }`}
       >
-        <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:max-h-[calc(100vh-150px)] xl:min-h-[500px]">
+        <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:h-full xl:max-h-none">
           {libraryCollapsed ? (
-            <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:min-h-[600px] xl:flex-col xl:justify-start xl:py-3">
+            <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:h-full xl:min-h-0 xl:flex-col xl:justify-start xl:py-3">
               <button
                 type="button"
                 onClick={() => setLibraryCollapsed(false)}
@@ -8284,7 +8498,7 @@ export default function ProcessSimulator({
           )}
         </aside>
 
-        <section className="relative min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-[#eef2f7] dark:border-[#2C3C61] dark:bg-[#081022]">
+        <section className="relative flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-[#eef2f7] dark:border-[#2C3C61] dark:bg-[#081022] xl:min-h-0">
           <div className="absolute left-3 top-3 z-30 flex items-center gap-2 rounded-lg border border-slate-200 bg-white/90 px-2 py-1.5 shadow-sm backdrop-blur dark:border-[#2C3C61] dark:bg-[#0E172D]/95">
             <Workflow size={13} className="text-cyan-500" />
             <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
@@ -8343,7 +8557,7 @@ export default function ProcessSimulator({
               setSelectedNodeId(null);
               setSelectedConnectionId(null);
             }}
-            className={`h-[600px] overflow-auto ${
+            className={`min-h-[420px] flex-1 overflow-auto xl:min-h-0 ${
               pipelineToolActive
                 ? "cursor-crosshair"
                 : ""
@@ -8860,9 +9074,9 @@ export default function ProcessSimulator({
           </div>
         </section>
 
-        <aside className="process-simulator-side-panel overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D]">
+        <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:h-full xl:max-h-none">
           {inspectorCollapsed ? (
-            <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:min-h-[600px] xl:flex-col xl:justify-start xl:py-3">
+            <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:h-full xl:min-h-0 xl:flex-col xl:justify-start xl:py-3">
               <button
                 type="button"
                 onClick={() => setInspectorCollapsed(false)}
@@ -8898,7 +9112,7 @@ export default function ProcessSimulator({
             </div>
           </div>
 
-          <div className="max-h-[545px] overflow-y-auto p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {!selectedNode && !selectedConnection ? (
               <div className="rounded-xl border border-dashed border-slate-300 p-5 text-center dark:border-[#34476F]">
                 <Factory size={26} className="mx-auto text-slate-300 dark:text-slate-600" />
@@ -9930,6 +10144,49 @@ export default function ProcessSimulator({
                   />
                 </label>
 
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-[#2C3C61] dark:bg-[#111B34]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="block text-[9px] font-bold text-slate-600 dark:text-slate-200">
+                        Label Position
+                      </span>
+
+                      <span className="mt-0.5 block text-[8px] leading-4 text-slate-400">
+                        Drag the connection label directly on the canvas. Double-click the label to reset it.
+                      </span>
+                    </div>
+
+                    <span className="shrink-0 text-[8px] tabular-nums text-slate-400">
+                      {Math.round(
+                        getConnectionLabelOffset(
+                          selectedConnection
+                        ).x
+                      )}, {Math.round(
+                        getConnectionLabelOffset(
+                          selectedConnection
+                        ).y
+                      )}
+                    </span>
+                  </div>
+
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateSelectedConnection({
+                          labelOffset: {
+                            x: 0,
+                            y: 0,
+                          },
+                        })
+                      }
+                      className="mt-2 inline-flex h-8 w-full items-center justify-center rounded-lg border border-slate-200 bg-white text-[8px] font-semibold text-slate-600 transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-[#2C3C61] dark:bg-[#081022] dark:text-slate-200 dark:hover:bg-[#15213D]"
+                    >
+                      Reset Label Position
+                    </button>
+                  )}
+                </div>
+
 
                 <div>
                   <div className="mb-1 flex items-center justify-between">
@@ -10401,7 +10658,7 @@ export default function ProcessSimulator({
         </aside>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] text-slate-500 dark:border-[#2C3C61] dark:bg-[#0E172D] dark:text-slate-400">
+      <div className="absolute bottom-0 left-0 right-0 z-40 flex min-h-8 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] text-slate-500 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] dark:text-slate-400">
         <span>
           {nodes.length} equipment · {connections.length} pipelines · {mappedDevices.length} mapped devices · {availableDataOptions.length} mapped live fields
         </span>
