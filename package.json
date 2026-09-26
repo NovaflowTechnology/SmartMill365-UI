@@ -12,7 +12,6 @@
     "api:collection": "node tests/api/tools/generate-postman-collection.mjs",
     "api:audit": "node tests/api/tools/audit-api-coverage.mjs",
     "test:api": "node tests/api/tools/run-api-tests.mjs",
-    "docs:compile": "node reports/docs/tools/compile-documentation.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
