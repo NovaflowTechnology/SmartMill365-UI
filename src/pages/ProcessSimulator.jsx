@@ -14,6 +14,7 @@ import {
   ArrowRight,
   ArrowRightLeft,
   GitFork,
+  Maximize2,
   Minus,
   RotateCw,
   Upload,
@@ -37,6 +38,9 @@ import {
 } from "../process/equipmentLibrary";
 import { confirmAction, notify } from "../utils/feedback";
 import { reverseConnectionNetwork } from "../process/reverseConnection";
+import {
+  calculateCanvasFitZoom,
+} from "../utils/processCanvasFit";
 import {
   buildConnectionBranchJunctions,
   canConnectionsBranch,
@@ -3231,8 +3235,23 @@ export default function ProcessSimulator({
   const [librarySearch, setLibrarySearch] = useState("");
   const [category, setCategory] = useState("All");
   const [zoom, setZoom] = useState(1);
+  const [autoFitEnabled, setAutoFitEnabled] = useState(true);
+  const [canvasViewportSize, setCanvasViewportSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [isCompactViewport, setIsCompactViewport] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1159px)").matches
+      : false
+  );
+  const [canvasFocusMode, setCanvasFocusMode] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1159px)").matches
+      : false
+  );
   const [clock, setClock] = useState(Date.now());
   const [liveData, setLiveData] = useState({});
   const [lastLiveAt, setLastLiveAt] = useState(null);
@@ -3247,6 +3266,7 @@ export default function ProcessSimulator({
   ] = useState(null);
 
   const canvasRef = useRef(null);
+  const canvasContentRef = useRef(null);
   // Prevent a flow/template switch from briefly writing the previous page state
   // into the new draft key before the correct draft/saved topology is restored.
   const skipNextDraftWriteRef = useRef(true);
@@ -3255,6 +3275,179 @@ export default function ProcessSimulator({
   const selectedConnection =
     connections.find((connection) => connection.id === selectedConnectionId) || null;
   const hasLibrarySearch = librarySearch.trim().length > 0;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1159px)");
+    const handleViewportChange = (event) => {
+      setIsCompactViewport(event.matches);
+      setCanvasFocusMode(event.matches);
+    };
+
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () => mediaQuery.removeEventListener("change", handleViewportChange);
+  }, []);
+
+  const topologyBounds = useMemo(() => {
+    const rectangles = nodes.map((node) => {
+      const size = getNodeSize(node);
+
+      return {
+        left: Number(node?.x || 0),
+        top: Number(node?.y || 0),
+        right: Number(node?.x || 0) + size.width,
+        bottom: Number(node?.y || 0) + size.height,
+      };
+    });
+
+    const routePoints = connections
+      .flatMap((connection) => [
+        connection?.freeSource,
+        connection?.freeTarget,
+        connection?.routePoint,
+        ...(Array.isArray(connection?.waypoints)
+          ? connection.waypoints
+          : []),
+      ])
+      .filter(
+        (point) =>
+          point &&
+          Number.isFinite(Number(point.x)) &&
+          Number.isFinite(Number(point.y))
+      );
+
+    if (rectangles.length === 0 && routePoints.length === 0) {
+      return {
+        left: 0,
+        top: 0,
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+      };
+    }
+
+    const padding = 72;
+    const left = Math.max(
+      0,
+      Math.min(
+        ...rectangles.map((rectangle) => rectangle.left),
+        ...routePoints.map((point) => Number(point.x))
+      ) - padding
+    );
+    const top = Math.max(
+      0,
+      Math.min(
+        ...rectangles.map((rectangle) => rectangle.top),
+        ...routePoints.map((point) => Number(point.y))
+      ) - padding
+    );
+    const right = Math.min(
+      CANVAS_WIDTH,
+      Math.max(
+        ...rectangles.map((rectangle) => rectangle.right),
+        ...routePoints.map((point) => Number(point.x))
+      ) + padding
+    );
+    const bottom = Math.min(
+      CANVAS_HEIGHT,
+      Math.max(
+        ...rectangles.map((rectangle) => rectangle.bottom),
+        ...routePoints.map((point) => Number(point.y))
+      ) + padding
+    );
+
+    return {
+      left,
+      top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    };
+  }, [nodes, connections]);
+
+  const fittedZoom = useMemo(
+    () =>
+      calculateCanvasFitZoom({
+        bounds: topologyBounds,
+        viewportWidth: canvasViewportSize.width,
+        viewportHeight: canvasViewportSize.height,
+      }),
+    [topologyBounds, canvasViewportSize]
+  );
+
+  const canvasFitOffset = useMemo(() => {
+    if (!autoFitEnabled) {
+      return { x: 0, y: 0 };
+    }
+
+    const scaledWidth = topologyBounds.width * zoom;
+    const scaledHeight = topologyBounds.height * zoom;
+
+    return {
+      x:
+        Math.max(0, (canvasViewportSize.width - scaledWidth) / 2) -
+        topologyBounds.left * zoom,
+      y:
+        Math.max(0, (canvasViewportSize.height - scaledHeight) / 2) -
+        topologyBounds.top * zoom,
+    };
+  }, [
+    autoFitEnabled,
+    canvasViewportSize,
+    topologyBounds,
+    zoom,
+  ]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    const updateSize = () => {
+      const rect = canvas.getBoundingClientRect();
+
+      setCanvasViewportSize((current) =>
+        Math.abs(current.width - rect.width) < 1 &&
+        Math.abs(current.height - rect.height) < 1
+          ? current
+          : { width: rect.width, height: rect.height }
+      );
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(canvas);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (
+      !autoFitEnabled ||
+      canvasViewportSize.width <= 0 ||
+      canvasViewportSize.height <= 0
+    ) {
+      return undefined;
+    }
+
+    setZoom((current) =>
+      Math.abs(current - fittedZoom) < 0.001
+        ? current
+        : fittedZoom
+    );
+
+    const frameId = requestAnimationFrame(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      canvas.scrollLeft = 0;
+      canvas.scrollTop = 0;
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [
+    autoFitEnabled,
+    fittedZoom,
+    topologyBounds,
+    canvasViewportSize,
+  ]);
 
   const getDeviceDataOptions = (deviceId, currentBinding = "") => {
     const filtered = deviceId
@@ -3328,6 +3521,7 @@ export default function ProcessSimulator({
     setRouteEditConnectionId(null);
     setPipelineDragging(null);
     setLabelDragging(null);
+    setAutoFitEnabled(true);
 
     const draft = readPageDraft(processDraftKey);
 
@@ -3344,8 +3538,9 @@ export default function ProcessSimulator({
           : "hybrid"
       );
       if (Number.isFinite(Number(draft.zoom))) {
-        setZoom(Math.max(0.35, Math.min(2.5, Number(draft.zoom))));
+        setZoom(Math.max(0.3, Math.min(2.5, Number(draft.zoom))));
       }
+      setAutoFitEnabled(draft.autoFitEnabled !== false);
       if (typeof draft.libraryCollapsed === "boolean") {
         setLibraryCollapsed(draft.libraryCollapsed);
       }
@@ -3439,6 +3634,7 @@ export default function ProcessSimulator({
       connections,
       mode,
       zoom,
+      autoFitEnabled,
       libraryCollapsed,
       inspectorCollapsed,
       templateId: template?.id ?? null,
@@ -3451,6 +3647,7 @@ export default function ProcessSimulator({
     connections,
     mode,
     zoom,
+    autoFitEnabled,
     libraryCollapsed,
     inspectorCollapsed,
     template?.id,
@@ -3530,11 +3727,12 @@ export default function ProcessSimulator({
 
     const handleMove = (event) => {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      const canvasContent = canvasContentRef.current;
+      if (!canvas || !canvasContent) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const x = (event.clientX - rect.left + canvas.scrollLeft) / zoom - dragging.offsetX;
-      const y = (event.clientY - rect.top + canvas.scrollTop) / zoom - dragging.offsetY;
+      const rect = canvasContent.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / zoom - dragging.offsetX;
+      const y = (event.clientY - rect.top) / zoom - dragging.offsetY;
 
       setNodes((current) =>
         current.map((node) =>
@@ -3726,18 +3924,19 @@ export default function ProcessSimulator({
     const handleMove = (event) => {
       const canvas =
         canvasRef.current;
+      const canvasContent =
+        canvasContentRef.current;
 
-      if (!canvas) return;
+      if (!canvas || !canvasContent) return;
 
       const rect =
-        canvas.getBoundingClientRect();
+        canvasContent.getBoundingClientRect();
 
       const pointer = {
         x: clamp(
           (
             event.clientX -
-            rect.left +
-            canvas.scrollLeft
+            rect.left
           ) /
             zoom,
           8,
@@ -3746,8 +3945,7 @@ export default function ProcessSimulator({
         y: clamp(
           (
             event.clientY -
-            rect.top +
-            canvas.scrollTop
+            rect.top
           ) /
             zoom,
           8,
@@ -4207,24 +4405,24 @@ export default function ProcessSimulator({
       ) {
         const canvas =
           canvasRef.current;
+        const canvasContent =
+          canvasContentRef.current;
 
-        if (canvas) {
+        if (canvas && canvasContent) {
           const rect =
-            canvas.getBoundingClientRect();
+            canvasContent.getBoundingClientRect();
 
           const pointer = {
             x:
               (
                 event.clientX -
-                rect.left +
-                canvas.scrollLeft
+                rect.left
               ) /
               zoom,
             y:
               (
                 event.clientY -
-                rect.top +
-                canvas.scrollTop
+                rect.top
               ) /
               zoom,
           };
@@ -4604,11 +4802,12 @@ export default function ProcessSimulator({
   const startNodeDrag = (event, node) => {
     if (readOnly || event.button !== 0) return;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvasContent = canvasContentRef.current;
+    if (!canvas || !canvasContent) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const pointerX = (event.clientX - rect.left + canvas.scrollLeft) / zoom;
-    const pointerY = (event.clientY - rect.top + canvas.scrollTop) / zoom;
+    const rect = canvasContent.getBoundingClientRect();
+    const pointerX = (event.clientX - rect.left) / zoom;
+    const pointerY = (event.clientY - rect.top) / zoom;
 
     setSelectedNodeId(node.id);
     setSelectedConnectionId(null);
@@ -4756,20 +4955,21 @@ export default function ProcessSimulator({
   ) => {
     const canvas =
       canvasRef.current;
+    const canvasContent =
+      canvasContentRef.current;
 
-    if (!canvas) {
+    if (!canvas || !canvasContent) {
       return null;
     }
 
     const rect =
-      canvas.getBoundingClientRect();
+      canvasContent.getBoundingClientRect();
 
     return {
       x: clamp(
         (
           event.clientX -
-          rect.left +
-          canvas.scrollLeft
+          rect.left
         ) /
           zoom,
         8,
@@ -4778,8 +4978,7 @@ export default function ProcessSimulator({
       y: clamp(
         (
           event.clientY -
-          rect.top +
-          canvas.scrollTop
+          rect.top
         ) /
           zoom,
         8,
@@ -4850,25 +5049,25 @@ export default function ProcessSimulator({
 
     const canvas =
       canvasRef.current;
+    const canvasContent =
+      canvasContentRef.current;
 
-    if (!canvas) return;
+    if (!canvas || !canvasContent) return;
 
     const rect =
-      canvas.getBoundingClientRect();
+      canvasContent.getBoundingClientRect();
 
     const canvasX =
       (
         event.clientX -
-        rect.left +
-        canvas.scrollLeft
+        rect.left
       ) /
       zoom;
 
     const canvasY =
       (
         event.clientY -
-        rect.top +
-        canvas.scrollTop
+        rect.top
       ) /
       zoom;
 
@@ -8144,7 +8343,9 @@ export default function ProcessSimulator({
 
   return (
     <div className="process-simulator-page relative flex h-full min-h-0 flex-col overflow-hidden text-slate-900 dark:text-slate-100">
-      <div className="mb-2 flex shrink-0 flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] lg:flex-row lg:items-center lg:justify-between">
+      <div className={`flex shrink-0 flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] lg:flex-row lg:items-center lg:justify-between ${
+        canvasFocusMode ? "mb-1 gap-1 px-3 py-2" : "mb-2 gap-2 px-4 py-3"
+      }`}>
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 text-white">
             <Factory size={19} />
@@ -8154,7 +8355,9 @@ export default function ProcessSimulator({
               {processFlow?.name ||
                 "Palm Oil Process View"}
             </h1>
-            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-[#93A2C7]">
+            <p className={`mt-0.5 text-[11px] text-slate-500 dark:text-[#93A2C7] ${
+              isCompactViewport ? "hidden" : ""
+            }`}>
               {processFlow?.description ||
                 "Visualize mapped industrial data through equipment displays connected only by animated process pipelines."}
             </p>
@@ -8189,12 +8392,28 @@ export default function ProcessSimulator({
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={() => setCanvasFocusMode((current) => !current)}
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 dark:border-[#2C3C61] dark:text-slate-200 dark:hover:bg-[#15213D] dark:hover:text-cyan-200"
+            title={canvasFocusMode ? "Open equipment and inspector panels" : "Close editing panels"}
+            aria-label={canvasFocusMode ? "Open equipment and inspector panels" : "Close editing panels"}
+            aria-pressed={canvasFocusMode}
+          >
+            {canvasFocusMode ? <Plus size={14} /> : <X size={14} />}
+            <span>{canvasFocusMode ? "Add / Edit" : "Close panels"}</span>
+          </button>
+
         </div>
       </div>
 
       <div
-        className={`process-simulator-layout grid min-h-0 flex-1 grid-cols-1 items-stretch gap-2 overflow-hidden pb-11 ${
-          libraryCollapsed && inspectorCollapsed
+        className={`process-simulator-layout relative grid min-h-0 flex-1 grid-cols-1 items-stretch gap-2 overflow-hidden ${
+          isCompactViewport || canvasFocusMode ? "pb-0" : "pb-11"
+        } ${
+          isCompactViewport || canvasFocusMode
+            ? "grid-cols-1"
+            : libraryCollapsed && inspectorCollapsed
             ? "xl:grid-cols-[46px_minmax(0,1fr)_46px]"
             : libraryCollapsed
             ? "xl:grid-cols-[46px_minmax(0,1fr)_310px]"
@@ -8203,7 +8422,13 @@ export default function ProcessSimulator({
             : "xl:grid-cols-[280px_minmax(0,1fr)_310px]"
         }`}
       >
-        <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:h-full xl:max-h-none">
+        <aside className={`process-simulator-side-panel min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] ${
+          canvasFocusMode ? "hidden" : "flex"
+        } ${
+          isCompactViewport
+            ? "absolute inset-y-0 left-0 z-50 h-full w-[min(280px,calc(100%-48px))] max-h-none shadow-xl"
+            : "max-h-[360px] xl:h-full xl:max-h-none"
+        }`}>
           {libraryCollapsed ? (
             <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:h-full xl:min-h-0 xl:flex-col xl:justify-start xl:py-3">
               <button
@@ -8498,7 +8723,9 @@ export default function ProcessSimulator({
           )}
         </aside>
 
-        <section className="relative flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-[#eef2f7] dark:border-[#2C3C61] dark:bg-[#081022] xl:min-h-0">
+        <section className={`relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-[#eef2f7] dark:border-[#2C3C61] dark:bg-[#081022] xl:min-h-0 ${
+          isCompactViewport || canvasFocusMode ? "min-h-0" : "min-h-[420px]"
+        }`}>
           <div className="absolute left-3 top-3 z-30 flex items-center gap-2 rounded-lg border border-slate-200 bg-white/90 px-2 py-1.5 shadow-sm backdrop-blur dark:border-[#2C3C61] dark:bg-[#0E172D]/95">
             <Workflow size={13} className="text-cyan-500" />
             <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
@@ -8521,13 +8748,27 @@ export default function ProcessSimulator({
           </div>
 
           <div className="absolute right-3 top-3 z-30 inline-flex items-center rounded-lg border border-slate-200 bg-white/90 p-1 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D]/95">
-            <button type="button" onClick={() => setZoom((value) => clamp(value - 0.1, 0.55, 1.35))} className="h-7 w-7 rounded-md text-sm font-bold hover:bg-slate-100 dark:hover:bg-[#15213D]">−</button>
+            <button type="button" onClick={() => { setAutoFitEnabled(false); setZoom((value) => clamp(value - 0.1, 0.3, 1.35)); }} className="h-7 w-7 rounded-md text-sm font-bold hover:bg-slate-100 dark:hover:bg-[#15213D]" title="Zoom out">−</button>
             <span className="w-12 text-center text-[9px] font-semibold text-slate-500 dark:text-slate-400">{Math.round(zoom * 100)}%</span>
-            <button type="button" onClick={() => setZoom((value) => clamp(value + 0.1, 0.55, 1.35))} className="h-7 w-7 rounded-md text-sm font-bold hover:bg-slate-100 dark:hover:bg-[#15213D]">+</button>
+            <button type="button" onClick={() => { setAutoFitEnabled(false); setZoom((value) => clamp(value + 0.1, 0.3, 1.35)); }} className="h-7 w-7 rounded-md text-sm font-bold hover:bg-slate-100 dark:hover:bg-[#15213D]" title="Zoom in">+</button>
+            <button
+              type="button"
+              onClick={() => setAutoFitEnabled(true)}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-slate-100 dark:hover:bg-[#15213D] ${
+                autoFitEnabled
+                  ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-200"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+              title="Fit complete flow to canvas"
+              aria-pressed={autoFitEnabled}
+            >
+              <Maximize2 size={12} />
+            </button>
           </div>
 
           <div
             ref={canvasRef}
+            data-process-canvas-viewport
             onDragOver={(event) => event.preventDefault()}
             onDrop={handleDrop}
             onPointerMove={(event) => {
@@ -8557,18 +8798,30 @@ export default function ProcessSimulator({
               setSelectedNodeId(null);
               setSelectedConnectionId(null);
             }}
-            className={`min-h-[420px] flex-1 overflow-auto xl:min-h-0 ${
+            className={`min-h-[420px] flex-1 xl:min-h-0 ${
+              autoFitEnabled
+                ? "overflow-hidden"
+                : "overflow-auto"
+            } ${
               pipelineToolActive
                 ? "cursor-crosshair"
                 : ""
             }`}
           >
-            <div style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom, position: "relative" }}>
+            <div
+              style={{
+                width: autoFitEnabled ? "100%" : CANVAS_WIDTH * zoom,
+                height: autoFitEnabled ? "100%" : CANVAS_HEIGHT * zoom,
+                position: "relative",
+              }}
+            >
               <div
+                ref={canvasContentRef}
+                data-process-canvas-content
                 style={{
                   width: CANVAS_WIDTH,
                   height: CANVAS_HEIGHT,
-                  transform: `scale(${zoom})`,
+                  transform: `translate(${canvasFitOffset.x}px, ${canvasFitOffset.y}px) scale(${zoom})`,
                   transformOrigin: "0 0",
                   position: "absolute",
                   inset: 0,
@@ -9074,7 +9327,13 @@ export default function ProcessSimulator({
           </div>
         </section>
 
-        <aside className="process-simulator-side-panel flex max-h-[360px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] xl:h-full xl:max-h-none">
+        <aside className={`process-simulator-side-panel min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-[width] dark:border-[#2C3C61] dark:bg-[#0E172D] ${
+          canvasFocusMode ? "hidden" : "flex"
+        } ${
+          isCompactViewport
+            ? "absolute inset-y-0 right-0 z-50 h-full w-[min(310px,calc(100%-48px))] max-h-none shadow-xl"
+            : "max-h-[360px] xl:h-full xl:max-h-none"
+        }`}>
           {inspectorCollapsed ? (
             <div className="flex min-h-[46px] flex-row items-center justify-center gap-3 p-2 xl:h-full xl:min-h-0 xl:flex-col xl:justify-start xl:py-3">
               <button
@@ -10658,7 +10917,9 @@ export default function ProcessSimulator({
         </aside>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 z-40 flex min-h-8 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] text-slate-500 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] dark:text-slate-400">
+      <div className={`absolute bottom-0 left-0 right-0 z-40 min-h-8 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] text-slate-500 shadow-sm dark:border-[#2C3C61] dark:bg-[#0E172D] dark:text-slate-400 ${
+        isCompactViewport || canvasFocusMode ? "hidden" : "flex"
+      }`}>
         <span>
           {nodes.length} equipment · {connections.length} pipelines · {mappedDevices.length} mapped devices · {availableDataOptions.length} mapped live fields
         </span>

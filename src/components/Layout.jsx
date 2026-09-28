@@ -34,7 +34,14 @@ export default function Layout({
   dark = false,
   toggleTheme,
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [manuallyCollapsed, setManuallyCollapsed] = useState(false);
+  const [compactViewport, setCompactViewport] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1159px)").matches
+      : false
+  );
+
+  const collapsed = manuallyCollapsed || compactViewport;
 
   const role = localStorage.getItem("role");
   const orgName = localStorage.getItem("org_name");
@@ -55,6 +62,18 @@ export default function Layout({
       setSettingOpen(true);
     }
   }, [currentPage]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1159px)");
+    const updateViewportMode = (event) => {
+      setCompactViewport(event.matches);
+    };
+
+    mediaQuery.addEventListener("change", updateViewportMode);
+
+    return () =>
+      mediaQuery.removeEventListener("change", updateViewportMode);
+  }, []);
 
   const handleLogout = () => {
     localStorage.clear();
@@ -268,13 +287,20 @@ export default function Layout({
             )}
 
             <button
-              onClick={() => setCollapsed(!collapsed)}
+              onClick={() => setManuallyCollapsed((current) => !current)}
+              disabled={compactViewport}
               className="
                 flex h-8 w-8 shrink-0 items-center justify-center
                 rounded-lg text-slate-400
                 transition-colors hover:bg-[#102B49] hover:text-white
               "
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={
+                compactViewport
+                  ? "Sidebar is compact at this viewport width"
+                  : collapsed
+                  ? "Expand sidebar"
+                  : "Collapse sidebar"
+              }
             >
               {collapsed ? (
                 <ChevronRight size={15} strokeWidth={2} />

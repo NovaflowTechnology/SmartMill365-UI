@@ -1,6 +1,8 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -32,6 +34,42 @@ import {
 
 const API_BASE_URL =
   "http://localhost:5000";
+
+const DEVICE_REQUEST_TIMEOUT_MS = 12000;
+const CHANNEL_DEVICE_CONCURRENCY = 2;
+const CHANNEL_MEASUREMENT_CONCURRENCY = 2;
+
+const mapWithConcurrency = async (
+  items,
+  concurrency,
+  mapper
+) => {
+  const source = Array.isArray(items) ? items : [];
+  const results = new Array(source.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < source.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(
+        source[currentIndex],
+        currentIndex
+      );
+    }
+  };
+
+  const workerCount = Math.min(
+    source.length,
+    Math.max(1, Number(concurrency) || 1)
+  );
+
+  await Promise.all(
+    Array.from({ length: workerCount }, () => worker())
+  );
+
+  return results;
+};
 
 const assignmentKey = ({
   orgId,
@@ -153,6 +191,56 @@ const getOrganizationPalette = (index) =>
 export default function DeviceManagement({
   dark = false,
 }) {
+  const requestControllersRef = useRef(new Set());
+  const loadPageRequestIdRef = useRef(0);
+
+  const abortableFetch = useCallback(async (input, init = {}) => {
+    const controller = new AbortController();
+    const upstreamSignal = init.signal;
+    const abortFromUpstream = () =>
+      controller.abort(upstreamSignal.reason);
+
+    if (upstreamSignal?.aborted) {
+      abortFromUpstream();
+    } else {
+      upstreamSignal?.addEventListener("abort", abortFromUpstream, {
+        once: true,
+      });
+    }
+
+    requestControllersRef.current.add(controller);
+
+    const timeout = window.setTimeout(() => {
+      controller.abort(
+        new DOMException("Device request timed out", "TimeoutError")
+      );
+    }, DEVICE_REQUEST_TIMEOUT_MS);
+
+    try {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeout);
+      upstreamSignal?.removeEventListener("abort", abortFromUpstream);
+      requestControllersRef.current.delete(controller);
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      loadPageRequestIdRef.current += 1;
+      requestControllersRef.current.forEach((controller) => {
+        controller.abort(
+          new DOMException("Device page closed", "AbortError")
+        );
+      });
+      requestControllersRef.current.clear();
+    },
+    []
+  );
+
   const role =
     localStorage.getItem("role");
 
@@ -284,6 +372,10 @@ export default function DeviceManagement({
   };
 
   const loadPage = async () => {
+    const requestId =
+      loadPageRequestIdRef.current + 1;
+    loadPageRequestIdRef.current = requestId;
+
     if (!canViewDevices) {
       setLoading(false);
       return;
@@ -298,13 +390,13 @@ export default function DeviceManagement({
           orgResponse,
           assignmentResponse,
         ] = await Promise.all([
-          fetch(
+          abortableFetch(
             `${API_BASE_URL}/organizations`,
             {
               headers: headers(),
             }
           ),
-          fetch(
+          abortableFetch(
             `${API_BASE_URL}/organization-influx-devices`,
             {
               headers: headers(),
@@ -326,6 +418,10 @@ export default function DeviceManagement({
           ),
         ]);
 
+        if (loadPageRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setOrganizations(
           Array.isArray(orgData)
             ? orgData
@@ -338,7 +434,7 @@ export default function DeviceManagement({
             : []
         );
       } else {
-        const response = await fetch(
+        const response = await abortableFetch(
           `${API_BASE_URL}/influx/allowed-devices`,
           {
             headers: headers(),
@@ -350,6 +446,10 @@ export default function DeviceManagement({
             response,
             "Failed to load assigned devices"
           );
+
+        if (loadPageRequestIdRef.current !== requestId) {
+          return;
+        }
 
         setAssignments(
           Array.isArray(assignmentData)
@@ -372,12 +472,19 @@ export default function DeviceManagement({
         );
       }
     } catch (requestError) {
-      setError(
-        requestError.message ||
-          "Failed to load Device Management"
-      );
+      if (
+        loadPageRequestIdRef.current === requestId &&
+        requestError?.name !== "AbortError"
+      ) {
+        setError(
+          requestError.message ||
+            "Failed to load Device Management"
+        );
+      }
     } finally {
-      setLoading(false);
+      if (loadPageRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -412,6 +519,7 @@ export default function DeviceManagement({
     }
 
     let cancelled = false;
+    const channelController = new AbortController();
 
     setChannelsByDevice((current) =>
       Object.fromEntries(
@@ -429,16 +537,18 @@ export default function DeviceManagement({
     );
 
     const loadChannels = async () => {
-      const entries = await Promise.all(
-        deviceAssignments.map(
+      const entries = await mapWithConcurrency(
+        deviceAssignments,
+        CHANNEL_DEVICE_CONCURRENCY,
           async (item) => {
             try {
               const responses =
-                await Promise.all(
+                await mapWithConcurrency(
                   (
                     item.measurement_names ||
                     []
-                  ).map(
+                  ),
+                  CHANNEL_MEASUREMENT_CONCURRENCY,
                     async (
                       measurement
                     ) => {
@@ -457,13 +567,15 @@ export default function DeviceManagement({
                         });
 
                       const response =
-                        await fetch(
+                        await abortableFetch(
                           `${API_BASE_URL}/influx/channels?${params.toString()}`,
                           {
                             headers: {
                               Authorization:
                                 token,
                             },
+                            signal:
+                              channelController.signal,
                           }
                         );
 
@@ -483,7 +595,6 @@ export default function DeviceManagement({
                         ? payload.fields
                         : [];
                     }
-                  )
                 );
 
               const channels = [
@@ -515,7 +626,6 @@ export default function DeviceManagement({
               ];
             }
           }
-        )
       );
 
       if (!cancelled) {
@@ -529,11 +639,15 @@ export default function DeviceManagement({
 
     return () => {
       cancelled = true;
+      channelController.abort(
+        new DOMException("Device channel loading stopped", "AbortError")
+      );
     };
   }, [
     canViewDevices,
     deviceAssignments,
     token,
+    abortableFetch,
   ]);
 
   const filteredAssignments = useMemo(() => {
@@ -609,7 +723,7 @@ export default function DeviceManagement({
 
 
   const fetchBuckets = async () => {
-    const response = await fetch(
+    const response = await abortableFetch(
       `${API_BASE_URL}/influx/buckets`,
       {
         headers: headers(),
@@ -643,7 +757,7 @@ export default function DeviceManagement({
     setError("");
 
     try {
-      const response = await fetch(
+      const response = await abortableFetch(
         `${API_BASE_URL}/influx/measurements?bucket=${encodeURIComponent(
           bucketName
         )}`,
@@ -697,7 +811,7 @@ export default function DeviceManagement({
         tagKey: "id",
       });
 
-      const response = await fetch(
+      const response = await abortableFetch(
         `${API_BASE_URL}/influx/ids?${query.toString()}`,
         {
           headers: headers(),
@@ -885,7 +999,7 @@ export default function DeviceManagement({
       //
       // Do NOT rediscover the Device ID across the whole bucket after the
       // user has already selected it from /influx/ids for this measurement.
-      const response = await fetch(
+      const response = await abortableFetch(
         `${API_BASE_URL}/organization-influx-devices`,
         {
           method: "POST",
@@ -952,7 +1066,7 @@ export default function DeviceManagement({
     setError("");
 
     try {
-      const response = await fetch(
+      const response = await abortableFetch(
         `${API_BASE_URL}/organization-influx-devices/bulk-remove`,
         {
           method: "POST",

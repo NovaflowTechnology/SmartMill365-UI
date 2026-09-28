@@ -127,6 +127,10 @@ export default function PieWidget({
       ? pieDisplay.style
       : "donut";
 
+  const showResponsiveLegend =
+    pieDisplay.showLegend &&
+    !(width > 0 && width < 270);
+
   const parsedGridWidth = Number(
     gridWidth ?? item?.w
   );
@@ -182,7 +186,7 @@ export default function PieWidget({
       (compactOneByOne || tallNarrow));
 
   const legendAtSide =
-    pieDisplay.showLegend && !legendAtBottom;
+    showResponsiveLegend && !legendAtBottom;
 
   const selectedKeys =
     Array.isArray(item?.dataKeys) &&
@@ -265,8 +269,14 @@ export default function PieWidget({
 
     if (compactOneByOne) {
       outer = Math.min(
-        width * 0.17,
-        height * 0.31
+        width *
+          (showResponsiveLegend
+            ? 0.17
+            : 0.3),
+        height *
+          (showResponsiveLegend
+            ? 0.31
+            : 0.36)
       );
     } else if (wideSingleRow) {
       outer = Math.min(
@@ -288,10 +298,14 @@ export default function PieWidget({
     outer = clamp(
       outer,
       compactOneByOne
-        ? 46
+        ? showResponsiveLegend
+          ? 46
+          : 54
         : 58,
       compactOneByOne
-        ? 68
+        ? showResponsiveLegend
+          ? 68
+          : 88
         : 112
     );
 
@@ -307,6 +321,7 @@ export default function PieWidget({
     width,
     height,
     compactOneByOne,
+    showResponsiveLegend,
     wideSingleRow,
     tallNarrow,
   ]);
@@ -536,7 +551,7 @@ export default function PieWidget({
               mt-0.5 grid min-h-0
               flex-1 gap-2
               ${
-                pieDisplay.showLegend
+                showResponsiveLegend
                   ? "grid-cols-[minmax(0,1fr)_minmax(118px,0.72fr)]"
                   : "grid-cols-1"
               }
@@ -679,7 +694,7 @@ export default function PieWidget({
               )}
             </div>
 
-            {pieDisplay.showLegend && (
+            {showResponsiveLegend && (
               <div
                 className="
                   min-h-0 min-w-0
@@ -710,7 +725,7 @@ export default function PieWidget({
             className={`
               mt-1 min-h-0 flex-1
               ${
-                !pieDisplay.showLegend
+                !showResponsiveLegend
                   ? "grid grid-cols-1"
                   : legendAtBottom
                   ? "grid grid-rows-[minmax(0,1fr)_auto] gap-1.5"
@@ -857,7 +872,7 @@ export default function PieWidget({
               )}
             </div>
 
-            {pieDisplay.showLegend && (
+            {showResponsiveLegend && (
               <div
                 className={`
                   min-h-0 min-w-0

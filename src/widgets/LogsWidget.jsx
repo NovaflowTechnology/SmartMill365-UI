@@ -330,7 +330,7 @@ const SearchBox = ({
   onChange,
   placeholder,
 }) => (
-  <div className="relative w-40 max-w-[46%]">
+  <div className="logs-widget-search relative w-40 max-w-[46%]">
     <Search
       size={14}
       className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -355,7 +355,7 @@ const WidgetHeader = ({
   search,
   setSearch,
 }) => (
-  <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 pr-14 dark:border-[#263657] dark:bg-[#111B34]">
+  <div className="logs-widget-header flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 pr-14 dark:border-[#263657] dark:bg-[#111B34]">
     <div className="min-w-0">
       <h3
         className="truncate text-sm font-bold text-slate-900 dark:text-white"
@@ -952,7 +952,7 @@ export default function LogsWidget({
 
   return (
     <div
-      className={`${TECH_SURFACE_CLASS} flex min-h-0 flex-col p-0`}
+      className={`${TECH_SURFACE_CLASS} logs-widget flex min-h-0 flex-col p-0`}
     >
       <TechBackdrop />
 

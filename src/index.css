@@ -143,6 +143,28 @@ html.dark textarea:focus {
   min-height: 100%;
 }
 
+.dashboard-widget-surface {
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+}
+
+.logs-widget {
+  container-type: inline-size;
+}
+
+@container (max-width: 300px) {
+  .logs-widget-header {
+    gap: 0.5rem;
+    padding-left: 0.75rem;
+    padding-right: 3.5rem;
+  }
+
+  .logs-widget-search {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .app-route-frame {
     animation: ui-page-enter 300ms cubic-bezier(0.2, 0.8, 0.2, 1);

@@ -258,13 +258,17 @@ export default function App() {
   // Dashboard must reload template from backend.
   // This prevents deleted templates from staying on screen.
   // =====================================
-  const handleNavigate = async (nextPage) => {
+  const handleNavigate = (nextPage) => {
     if (nextPage === "dashboard") {
-      if (!selectedTemplate) {
-        await fetchDefaultTemplate();
-      }
-
+      // Unmount the current page first so its in-flight requests are
+      // cancelled before the dashboard starts loading its own data.
       setPage("dashboard");
+
+      if (!selectedTemplate) {
+        window.setTimeout(() => {
+          fetchDefaultTemplate();
+        }, 0);
+      }
       return;
     }
 

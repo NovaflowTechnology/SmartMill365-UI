@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "1c3e51a5-3149-4083-9d05-986f5e72ab82",
+    "_postman_id": "e9b47862-36a0-46c9-a02f-b51572903c0b",
     "name": "NovaFlow Configurable Dashboard - Complete Backend API",
     "description": "Generated full-route regression collection. Run only against a disposable test database and non-production InfluxDB configuration because the suite creates, changes and deletes records.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"

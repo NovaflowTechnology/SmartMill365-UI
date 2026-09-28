@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import WidgetRenderer from "../components/WidgetRenderer";
 import ProcessCanvasDashboard from "../components/ProcessCanvasDashboard";
+import {
+  buildResponsiveDashboardLayout,
+  getOccupiedDashboardRows,
+  getResponsiveColumnCount,
+} from "../utils/responsiveDashboardLayout";
 
 import {
   Maximize2,
@@ -445,6 +450,9 @@ export default function Dashboard({
   const [dashboardMode, setDashboardMode] =
     useState("sidebar-open");
 
+  const [dashboardWidth, setDashboardWidth] =
+    useState(0);
+
   const [
     dashboardAvailableHeight,
     setDashboardAvailableHeight,
@@ -472,6 +480,15 @@ export default function Dashboard({
       cancelAnimationFrame(frameId);
 
       frameId = requestAnimationFrame(() => {
+        const width =
+          element.getBoundingClientRect().width;
+
+        setDashboardWidth((current) =>
+          Math.abs(current - width) < 1
+            ? current
+            : width
+        );
+
         if (isFullscreen) {
           setDashboardMode((current) =>
             current === "fullscreen"
@@ -480,9 +497,6 @@ export default function Dashboard({
           );
           return;
         }
-
-        const width =
-          element.getBoundingClientRect().width;
 
         const nextMode =
           width < 1420
@@ -547,21 +561,35 @@ export default function Dashboard({
       ? JSON.parse(template.layout)
       : template?.layout || {};
 
-  const occupiedDashboardRows =
-    items.length > 0
-      ? Math.max(
-          1,
-          ...items.map((item) => {
-            const y = Number(item?.y) || 0;
-            const h = Math.max(
-              1,
-              Number(item?.h) || 1
-            );
+  const savedDashboardColumns = Math.max(
+    1,
+    Math.floor(Number(layout?.cols) || 1)
+  );
 
-            return y + h;
-          })
-        )
-      : 1;
+  const responsiveDashboardColumns =
+    getResponsiveColumnCount({
+      availableWidth: dashboardWidth,
+      savedColumns: savedDashboardColumns,
+      minimumColumnWidth: 210,
+      gap: dashboardGapPx,
+    });
+
+  const displayedItems = useMemo(
+    () =>
+      buildResponsiveDashboardLayout(
+        items,
+        savedDashboardColumns,
+        responsiveDashboardColumns
+      ),
+    [
+      items,
+      savedDashboardColumns,
+      responsiveDashboardColumns,
+    ]
+  );
+
+  const occupiedDashboardRows =
+    getOccupiedDashboardRows(displayedItems);
 
   useEffect(() => {
     if (!dataError) {
@@ -2251,7 +2279,7 @@ export default function Dashboard({
                 `}
                 style={{
                   gridTemplateColumns: `repeat(${
-                    layout?.cols || 1
+                    responsiveDashboardColumns
                   }, minmax(0, 1fr))`,
 
                   gridTemplateRows: `repeat(${
@@ -2261,7 +2289,7 @@ export default function Dashboard({
                   gridAutoFlow: "dense",
                 }}
               >
-                {items.map((item) => (
+                {displayedItems.map((item) => (
                   <div
                     key={item.id}
                     className="
